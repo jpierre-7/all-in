@@ -216,7 +216,11 @@ mod tests {
         assert!(matches!(offers[2], Some(RewardOffer::Drop(_))));
         assert!(matches!(offers[3], Some(RewardOffer::Pick(..))));
         assert_eq!(offers[4], None, "The House pays in an ending");
-        assert_eq!(progress.reward_offer(), None, "and there is nothing after it");
+        assert_eq!(
+            progress.reward_offer(),
+            None,
+            "and there is nothing after it"
+        );
     }
 
     #[test]

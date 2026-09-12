@@ -67,8 +67,12 @@ impl Reward {
             Self::LoadedDice => "Loaded Dice. +5 to each of your next two Hands.",
             Self::SlotzStreakCards => "Three more Streak cards in the deck.",
             Self::SlotzPylBestTwoOfThree => "Push Your Luck becomes best 2 of 3, at 49/51.",
-            Self::PitBossSixPlays => "A sixth Play every turn - but the Blinds rise +2 every turn, not every third.",
-            Self::PitBossRandomCards => "Four cards off the Pit's table: two with Tells, two plain.",
+            Self::PitBossSixPlays => {
+                "A sixth Play every turn - but the Blinds rise +2 every turn, not every third."
+            }
+            Self::PitBossRandomCards => {
+                "Four cards off the Pit's table: two with Tells, two plain."
+            }
         }
     }
 }
@@ -87,13 +91,17 @@ impl RewardOffer {
     /// What beating `id` pays. The House pays in an ending, not a perk.
     pub fn for_encounter(id: EncounterId) -> Option<Self> {
         match id {
-            EncounterId::FloorMinion | EncounterId::PitMinion => Some(Self::Drop(Reward::LoadedDice)),
-            EncounterId::Slotz => {
-                Some(Self::Pick(Reward::SlotzPylBestTwoOfThree, Reward::SlotzStreakCards))
+            EncounterId::FloorMinion | EncounterId::PitMinion => {
+                Some(Self::Drop(Reward::LoadedDice))
             }
-            EncounterId::PitBoss => {
-                Some(Self::Pick(Reward::PitBossSixPlays, Reward::PitBossRandomCards))
-            }
+            EncounterId::Slotz => Some(Self::Pick(
+                Reward::SlotzPylBestTwoOfThree,
+                Reward::SlotzStreakCards,
+            )),
+            EncounterId::PitBoss => Some(Self::Pick(
+                Reward::PitBossSixPlays,
+                Reward::PitBossRandomCards,
+            )),
             EncounterId::TheHouse => None,
         }
     }
@@ -156,7 +164,8 @@ impl RunState {
     /// Write back what combat left of the Loaded Dice. A spent pair is thrown
     /// away rather than kept around at zero.
     pub fn set_loaded_dice(&mut self, hands_left: u8) {
-        self.items.retain(|item| !matches!(item, Item::LoadedDice { .. }));
+        self.items
+            .retain(|item| !matches!(item, Item::LoadedDice { .. }));
         if hands_left > 0 {
             self.items.push(Item::LoadedDice { hands_left });
         }
@@ -164,7 +173,11 @@ impl RunState {
 
     /// Plays per turn after perks.
     pub fn plays(&self) -> u8 {
-        if self.perks.contains(&Perk::SixPlaysSteepBlinds) { 6 } else { 5 }
+        if self.perks.contains(&Perk::SixPlaysSteepBlinds) {
+            6
+        } else {
+            5
+        }
     }
 
     /// Rising Blinds after perks. The Pit Boss perk states its own price
@@ -172,7 +185,10 @@ impl RunState {
     /// base rate, and the same price whoever is sitting across the table.
     pub fn blinds(&self, base: RisingBlinds) -> RisingBlinds {
         if self.perks.contains(&Perk::SixPlaysSteepBlinds) {
-            RisingBlinds { every_turns: 1, increase: STEEP_BLINDS_INCREASE }
+            RisingBlinds {
+                every_turns: 1,
+                increase: STEEP_BLINDS_INCREASE,
+            }
         } else {
             base
         }
@@ -233,17 +249,43 @@ impl Enemy {
     /// `house_edge` is the **starting margin** and `blinds` is the margin
     /// ramp. #14 reads it that way.
     pub fn for_encounter(id: EncounterId) -> Self {
-        let blinds = RisingBlinds { every_turns: 3, increase: 2 };
+        let blinds = RisingBlinds {
+            every_turns: 3,
+            increase: 2,
+        };
         match id {
-            EncounterId::FloorMinion => Enemy { name: "A shill in a rented tux", stack: 25, house_edge: 18, blinds },
-            EncounterId::Slotz => Enemy { name: "SLOTZ", stack: 32, house_edge: 20, blinds },
-            EncounterId::PitMinion => Enemy { name: "A dealer with a scar", stack: 32, house_edge: 22, blinds },
-            EncounterId::PitBoss => Enemy { name: "THE PIT BOSS", stack: 40, house_edge: 24, blinds },
+            EncounterId::FloorMinion => Enemy {
+                name: "A shill in a rented tux",
+                stack: 25,
+                house_edge: 18,
+                blinds,
+            },
+            EncounterId::Slotz => Enemy {
+                name: "SLOTZ",
+                stack: 32,
+                house_edge: 20,
+                blinds,
+            },
+            EncounterId::PitMinion => Enemy {
+                name: "A dealer with a scar",
+                stack: 32,
+                house_edge: 22,
+                blinds,
+            },
+            EncounterId::PitBoss => Enemy {
+                name: "THE PIT BOSS",
+                stack: 40,
+                house_edge: 24,
+                blinds,
+            },
             EncounterId::TheHouse => Enemy {
                 name: "THE HOUSE",
                 stack: 35,
                 house_edge: 1,
-                blinds: RisingBlinds { every_turns: 2, increase: 2 },
+                blinds: RisingBlinds {
+                    every_turns: 2,
+                    increase: 2,
+                },
             },
         }
     }
@@ -296,7 +338,11 @@ const STEEP_BLINDS_INCREASE: u32 = 2;
 fn streak_reward_cards() -> Vec<Card> {
     ["Loose Slot", "Second Cherry", "Jackpot Bell"]
         .into_iter()
-        .map(|name| Card { name, stack: 4, tell: Some(Tell::Streak) })
+        .map(|name| Card {
+            name,
+            stack: 4,
+            tell: Some(Tell::Streak),
+        })
         .collect()
 }
 
@@ -338,7 +384,11 @@ fn random_cards(seed: u64) -> Vec<Card> {
         } else {
             (Tell::AllIn, 2 + roll(4) as u32)
         };
-        cards.push(Card { name, stack, tell: Some(tell) });
+        cards.push(Card {
+            name,
+            stack,
+            tell: Some(tell),
+        });
     }
     for _ in 0..2 {
         cards.push(Card {
@@ -367,13 +417,35 @@ pub fn starter_deck() -> Vec<Card> {
         ("Marked Card", 7),
         ("Pawned Ring", 8),
     ];
-    let streak = [("Hot Streak", 3), ("Lucky Seat", 4), ("Dealer Blinks", 5), ("Table Runs Hot", 6)];
-    let all_in = [("Last Dollar", 2), ("Car Keys", 3), ("Deed to the House", 4), ("Firstborn", 5)];
+    let streak = [
+        ("Hot Streak", 3),
+        ("Lucky Seat", 4),
+        ("Dealer Blinks", 5),
+        ("Table Runs Hot", 6),
+    ];
+    let all_in = [
+        ("Last Dollar", 2),
+        ("Car Keys", 3),
+        ("Deed to the House", 4),
+        ("Firstborn", 5),
+    ];
     vanilla
         .into_iter()
-        .map(|(name, stack)| Card { name, stack, tell: None })
-        .chain(streak.into_iter().map(|(name, stack)| Card { name, stack, tell: Some(Tell::Streak) }))
-        .chain(all_in.into_iter().map(|(name, stack)| Card { name, stack, tell: Some(Tell::AllIn) }))
+        .map(|(name, stack)| Card {
+            name,
+            stack,
+            tell: None,
+        })
+        .chain(streak.into_iter().map(|(name, stack)| Card {
+            name,
+            stack,
+            tell: Some(Tell::Streak),
+        }))
+        .chain(all_in.into_iter().map(|(name, stack)| Card {
+            name,
+            stack,
+            tell: Some(Tell::AllIn),
+        }))
         .collect()
 }
 
@@ -489,13 +561,22 @@ mod tests {
     #[test]
     fn the_pit_boss_perk_buys_a_sixth_play_with_blinds_every_turn() {
         let mut run = RunState::new();
-        let base = RisingBlinds { every_turns: 3, increase: 2 };
+        let base = RisingBlinds {
+            every_turns: 3,
+            increase: 2,
+        };
         assert_eq!(run.blinds(base), base);
 
         run.apply(Reward::PitBossSixPlays, SEED);
 
         assert_eq!(run.plays(), 6);
-        assert_eq!(run.blinds(base), RisingBlinds { every_turns: 1, increase: 2 });
+        assert_eq!(
+            run.blinds(base),
+            RisingBlinds {
+                every_turns: 1,
+                increase: 2
+            }
+        );
     }
 
     #[test]
@@ -512,11 +593,17 @@ mod tests {
         );
         assert_eq!(
             RewardOffer::for_encounter(Slotz),
-            Some(RewardOffer::Pick(Reward::SlotzPylBestTwoOfThree, Reward::SlotzStreakCards))
+            Some(RewardOffer::Pick(
+                Reward::SlotzPylBestTwoOfThree,
+                Reward::SlotzStreakCards
+            ))
         );
         assert_eq!(
             RewardOffer::for_encounter(PitBoss),
-            Some(RewardOffer::Pick(Reward::PitBossSixPlays, Reward::PitBossRandomCards))
+            Some(RewardOffer::Pick(
+                Reward::PitBossSixPlays,
+                Reward::PitBossRandomCards
+            ))
         );
         // The House pays out in an ending, not a perk.
         assert_eq!(RewardOffer::for_encounter(TheHouse), None);

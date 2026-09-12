@@ -32,7 +32,10 @@ pub struct Art {
 pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
     let load = |rel: &'static str| {
         let assets = assets.as_ref()?;
-        Path::new("assets").join(rel).exists().then(|| assets.load(rel))
+        Path::new("assets")
+            .join(rel)
+            .exists()
+            .then(|| assets.load(rel))
     };
     commands.insert_resource(Art {
         frame: load("cards/frame.png"),
@@ -81,7 +84,11 @@ pub fn redraw(
         row(root, JustifyContent::SpaceBetween, |r| {
             text(r, active.enemy_name, 30.0, NEON);
             text(r, format!("Stack {}", duel.enemy_stack()), 26.0, GOLD);
-            text(r, format!("House Edge {}", duel.house_edge()), 26.0, INK);
+            match (duel.margin(), duel.locked_edge()) {
+                (None, _) => text(r, format!("House Edge {}", duel.house_edge()), 26.0, INK),
+                (Some(margin), None) => text(r, format!("House Edge ?   (reads your Hand, +{margin})"), 26.0, INK),
+                (Some(margin), Some(edge)) => text(r, format!("House Edge {edge}   (your Hand +{margin})"), 26.0, NEON),
+            }
         });
 
         // Middle: The Hand and the feedback line.
@@ -98,6 +105,9 @@ pub fn redraw(
                 let hands = duel.dice_left();
                 let plural = if hands == 1 { "Hand" } else { "Hands" };
                 text(mid, format!("Loaded Dice: +{LOADED_DICE_BONUS} on each of your next {hands} {plural}."), 18.0, GOLD);
+            }
+            if duel.margin().is_some() && duel.plays_left() > 1 && duel.phase() == Phase::Playing {
+                text(mid, "The House is watching. It sets the line after your fourth card; your last card is the one it can't see.", 18.0, DIM);
             }
             if duel.phase() == Phase::PushYourLuck {
                 let held = duel.payout(None);
@@ -178,14 +188,24 @@ fn coin_line(coin: Coin) -> String {
 fn turn_line(turn: &TurnResult) -> String {
     let edge = turn.house_edge;
     match (turn.pyl, turn.kind) {
-        (Some(Push::Won), Outcome::Payout(n)) => format!("The coin is yours. Payout doubled to {n}."),
-        (Some(Push::Lost), Outcome::Whiff(n)) => format!("The coin is the House's. The Hand is 0: Whiff. You lose {n}."),
+        (Some(Push::Won), Outcome::Payout(n)) => {
+            format!("The coin is yours. Payout doubled to {n}.")
+        }
+        (Some(Push::Lost), Outcome::Whiff(n)) => {
+            format!("The coin is the House's. The Hand is 0: Whiff. You lose {n}.")
+        }
         (_, Outcome::Payout(n)) => format!("{} vs House Edge {edge}: Payout {n}.", turn.hand),
-        (_, Outcome::Whiff(n)) => format!("{} vs House Edge {edge}: Whiff. You lose {n}.", turn.hand),
+        (_, Outcome::Whiff(n)) => {
+            format!("{} vs House Edge {edge}: Whiff. You lose {n}.", turn.hand)
+        }
     }
 }
 
-fn row(parent: &mut ChildSpawnerCommands, justify: JustifyContent, f: impl FnOnce(&mut ChildSpawnerCommands)) {
+fn row(
+    parent: &mut ChildSpawnerCommands,
+    justify: JustifyContent,
+    f: impl FnOnce(&mut ChildSpawnerCommands),
+) {
     parent
         .spawn(Node {
             width: percent(100),
@@ -199,7 +219,11 @@ fn row(parent: &mut ChildSpawnerCommands, justify: JustifyContent, f: impl FnOnc
 }
 
 fn text(parent: &mut ChildSpawnerCommands, s: impl Into<String>, size: f32, color: Color) {
-    parent.spawn((Text::new(s), TextFont::from_font_size(size), TextColor(color)));
+    parent.spawn((
+        Text::new(s),
+        TextFont::from_font_size(size),
+        TextColor(color),
+    ));
 }
 
 /// A Tell label, or the artist's icon for it when the file exists.
@@ -207,7 +231,11 @@ fn tell(parent: &mut ChildSpawnerCommands, label: &str, color: Color, icon: Opti
     match icon {
         Some(icon) => {
             parent.spawn((
-                Node { width: px(28), height: px(28), ..default() },
+                Node {
+                    width: px(28),
+                    height: px(28),
+                    ..default()
+                },
                 ImageNode::new(icon),
             ));
         }
