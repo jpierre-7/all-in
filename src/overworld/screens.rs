@@ -2,6 +2,8 @@
 //! footer telling the player which keys do something. Everything spawned here
 //! is scoped to the state that spawned it, so leaving the state clears it.
 
+use std::path::Path;
+
 use bevy::prelude::*;
 
 use crate::state::AppState;
@@ -10,6 +12,47 @@ const INK: Color = Color::srgb(0.90, 0.87, 0.80);
 const FELT: Color = Color::srgb(0.05, 0.07, 0.06);
 const NEON: Color = Color::srgb(0.85, 0.20, 0.30);
 const DIM: Color = Color::srgb(0.55, 0.53, 0.48);
+
+/// Backdrop art for the prose screens, when the artist's file is on disk.
+///
+/// Mirrors `combat::ui::Art`: the file is checked once at startup so a missing
+/// one is a fallback to bare felt, not a load error mid-run.
+#[derive(Resource, Default)]
+pub struct OverworldArt {
+    pub lobby: Option<Handle<Image>>,
+}
+
+pub fn load_overworld_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
+    const LOBBY: &str = "backdrops/lobby.png";
+    let lobby = assets
+        .as_ref()
+        .filter(|_| Path::new("assets").join(LOBBY).exists())
+        .map(|assets| assets.load(LOBBY));
+    commands.insert_resource(OverworldArt { lobby });
+}
+
+/// A screen root that has not been given its backdrop yet.
+#[derive(Component)]
+pub struct WantsBackdrop;
+
+/// Hangs the backdrop on every screen root that asked for one.
+///
+/// `OnEnter` runs in the state-transition schedule, ahead of `Update` in the
+/// same frame, so the image lands before the screen is ever drawn and there is
+/// no flash of bare felt.
+pub fn apply_backdrop(
+    mut commands: Commands,
+    art: Res<OverworldArt>,
+    screens: Query<Entity, With<WantsBackdrop>>,
+) {
+    for entity in &screens {
+        let mut screen = commands.entity(entity);
+        if let Some(lobby) = &art.lobby {
+            screen.insert(ImageNode::new(lobby.clone()));
+        }
+        screen.remove::<WantsBackdrop>();
+    }
+}
 
 /// A screen under construction. Build it up, then `spawn` it.
 pub struct Screen {
@@ -65,6 +108,7 @@ impl Screen {
                     ..default()
                 },
                 BackgroundColor(FELT),
+                WantsBackdrop,
                 DespawnOnExit(state),
             ))
             .with_children(|root| {

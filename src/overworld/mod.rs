@@ -13,7 +13,9 @@ pub mod screens;
 use bevy::prelude::*;
 
 use progression::{Progress, encounter_intro, win_line};
-use screens::{Screen, any_key, confirm, digit_pressed};
+use screens::{
+    Screen, any_key, apply_backdrop, confirm, digit_pressed, load_overworld_art,
+};
 
 use crate::run::{CombatOutcome, Encounter, Enemy, RewardOffer, RunState};
 use crate::state::AppState;
@@ -31,7 +33,8 @@ impl Plugin for OverworldPlugin {
         app.init_state::<AppState>()
             .insert_resource(Progress::new())
             .insert_resource(RunState::new())
-            .add_systems(Startup, spawn_camera)
+            .add_systems(Startup, (spawn_camera, load_overworld_art))
+            .add_systems(Update, apply_backdrop)
             .add_systems(OnEnter(AppState::Opening), show_opening)
             .add_systems(OnEnter(AppState::Lobby), (end_the_run, show_lobby))
             .add_systems(OnEnter(AppState::InfoRoom), show_info_room)
