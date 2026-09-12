@@ -25,7 +25,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 - **The Floor** — Early low-stakes encounters (1 Minion + Boss: Slotz).
 - **The Pit** — Mid-tier recurring enemies (1 Minion + Boss: Pit Boss).
 - **The Back Room** — Optional secret encounter (Boss: The Man Who Beat the House [Plays +1] | Reward: Turns all cards in deck to "All In" tell).
-- **The Big Shots Table** — Final boss (The House [Reads player's running hand value, adds +1, sets to house edge]).
+- **The Big Shots Table** — Final boss (The House [reads your Hand before your last Play and sets House Edge to it plus a margin; your last Play is your Hole Card]).
 
 **Tone:** [casino-noir / pulpy / darkly comic]
 
@@ -48,6 +48,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | **Rising Blinds** | Difficulty/cost escalates as combat goes on (turn-based scaling). E.g., +2 to House Edge every 2 turns. |
 | **Plays** | Limited number of cards you may play per turn (Hand of 7 cards, up to 5 can be played by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final and clears House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Coin is 45/55 in the House's favor. |
+| **Hole Card** | Against The House only: the player's final Play of the turn, made after the House has locked its Edge on everything played before it. |
 | **Fight or Fold** | Encounter choice. "Fight" initiates duel; "Fold" abandons the run and returns to the Lobby, resetting all perks, items, and temporary deck upgrades. |
 
 ---
@@ -155,7 +156,16 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 2. **The Floor:** 1 Minion encounter → Boss: **Slotz**.
 3. **The Pit:** 1 Minion encounter → Boss: **Pit Boss**.
 4. **The Back Room (Optional/Secret):** Boss: **The Man Who Beat the House** (Plays +1, transforms deck).
-5. **The Big Shots Table (Final Boss):** Boss: **The House** (Reads player's running Hand value, adds +1, sets to House Edge).
+5. **The Big Shots Table (Final Boss):** Boss: **The House**. See "The House" below.
+
+**The House (the Hole Card rule):**
+
+- The House does not have a fixed House Edge. When the player has **one Play remaining** (after 4 of 5 Plays, or 5 of 6 with the Pit Boss perk), the House reads The Hand so far and locks House Edge = The Hand + **margin**.
+- The player's final Play is the **Hole Card**: the one card the House can't see. Payout = the Hole Card's resolved value − margin. Streak doubling, All In sacrifice, and Loaded Dice all land after the lock, so they are the whole strategy.
+- Push Your Luck works unchanged: it is offered when the Hole Card beats the margin.
+- Rising Blinds for The House raise the **margin**, not the Edge: margin starts at +1 and rises +2 every 2 turns (1, 1, 3, 3, 5, 5, 7…). The margin is the clock; the House wins by outlasting the deck, not by big Whiffs.
+- Ending the turn with more than one Play unused still locks the Edge at "one Play remaining"; with no Hole Card played, the turn Whiffs by the margin.
+- Intro line hook: "Play four. I'll set the line. Then show me your last card."
 
 ---
 
