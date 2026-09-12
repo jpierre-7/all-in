@@ -67,7 +67,7 @@ impl Reward {
             Self::LoadedDice => "Loaded Dice. +5 to each of your next two Hands.",
             Self::SlotzStreakCards => "Three more Streak cards in the deck.",
             Self::SlotzPylBestTwoOfThree => "Push Your Luck becomes best 2 of 3, at 49/51.",
-            Self::PitBossSixPlays => "A sixth Play every turn - and the Blinds rise every turn.",
+            Self::PitBossSixPlays => "A sixth Play every turn - but the Blinds rise +2 every turn, not every third.",
             Self::PitBossRandomCards => "Four cards off the Pit's table: two with Tells, two plain.",
         }
     }
@@ -133,7 +133,10 @@ impl RunState {
     /// duel's shuffle: it keeps this whole file deterministic under test.
     pub fn apply(&mut self, reward: Reward, seed: u64) {
         match reward {
-            Reward::LoadedDice => self.load_the_dice(LOADED_DICE_HANDS),
+            Reward::LoadedDice => {
+                // A fresh pair on top of an existing one adds Hands, not clutter.
+                self.set_loaded_dice(self.loaded_dice().saturating_add(LOADED_DICE_HANDS));
+            }
             Reward::SlotzStreakCards => self.deck.extend(streak_reward_cards()),
             Reward::SlotzPylBestTwoOfThree => self.take_perk(Perk::PylBestTwoOfThree),
             Reward::PitBossSixPlays => self.take_perk(Perk::SixPlaysSteepBlinds),
@@ -164,12 +167,12 @@ impl RunState {
         if self.perks.contains(&Perk::SixPlaysSteepBlinds) { 6 } else { 5 }
     }
 
-    /// Rising Blinds after perks. The Pit Boss perk keeps the step the enemy
-    /// came with and takes it every turn instead - three times the base rate,
-    /// which is what pays for the sixth Play.
+    /// Rising Blinds after perks. The Pit Boss perk states its own price
+    /// rather than borrowing the enemy's step: +2 every turn, three times the
+    /// base rate, and the same price whoever is sitting across the table.
     pub fn blinds(&self, base: RisingBlinds) -> RisingBlinds {
         if self.perks.contains(&Perk::SixPlaysSteepBlinds) {
-            RisingBlinds { every_turns: 1, ..base }
+            RisingBlinds { every_turns: 1, increase: STEEP_BLINDS_INCREASE }
         } else {
             base
         }
@@ -180,11 +183,6 @@ impl RunState {
         if !self.perks.contains(&perk) {
             self.perks.push(perk);
         }
-    }
-
-    /// A fresh pair on top of an existing one adds Hands, not clutter.
-    fn load_the_dice(&mut self, hands: u8) {
-        self.set_loaded_dice(self.loaded_dice().saturating_add(hands));
     }
 }
 
@@ -274,9 +272,24 @@ pub enum CombatOutcome {
 /// Lucky Jack sits down with this many chips (#8).
 pub const STARTING_STACK: u32 = 50;
 
+/// The one xorshift64 the whole game rolls on: the duel's reshuffle, the
+/// deal into the Draw, the Push Your Luck coin, and the Pit Boss card pack.
+/// Not cryptography - it is a card game, and one stream is easier to reason
+/// about than three.
+pub fn xorshift64(state: &mut u64) -> u64 {
+    *state ^= *state << 13;
+    *state ^= *state >> 7;
+    *state ^= *state << 17;
+    *state
+}
+
 /// Loaded Dice: this much on The Hand, for this many Hands (#12).
 pub const LOADED_DICE_BONUS: u32 = 5;
 pub const LOADED_DICE_HANDS: u8 = 2;
+
+/// What the Pit Boss perk's sixth Play costs: this much on House Edge every
+/// single turn, against a base of the same step every three (#12).
+const STEEP_BLINDS_INCREASE: u32 = 2;
 
 /// Slotz Option 2 (#12): three more Streak cards, all middling, so the reward
 /// is a better chance of firing Streak rather than a higher ceiling.
@@ -308,26 +321,28 @@ fn random_cards(seed: u64) -> Vec<Card> {
         "Plastic Chip",
     ];
 
-    // The same xorshift64 the duel shuffles on.
     let mut rng = seed | 1;
-    let mut roll = |n: u64| {
-        rng ^= rng << 13;
-        rng ^= rng >> 7;
-        rng ^= rng << 17;
-        rng % n
-    };
+    let mut roll = |n: u64| xorshift64(&mut rng) % n;
+    // Names come out of the hat rather than off it, so a pack never holds the
+    // same card twice.
+    let mut telled = TELLED.to_vec();
+    let mut plain = PLAIN.to_vec();
 
     let mut cards = Vec::with_capacity(4);
     for _ in 0..2 {
-        cards.push(Card {
-            name: TELLED[roll(TELLED.len() as u64) as usize],
-            stack: 2 + roll(4) as u32, // 2..=5, the starter deck's All In range
-            tell: Some(if roll(2) == 0 { Tell::Streak } else { Tell::AllIn }),
-        });
+        let name = telled.swap_remove(roll(telled.len() as u64) as usize);
+        // Each Tell keeps the range the starter deck gives it: Streak 3..=6,
+        // All In 2..=5.
+        let (tell, stack) = if roll(2) == 0 {
+            (Tell::Streak, 3 + roll(4) as u32)
+        } else {
+            (Tell::AllIn, 2 + roll(4) as u32)
+        };
+        cards.push(Card { name, stack, tell: Some(tell) });
     }
     for _ in 0..2 {
         cards.push(Card {
-            name: PLAIN[roll(PLAIN.len() as u64) as usize],
+            name: plain.swap_remove(roll(plain.len() as u64) as usize),
             stack: 2 + roll(7) as u32, // 2..=8, the starter deck's vanilla range
             tell: None,
         });
@@ -451,7 +466,10 @@ mod tests {
         let added = &run.deck[before..];
         assert_eq!(added.len(), 4);
         assert_eq!(tells(added), 2);
-        assert!(added.iter().all(|c| c.stack >= 2 && c.stack <= 8));
+        assert!(added.iter().all(|c| (2..=8).contains(&c.stack)));
+
+        let names: std::collections::HashSet<_> = added.iter().map(|c| c.name).collect();
+        assert_eq!(names.len(), 4, "no pack deals the same card twice");
     }
 
     #[test]

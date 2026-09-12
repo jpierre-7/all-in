@@ -243,7 +243,7 @@ fn leave_outcome(
 // ---------------------------------------------------------------------------
 
 fn show_reward(mut commands: Commands, progress: Res<Progress>) {
-    let Some(offer) = progress.encounter().and_then(RewardOffer::for_encounter) else {
+    let Some(offer) = progress.reward_offer() else {
         return;
     };
 
@@ -258,7 +258,7 @@ fn show_reward(mut commands: Commands, progress: Res<Progress>) {
             .prose(narrative::PERK_PICK)
             .option(1, one.label())
             .option(2, two.label())
-            .footer("Press 1 or 2 — or Enter to take the first."),
+            .footer("Press 1 or 2. There is no going back."),
     };
 
     screen.spawn(&mut commands, AppState::Reward);
@@ -273,13 +273,15 @@ fn take_reward(
     mut progress: ResMut<Progress>,
     mut next: ResMut<NextState<AppState>>,
 ) {
-    let Some(offer) = progress.encounter().and_then(RewardOffer::for_encounter) else {
+    let Some(offer) = progress.reward_offer() else {
         return;
     };
 
     let taken = match offer {
         RewardOffer::Drop(reward) => any_key(&keys).then_some(reward),
-        RewardOffer::Pick(one, two) => match digit_pressed(&keys).or(confirm(&keys).then_some(1)) {
+        // Enter advances every other screen in the shell, so it deliberately
+        // does nothing here: a perk is picked once and never given back.
+        RewardOffer::Pick(one, two) => match digit_pressed(&keys) {
             Some(1) => Some(one),
             Some(2) => Some(two),
             _ => None,
@@ -446,13 +448,14 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
 
-        // The Floor: a minion, then Slotz.
+        // The Floor: a minion, then Slotz. A drop is dismissed with any key;
+        // a boss pick only answers to 1 or 2.
         duel(&mut app, true);
         assert_eq!(state(&app), AppState::Reward);
         press(&mut app, KeyCode::Enter);
         assert_eq!(state(&app), AppState::FightOrFold);
         duel(&mut app, true);
-        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Digit1);
 
         // The Pit announces itself, then a minion and the Pit Boss.
         assert_eq!(state(&app), AppState::FloorIntro);
@@ -461,7 +464,7 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         assert_eq!(state(&app), AppState::FightOrFold);
         duel(&mut app, true);
-        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Digit1);
 
         // The Big Shots Table: The House, and no reward after it.
         assert_eq!(state(&app), AppState::FloorIntro);
@@ -547,6 +550,24 @@ mod tests {
         let added = &run.deck[crate::run::starter_deck().len()..];
         assert_eq!(added.len(), 3);
         assert!(added.iter().all(|c| c.tell == Some(Tell::Streak)));
+    }
+
+    #[test]
+    fn enter_does_not_pick_a_perk_for_you() {
+        let mut app = shell();
+        press(&mut app, KeyCode::Enter);
+        begin_run(&mut app);
+        duel(&mut app, true);
+        press(&mut app, KeyCode::Enter); // pocket the drop
+        duel(&mut app, true); // Slotz
+        assert_eq!(state(&app), AppState::Reward);
+
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(state(&app), AppState::Reward, "the pick is still on the table");
+        let run = app.world().resource::<RunState>();
+        assert!(run.perks.is_empty());
+        assert_eq!(run.deck.len(), crate::run::starter_deck().len());
     }
 
     #[test]

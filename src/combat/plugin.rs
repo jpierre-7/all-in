@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use super::duel::{Coin, Duel, Phase, PlayError, TurnResult};
 use super::ui;
-use crate::run::{Card, Encounter, RunState};
+use crate::run::{Card, Encounter, RunState, xorshift64};
 use crate::state::AppState;
 
 pub struct CombatPlugin;
@@ -58,13 +58,11 @@ fn start_duel(mut commands: Commands, encounter: Res<Encounter>, run: Res<RunSta
     });
 }
 
-/// Fisher-Yates on a xorshift, same as the duel's own reshuffle.
+/// Fisher-Yates, same as the duel's own reshuffle.
 fn shuffled(mut deck: Vec<Card>, mut rng: u64) -> Vec<Card> {
     for i in (1..deck.len()).rev() {
-        rng ^= rng << 13;
-        rng ^= rng >> 7;
-        rng ^= rng << 17;
-        deck.swap(i, (rng % (i as u64 + 1)) as usize);
+        let j = (xorshift64(&mut rng) % (i as u64 + 1)) as usize;
+        deck.swap(i, j);
     }
     deck
 }
@@ -190,11 +188,11 @@ mod tests {
     }
 
     pub(super) fn table_with(player_stack: u32, enemy_stack: u32, house_edge: u32, perks: Vec<Perk>) -> App {
-        table_for(RunState { stack: player_stack, perks, ..RunState::new() }, enemy_stack, house_edge)
+        table_for_run(RunState { stack: player_stack, perks, ..RunState::new() }, enemy_stack, house_edge)
     }
 
     /// A table set for a run that has already picked things up.
-    pub(super) fn table_for(run: RunState, enemy_stack: u32, house_edge: u32) -> App {
+    pub(super) fn table_for_run(run: RunState, enemy_stack: u32, house_edge: u32) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_plugins(StatesPlugin)
@@ -416,7 +414,7 @@ mod run_modifier_tests {
     use bevy::prelude::*;
 
     use super::ActiveDuel;
-    use super::tests::{press, state, table, table_for, table_with};
+    use super::tests::{press, state, table, table_for_run, table_with};
     use crate::run::{CombatOutcome, Perk, Reward, RunState};
     use crate::state::AppState;
 
@@ -451,7 +449,7 @@ mod run_modifier_tests {
     fn loaded_dice_come_to_the_table_and_what_is_left_goes_home() {
         let mut run = RunState { stack: 40, ..RunState::new() };
         run.apply(Reward::LoadedDice, 1);
-        let mut app = table_for(run, 1, 0);
+        let mut app = table_for_run(run, 1, 0);
 
         assert_eq!(app.world().resource::<ActiveDuel>().duel.dice_left(), 2);
 
@@ -469,7 +467,7 @@ mod run_modifier_tests {
         let mut run = RunState { stack: 40, ..RunState::new() };
         run.deck.clear();
         run.apply(Reward::SlotzStreakCards, 1);
-        let app = table_for(run, 999, 20);
+        let app = table_for_run(run, 999, 20);
 
         let draw = app.world().resource::<ActiveDuel>().duel.draw();
         assert_eq!(draw.len(), 3, "a three-card deck deals three cards");

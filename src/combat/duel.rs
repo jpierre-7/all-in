@@ -1,6 +1,6 @@
 //! The pure combat model: one duel, no Bevy. Vocabulary follows `CONTEXT.md`.
 
-use crate::run::{Card, CombatOutcome, Enemy, LOADED_DICE_BONUS, Perk, Tell};
+use crate::run::{Card, CombatOutcome, Enemy, LOADED_DICE_BONUS, Perk, Tell, xorshift64};
 
 pub const DRAW_SIZE: usize = 7;
 
@@ -338,8 +338,8 @@ impl Duel {
         }
     }
 
-    /// Fisher-Yates over the duel's xorshift64; enough randomness for a card
-    /// game, and the same stream the coin is flipped from.
+    /// Fisher-Yates over the run's xorshift64; the same stream the coin is
+    /// flipped from.
     fn shuffle_deck(&mut self) {
         for i in (1..self.deck.len()).rev() {
             let j = (self.next_rng() % (i as u64 + 1)) as usize;
@@ -348,10 +348,7 @@ impl Duel {
     }
 
     fn next_rng(&mut self) -> u64 {
-        self.rng ^= self.rng << 13;
-        self.rng ^= self.rng >> 7;
-        self.rng ^= self.rng << 17;
-        self.rng
+        xorshift64(&mut self.rng)
     }
 }
 
