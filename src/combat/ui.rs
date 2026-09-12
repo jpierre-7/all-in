@@ -17,6 +17,9 @@ const DIM: Color = Color::srgb(0.55, 0.53, 0.48);
 const GOLD: Color = Color::srgb(0.85, 0.70, 0.35);
 const STREAK_BLUE: Color = Color::srgb(0.50, 0.72, 0.84);
 const CARD_FACE: Color = Color::srgb(0.04, 0.08, 0.06);
+/// Multiplied over the card frame to mark a pending All In sacrifice. Kept
+/// light, because tinting green felt with a saturated red crushes it to black.
+const SACRIFICE_TINT: Color = Color::srgb(1.0, 0.52, 0.56);
 
 /// Art that exists on disk. Anything `None` renders as text.
 #[derive(Resource, Default)]
@@ -144,10 +147,26 @@ pub fn redraw(
                         ..default()
                     },
                     BackgroundColor(CARD_FACE),
-                    BorderColor::all(if sacrifice_pending { NEON } else { GOLD }),
+                    // The frame art draws its own rounded bezel, so a square
+                    // border on the same node leaves a gold notch at each
+                    // corner. With art present the edge is the art's job and
+                    // the pending state is a tint; without it, the border is
+                    // the only edge there is.
+                    BorderColor::all(match (&art.frame, sacrifice_pending) {
+                        (Some(_), _) => Color::NONE,
+                        (None, true) => NEON,
+                        (None, false) => GOLD,
+                    }),
                 ));
                 if let Some(frame) = &art.frame {
-                    node.insert(ImageNode::new(frame.clone()));
+                    node.insert(ImageNode {
+                        color: if sacrifice_pending {
+                            SACRIFICE_TINT
+                        } else {
+                            Color::WHITE
+                        },
+                        ..ImageNode::new(frame.clone())
+                    });
                 }
                 node.with_children(|c| {
                     text(c, format!("[{}]", i + 1), 16.0, DIM);
