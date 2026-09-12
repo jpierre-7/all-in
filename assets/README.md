@@ -16,10 +16,10 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `tells/streak.png` | 128×128 | 28×28 node | `ui.rs` — `Art::streak` |
 | `tells/all_in.png` | 128×128 | 28×28 node | `ui.rs` — `Art::all_in` |
 | `backdrops/combat.png` | 1920×1080 | full screen | `ui.rs` — `Art::backdrop` |
-| `backdrops/lobby.png` | 1920×1080 | — | **not wired yet** |
-
-`backdrops/lobby.png` has no slot in the overworld. The file is here and ready;
-the overworld screens need an `ImageNode` before it appears.
+| `backdrops/lobby.png` | 1920×1080 | every prose screen | `screens.rs` — `OverworldArt::lobby` |
+| `portraits/slotz.png` | 256×256 | — | **not wired yet** |
+| `portraits/pit_boss.png` | 256×256 | — | **not wired yet** |
+| `portraits/the_house.png` | 256×256 | — | **not wired yet** |
 
 ## Card frame
 
@@ -60,6 +60,22 @@ lobby    overall p99 0.331   text-band p99 0.236
 The **text band** is the outer ~150px top and bottom, where the Stack and House
 Edge lines are drawn. Keep its p99 luminance under ~0.25 and gold text stays
 legible; the middle can be brighter.
+
+## Boss portraits — not wired
+
+Stretch item 4 on the art ticket, drawn to Dev 1's designs: Slotz is a
+chrome-and-neon slot machine on a rolling base, the Pit Boss a brass balance
+scale with one pan already loaded, The House a pair of hands on the felt.
+Transparent ground, and they hold up down to ~90px.
+
+Nothing displays them yet, and wiring them means editing `src/combat/ui.rs`,
+which Dev 1 owns. For whoever picks it up: `ActiveDuel` carries `enemy_name`
+but **not** `EncounterId`, so the portrait cannot be chosen in `redraw` as it
+stands. `start_duel` in `plugin.rs` does have `encounter.id` — either add
+`id: encounter.id` to `ActiveDuel` and match in `redraw`, or pick the handle in
+`start_duel`. Loading follows the existing `load_art` pattern; the three files
+map to `EncounterId::Slotz`, `PitBoss`, and `TheHouse`. Minions have no
+portrait.
 
 ## Palette
 
