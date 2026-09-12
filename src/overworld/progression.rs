@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 
 use crate::overworld::narrative;
-use crate::run::{CombatOutcome, EncounterId};
+use crate::run::{CombatOutcome, EncounterId, RewardOffer};
 use crate::state::AppState;
 
 /// The three floors of the casino, in the order Lucky Jack walks them.
@@ -116,6 +116,12 @@ impl Progress {
         }
     }
 
+    /// What the encounter just won pays. `None` once The House is beaten, or
+    /// after The House itself, which pays in an ending.
+    pub fn reward_offer(&self) -> Option<RewardOffer> {
+        self.encounter().and_then(RewardOffer::for_encounter)
+    }
+
     /// Move past the encounter just won.
     pub fn advance(&mut self) {
         self.next += 1;
@@ -193,6 +199,24 @@ mod tests {
             assert_eq!(progress.route(CombatOutcome::Won), AppState::Reward);
             progress.advance();
         }
+    }
+
+    #[test]
+    fn the_reward_on_offer_is_the_one_for_the_encounter_just_won() {
+        let mut progress = Progress::new();
+        let mut offers = Vec::new();
+
+        while progress.encounter().is_some() {
+            offers.push(progress.reward_offer());
+            progress.advance();
+        }
+
+        assert!(matches!(offers[0], Some(RewardOffer::Drop(_))));
+        assert!(matches!(offers[1], Some(RewardOffer::Pick(..))));
+        assert!(matches!(offers[2], Some(RewardOffer::Drop(_))));
+        assert!(matches!(offers[3], Some(RewardOffer::Pick(..))));
+        assert_eq!(offers[4], None, "The House pays in an ending");
+        assert_eq!(progress.reward_offer(), None, "and there is nothing after it");
     }
 
     #[test]

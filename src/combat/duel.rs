@@ -1,6 +1,6 @@
 //! The pure combat model: one duel, no Bevy. Vocabulary follows `CONTEXT.md`.
 
-use crate::run::{Card, CombatOutcome, Enemy, Perk, Tell};
+use crate::run::{Card, CombatOutcome, Enemy, LOADED_DICE_BONUS, Perk, Tell, xorshift64};
 
 pub const DRAW_SIZE: usize = 7;
 
@@ -108,6 +108,8 @@ pub struct Duel {
     turn: u32,
     phase: Phase,
     coin: Coin,
+    /// Hands still carrying the Loaded Dice bonus, carried in from the run.
+    dice_left: u8,
     rng: u64,
 }
 
@@ -129,6 +131,7 @@ impl Duel {
             turn: 1,
             phase: Phase::Playing,
             coin: Coin::BASE,
+            dice_left: 0,
             rng: 0x5eed_cafe_f00d_d1ce,
         };
         duel.refill();
@@ -148,8 +151,20 @@ impl Duel {
         self
     }
 
+    /// Loaded Dice carried in from the run: +5 on each of the next `hands`
+    /// Hands. Combat writes back whatever is left when the duel ends.
+    pub fn with_loaded_dice(mut self, hands: u8) -> Self {
+        self.dice_left = hands;
+        self
+    }
+
     pub fn coin(&self) -> Coin {
         self.coin
+    }
+
+    /// Hands still to come with the dice on them.
+    pub fn dice_left(&self) -> u8 {
+        self.dice_left
     }
 
     pub fn phase(&self) -> Phase {
@@ -190,6 +205,12 @@ impl Duel {
     pub fn show_hand(&mut self) -> Option<TurnResult> {
         if self.phase == Phase::PushYourLuck {
             return None;
+        }
+        // Step 4: the items that modify The Hand land here, after every card
+        // is down and after The House has locked its Edge on what it saw.
+        if self.dice_left > 0 {
+            self.dice_left -= 1;
+            self.hand += LOADED_DICE_BONUS;
         }
         if self.hand >= self.house_edge {
             self.phase = Phase::PushYourLuck;
@@ -317,8 +338,8 @@ impl Duel {
         }
     }
 
-    /// Fisher-Yates over the duel's xorshift64; enough randomness for a card
-    /// game, and the same stream the coin is flipped from.
+    /// Fisher-Yates over the run's xorshift64; the same stream the coin is
+    /// flipped from.
     fn shuffle_deck(&mut self) {
         for i in (1..self.deck.len()).rev() {
             let j = (self.next_rng() % (i as u64 + 1)) as usize;
@@ -327,10 +348,7 @@ impl Duel {
     }
 
     fn next_rng(&mut self) -> u64 {
-        self.rng ^= self.rng << 13;
-        self.rng ^= self.rng >> 7;
-        self.rng ^= self.rng << 17;
-        self.rng
+        xorshift64(&mut self.rng)
     }
 }
 
@@ -756,5 +774,71 @@ mod push_your_luck_tests {
             }
         }
         assert_eq!(seen, (true, true), "the duel's own rolls reach both sides of the coin");
+    }
+}
+
+#[cfg(test)]
+mod loaded_dice_tests {
+    use super::tests::{card, enemy};
+    use super::*;
+    use crate::run::LOADED_DICE_BONUS;
+
+    fn deck() -> Vec<Card> {
+        (1..=18).map(card).collect()
+    }
+
+    #[test]
+    fn a_duel_with_no_dice_adds_nothing() {
+        let mut duel = Duel::new(deck(), 40, 5, enemy(999, 0));
+
+        let turn = duel.end_turn();
+
+        assert_eq!(turn.hand, 0);
+        assert_eq!(duel.dice_left(), 0);
+    }
+
+    #[test]
+    fn the_dice_land_on_the_hand_as_it_is_shown() {
+        let mut duel = Duel::new(deck(), 40, 5, enemy(999, 0)).with_loaded_dice(2);
+        duel.play(0, None).unwrap(); // 18
+
+        // Nothing on The Hand until it is shown: the House reads what it can
+        // see, and the dice land after that (the Hole Card rule).
+        assert_eq!(duel.hand(), 18);
+        let turn = duel.end_turn();
+
+        assert_eq!(turn.hand, 18 + LOADED_DICE_BONUS);
+        assert_eq!(duel.dice_left(), 1);
+    }
+
+    #[test]
+    fn the_dice_run_out_after_two_hands() {
+        let mut duel = Duel::new(deck(), 40, 5, enemy(999, 0)).with_loaded_dice(2);
+
+        let hands: Vec<u32> = (0..3).map(|_| duel.end_turn().hand).collect();
+
+        assert_eq!(hands, vec![LOADED_DICE_BONUS, LOADED_DICE_BONUS, 0]);
+        assert_eq!(duel.dice_left(), 0);
+    }
+
+    #[test]
+    fn the_dice_soften_a_whiff_too() {
+        let mut duel = Duel::new(deck(), 40, 5, enemy(999, 30)).with_loaded_dice(1);
+
+        let turn = duel.end_turn();
+
+        assert_eq!(turn.kind, Outcome::Whiff(30 - LOADED_DICE_BONUS));
+        assert_eq!(duel.dice_left(), 0);
+    }
+
+    #[test]
+    fn showing_the_hand_twice_only_spends_one_pair() {
+        let mut duel = Duel::new(deck(), 40, 5, enemy(999, 0)).with_loaded_dice(2);
+
+        duel.show_hand(); // the prompt goes up
+        duel.show_hand(); // and stays up, spending nothing more
+
+        assert_eq!(duel.hand(), LOADED_DICE_BONUS);
+        assert_eq!(duel.dice_left(), 1);
     }
 }

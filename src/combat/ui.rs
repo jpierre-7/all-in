@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use super::duel::{Coin, Outcome, Phase, Push, TurnResult};
 use super::plugin::ActiveDuel;
-use crate::run::Tell;
+use crate::run::{LOADED_DICE_BONUS, Tell};
 use crate::state::AppState;
 
 const INK: Color = Color::srgb(0.90, 0.87, 0.80);
@@ -94,6 +94,11 @@ pub fn redraw(
         .with_children(|mid| {
             text(mid, format!("The Hand   {}", duel.hand()), 44.0, GOLD);
             text(mid, format!("Plays left  {}", duel.plays_left()), 20.0, DIM);
+            if duel.dice_left() > 0 {
+                let hands = duel.dice_left();
+                let plural = if hands == 1 { "Hand" } else { "Hands" };
+                text(mid, format!("Loaded Dice: +{LOADED_DICE_BONUS} on each of your next {hands} {plural}."), 18.0, GOLD);
+            }
             if duel.phase() == Phase::PushYourLuck {
                 let held = duel.payout(None);
                 let pushed = duel.payout(Some(Push::Won));

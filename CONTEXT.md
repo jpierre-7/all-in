@@ -78,4 +78,8 @@ _Avoid_: engage/retreat, flee
 A run-long modifier chosen from a pair after beating a boss.
 
 **Item**:
-A run-long modifier dropped at random after beating a minion.
+A run-long modifier dropped after beating a minion. The pool is Loaded Dice alone so far (#12); the drop is random once there is more than one thing in it.
+
+**Loaded Dice**:
+Item: +5 to The Hand for the next 2 Hands. Spent as The Hand is shown, and carried between encounters until it runs out.
+_Avoid_: buff, charge
