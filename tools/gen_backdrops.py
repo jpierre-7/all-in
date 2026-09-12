@@ -99,6 +99,20 @@ def protect_text_bands(arr):
     return arr * (0.68 + 0.32 * np.sin(band * np.pi / 2) ** 2)[..., None]
 
 
+def prose_scrim(arr):
+    """Darken the middle of the lobby, where the overworld centres its prose.
+
+    `Screen::spawn` uses `justify_content: Center`, so the text lands in the
+    vertical middle — not in the outer bands the combat screen writes into.
+    The falloff is horizontal as well as vertical so the marquee keeps its
+    colour at the top and down both edges.
+    """
+    x, y = coords()
+    band = np.exp(-(((y - H * 0.52) / (H * 0.30)) ** 2))
+    horiz = np.exp(-(((x - W / 2) / (W * 0.46)) ** 2))
+    return arr * (1.0 - 0.62 * band * horiz)[..., None]
+
+
 # --- Combat ------------------------------------------------------------------
 
 
@@ -229,9 +243,7 @@ def lobby():
     base = add_glow(base, radial(W * 0.08, H * 0.86, W * 0.34, 2.3), MAGENTA, 0.34)
     base = add_glow(base, radial(W * 0.92, H * 0.80, W * 0.34, 2.3), CYAN, 0.30)
 
-    # Prose runs down the middle of this screen, so keep the lower half dark.
-    y = coords()[1]
-    base = base * (1.0 - 0.34 * np.clip((y - H * 0.46) / (H * 0.54), 0, 1) ** 1.5)[..., None]
+    base = prose_scrim(base)
 
     base = vignette(base, strength=0.80)
     return grain(base * 0.94)
@@ -247,11 +259,20 @@ def main():
         # .convert("RGB") matters: a palettised PNG reads back as indices.
         arr = np.asarray(Image.open(path).convert("RGB"), dtype=np.float32) / 255
         lum = 0.2126 * arr[..., 0] + 0.7152 * arr[..., 1] + 0.0722 * arr[..., 2]
-        bands = np.concatenate([lum[40:150].ravel(), lum[H - 150 : H - 40].ravel()])
+        # Combat writes into the outer bands; the overworld centres its prose.
+        # Each backdrop is judged where its own text actually lands.
+        if name == "combat":
+            zone = np.concatenate([lum[40:150].ravel(), lum[H - 150 : H - 40].ravel()])
+            label = "outer bands"
+        else:
+            zone = lum[300:780].ravel()
+            label = "centre"
+        text_luma = 0.871 if name == "lobby" else 0.78
+        p99 = np.percentile(zone, 99)
         print(
             f"{name:7s} {path.stat().st_size / 1024:6.0f} KB   "
-            f"overall p99 {np.percentile(lum, 99):.3f}   "
-            f"text-band p99 {np.percentile(bands, 99):.3f}"
+            f"{label:11s} p99 {p99:.3f}   "
+            f"text contrast {(text_luma + 0.05) / (p99 + 0.05):.2f}:1"
         )
 
 
