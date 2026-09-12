@@ -47,6 +47,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | **All In** | Tell: sacrifice a card from hand to add its value to the current Hand. |
 | **Rising Blinds** | Difficulty/cost escalates as combat goes on (turn-based scaling). E.g., +2 to House Edge every 2 turns. |
 | **Plays** | Limited number of cards you may play per turn (Hand of 7 cards, up to 5 can be played by default). |
+| **Push Your Luck** | Optional coin flip after The Hand is final and clears House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Coin is 45/55 in the House's favor. |
 | **Fight or Fold** | Encounter choice. "Fight" initiates duel; "Fold" abandons the run and returns to the Lobby, resetting all perks, items, and temporary deck upgrades. |
 
 ---
@@ -61,18 +62,23 @@ Before each encounter, the player chooses to:
 
 **Combat Structure:** turn-based, resolved instantly left-to-right (no stack, no targeting, no priority passing).
 
-**Turn sequence (draft):**
+**Turn sequence:**
 
-1. Player draws/refills hand to 7 cards.
-2. Player plays up to 5 cards (or up to limit modified by perks).
-3. Each card resolves immediately, applying its base value + any Tell effect, adding to The Hand.
-4. Compare The Hand total to enemy's House Edge.
-   - Clear it → Payout (excess spills over as damage to enemy Stack).
-   - Whiff (fall short) → the difference is dealt to the **player's** Chip Stack.
-     Damage = House Edge − The Hand. No Payout to the enemy.
-5. Enemy takes their turn: [TBD — see Enemy Design below]
-6. Rising Blinds check: escalate House Edge every 2 turns (or per active perk modifier).
-7. Repeat until player or enemy Stack hits 0.
+1. Player refills the Draw to 7 cards.
+2. Player plays up to 5 cards (or up to the limit set by perks), one at a time.
+3. Each card resolves immediately, applying its Stack + any Tell effect, adding to The Hand.
+4. Items that modify The Hand apply (Loaded Dice: +5). The Hand is now final.
+5. **Push Your Luck** (only if The Hand ≥ House Edge): the player sees the House Edge and chooses **Push** or **Hold**.
+   - Hold → step 6 as normal.
+   - Push → flip the coin (45% player / 55% House by default; Slotz Option 1 makes it best-2-of-3 at 49/51 ≈ 48.5%).
+     - Win → the Payout in step 6 is **doubled**.
+     - Lose → The Hand becomes **0**; step 6 is a full Whiff for the entire House Edge.
+6. Compare The Hand to the enemy's House Edge.
+   - Clear it → Payout (excess over House Edge, ×2 if PYL won) is dealt to the enemy's Stack.
+   - Whiff (fall short) → the difference is dealt to the **player's** Stack. Damage = House Edge − The Hand. No Payout.
+7. Enemy turn: nothing (MVP). Enemies are a Stack + House Edge + Rising Blinds.
+8. Rising Blinds check: escalate House Edge every 2 turns (or per active perk modifier).
+9. Repeat until player or enemy Stack hits 0.
 
 **Loss condition:** player Stack reaches 0 (run ends / back to Lobby).
 **Win condition:** enemy Stack reaches 0 (grants rewards based on enemy type).
@@ -96,7 +102,7 @@ Defeating a minion grants 1 random item from the pool:
 Defeating a floor boss presents a choice between two powerful run-altering perks:
 
 - **Boss: Slotz (The Floor)**
-  - **Option 1:** All "Push Your Luck" wagers become best 2-out-of-3, but odds shift slightly in the House's favor (49% player / 51% house).
+  - **Option 1:** All "Push Your Luck" flips become best 2-out-of-3 at 49% player / 51% House (≈48.5% overall, up from the base 45%).
   - **Option 2:** Adds 3x "Streak" Tell cards to the player's deck.
 
 - **Boss: Pit Boss (The Pit)**
@@ -155,12 +161,12 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 
 ## 8. Stretch Goals (post-MVP, only if time allows)
 
-- **Push Your Luck:** after building The Hand but before resolving, optionally wager part of your own Stack on a coin-flip to double the Payout or lose the Hand outright.
+- **Push Your Luck on a Whiff:** offer PYL when The Hand falls short too — win forgives the Whiff, lose doubles it. (Base PYL is MVP; see §4.)
 - **Card personas:** dealer's-commentary flavor lines on play (e.g. "The house always collects" on an All In card).
 - Deckbuilding/reward layer between encounters.
 - Additional Tells (Echo, Brittle).
 
-*Cut order if behind schedule: deckbuilding layer → Push Your Luck → card personas → reactive House deck. Cut from the top of this list first; the reactive House deck is the highest-value addition and should be the last thing dropped.*
+*Cut order if behind schedule: deckbuilding layer → PYL on a Whiff → card personas → reactive House deck. Cut from the top of this list first; the reactive House deck is the highest-value addition and should be the last thing dropped.*
 
 ---
 
