@@ -7,6 +7,7 @@ use std::path::Path;
 use bevy::prelude::*;
 
 use crate::state::AppState;
+use crate::theme::DisplayText;
 
 const INK: Color = Color::srgb(0.90, 0.87, 0.80);
 const FELT: Color = Color::srgb(0.05, 0.07, 0.06);
@@ -117,6 +118,7 @@ impl Screen {
                         Text::new(title),
                         TextFont::from_font_size(38.0),
                         TextColor(NEON),
+                        DisplayText,
                     ));
                 }
 

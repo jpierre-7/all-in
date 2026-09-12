@@ -20,6 +20,9 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `portraits/slotz.png` | 256×256 | — | **not wired yet** |
 | `portraits/pit_boss.png` | 256×256 | — | **not wired yet** |
 | `portraits/the_house.png` | 256×256 | — | **not wired yet** |
+| `fonts/BarlowCondensed-Regular.ttf` | — | all text | `theme.rs` — the default font |
+| `fonts/Limelight-Regular.ttf` | — | screen titles | `theme.rs` — `Fonts::display` |
+| `icon.png` | 256×256 | — | **not wired** — see below |
 
 ## Card frame
 
@@ -76,6 +79,44 @@ stands. `start_duel` in `plugin.rs` does have `encounter.id` — either add
 `start_duel`. Loading follows the existing `load_art` pattern; the three files
 map to `EncounterId::Slotz`, `PitBoss`, and `TheHouse`. Minions have no
 portrait.
+
+## Fonts
+
+Two faces, both OFL, licences committed beside them:
+
+- **Barlow Condensed** — body. Condensed like ticket and signage type, and
+  legible at the 16–20px the prose screens use.
+- **Limelight** — display. Art deco, for screen titles.
+
+They are **embedded with `include_bytes!`**, not loaded from `assets/`, so they
+can never go missing and never race the first frame.
+
+`bevy_text` installs FiraMono into `Assets<Font>` at the default asset id, and
+every `TextFont` that names no font resolves there. `ThemePlugin` overwrites
+that one entry, which re-types the whole game — combat and overworld alike —
+without touching a single call site. That is why there is no font threading
+through `Screen` or the combat UI.
+
+The display face is opt-in: tag a text entity with `DisplayText` and a system
+swaps it over on the next frame, then drops the tag. Screen titles use it. The
+combat UI does not yet — the enemy name and the Stack numbers are the obvious
+candidates, and the tag is all it takes.
+
+## The app icon is not the window icon
+
+`assets/icon.png` is a pair of dice showing a natural seven. It is for the
+README, the itch page and pitch material.
+
+It is **not** set as the window icon, deliberately. Bevy re-exports only
+`EventLoopProxy` and the cursor types from winit — not `winit::window::Icon` —
+so wiring it would mean adding `winit` as a direct dependency that has to stay
+version-locked to whatever Bevy depends on (0.30.13 today). And
+`set_window_icon` **does nothing on macOS**: the Dock and title bar read from an
+app bundle, not the running process. A new pinned dependency for no effect on
+the machine we demo from was not worth it. On Windows and Linux it would work,
+if someone wants it later.
+
+The window title *is* set, in `main.rs`: **ALL-IN**.
 
 ## Palette
 
