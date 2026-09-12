@@ -131,12 +131,28 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 
 **Stretch Tells (cut if behind schedule):** Echo, Brittle, [others TBD]
 
-**Starter deck:** fixed, no deckbuilding meta-layer for MVP. [Aiming for ~15-20 cards. (might have to bump this up)]
+**Starter deck:** fixed, no deckbuilding meta-layer for MVP. 18 cards, 8 with a Tell (44%). Prototyped on the `prototype/starter-deck` branch: a careless player fires Streak ~1/3 of the time, a careful one ~94%, a 6-chip gap in mean Hand from sequencing alone. Mean Hand ~28 (naive) / ~34 (smart), range 18–52. Whiffs start appearing around House Edge 26.
 
-| Card Name | Base Value | Tell | Notes/Flavor |
+| Card Name | Stack | Tell | Notes/Flavor |
 | --- | --- | --- | --- |
-| | | | |
-| | | | |
+| Two of Clubs | 2 | — | |
+| Cheap Seat | 3 | — | |
+| Comped Drink | 3 | — | |
+| Four of Hearts | 4 | — | |
+| Bus Ticket Home | 4 | — | |
+| Five of Spades | 5 | — | |
+| Borrowed Watch | 5 | — | |
+| Six of Diamonds | 6 | — | |
+| Marked Card | 7 | — | |
+| Pawned Ring | 8 | — | Biggest vanilla; the natural All In fuel |
+| Hot Streak | 3 | Streak | |
+| Lucky Seat | 4 | Streak | |
+| Dealer Blinks | 5 | Streak | |
+| Table Runs Hot | 6 | Streak | |
+| Last Dollar | 2 | All In | |
+| Car Keys | 3 | All In | |
+| Deed to the House | 4 | All In | |
+| Firstborn | 5 | All In | Yes, that one |
 
 ---
 
@@ -215,7 +231,7 @@ slips, cut from Section 11's stretch items before splitting attention further.
 ## 11. Open Questions / TODO
 
 - [x] Final title: All In
-- [ ] Full starter deck list (~15-20 cards)
+- [x] Full starter deck list: see §6
 - [ ] Enemy encounter list and flavor
 - [x] Opening/ending narrative beats: see `docs/narrative.md`
 - [ ] Pitch/demo script for judging
