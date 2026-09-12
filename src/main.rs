@@ -1,5 +1,6 @@
 //! App builder. Owned by Dev 2. Plugins are added here and nowhere else.
 
+mod combat;
 mod overworld;
 mod run;
 mod state;
