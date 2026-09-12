@@ -15,8 +15,16 @@ The enemy's defense threshold for one turn. The Hand must reach it.
 _Avoid_: defense, armor, threshold
 
 **Rising Blinds**:
-Scheduled escalation of House Edge as combat goes on.
+Scheduled escalation as combat goes on: House Edge for ordinary enemies, the Margin for The House.
 _Avoid_: scaling, difficulty ramp
+
+**Margin**:
+How far above the player's read Hand The House sets its Edge. Rises with the Blinds.
+_Avoid_: house cut, spread
+
+**Hole Card**:
+Against The House only: the player's final Play of the turn, made after the House has locked its Edge on everything played before it.
+_Avoid_: last card, closer
 
 ### A turn
 
