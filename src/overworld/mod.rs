@@ -192,7 +192,10 @@ fn fight_or_fold(
         Some(1) => {
             // The whole handover: an `Encounter` and the state. Combat takes it
             // from here and comes back at `PostCombat`.
-            commands.insert_resource(Encounter { id, enemy: Enemy::for_encounter(id) });
+            commands.insert_resource(Encounter {
+                id,
+                enemy: Enemy::for_encounter(id),
+            });
             next.set(AppState::Combat);
         }
         Some(2) => {
@@ -564,7 +567,11 @@ mod tests {
 
         press(&mut app, KeyCode::Enter);
 
-        assert_eq!(state(&app), AppState::Reward, "the pick is still on the table");
+        assert_eq!(
+            state(&app),
+            AppState::Reward,
+            "the pick is still on the table"
+        );
         let run = app.world().resource::<RunState>();
         assert!(run.perks.is_empty());
         assert_eq!(run.deck.len(), crate::run::starter_deck().len());

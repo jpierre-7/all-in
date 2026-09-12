@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use super::duel::{Coin, Duel, Phase, PlayError, TurnResult};
 use super::ui;
-use crate::run::{Card, Encounter, RunState, xorshift64};
+use crate::run::{Card, Encounter, EncounterId, RunState, xorshift64};
 use crate::state::AppState;
 
 pub struct CombatPlugin;
@@ -17,7 +17,10 @@ impl Plugin for CombatPlugin {
             .add_systems(OnEnter(AppState::Combat), start_duel)
             .add_systems(
                 Update,
-                (take_input, ui::redraw.run_if(resource_exists_and_changed::<ActiveDuel>))
+                (
+                    take_input,
+                    ui::redraw.run_if(resource_exists_and_changed::<ActiveDuel>),
+                )
                     .chain()
                     .run_if(in_state(AppState::Combat)),
             );
@@ -37,17 +40,30 @@ pub struct ActiveDuel {
     pub notice: Option<String>,
 }
 
-fn start_duel(mut commands: Commands, encounter: Res<Encounter>, run: Res<RunState>, time: Res<Time>) {
+fn start_duel(
+    mut commands: Commands,
+    encounter: Res<Encounter>,
+    run: Res<RunState>,
+    time: Res<Time>,
+) {
     let seed = time.elapsed_secs_f64().to_bits() | 1;
     // Everything the run has picked up lands here, in one place: the deck the
     // rewards built, the Plays and Blinds the perks bought, the coin Slotz
     // rigged, and whatever is left of the Loaded Dice.
     let mut enemy = encounter.enemy.clone();
     enemy.blinds = run.blinds(enemy.blinds);
-    let duel = Duel::new(shuffled(run.deck.clone(), seed), run.stack, run.plays(), enemy)
-        .with_seed(seed.rotate_left(17))
-        .with_coin(Coin::for_perks(&run.perks))
-        .with_loaded_dice(run.loaded_dice());
+    let mut duel = Duel::new(
+        shuffled(run.deck.clone(), seed),
+        run.stack,
+        run.plays(),
+        enemy,
+    )
+    .with_seed(seed.rotate_left(17))
+    .with_coin(Coin::for_perks(&run.perks))
+    .with_loaded_dice(run.loaded_dice());
+    if encounter.id == EncounterId::TheHouse {
+        duel = duel.under_the_hole_card_rule();
+    }
 
     commands.insert_resource(ActiveDuel {
         duel,
@@ -107,7 +123,11 @@ fn take_input(
         if !pushed && !held {
             return;
         }
-        let result = if pushed { active.duel.push() } else { active.duel.hold() };
+        let result = if pushed {
+            active.duel.push()
+        } else {
+            active.duel.hold()
+        };
         let Some(result) = result else { return };
         active.last_turn = Some(result);
         active.notice = None;
@@ -147,7 +167,9 @@ fn finish_if_over(
     run: &mut RunState,
     next: &mut NextState<AppState>,
 ) {
-    let Some(outcome) = active.duel.outcome() else { return };
+    let Some(outcome) = active.duel.outcome() else {
+        return;
+    };
     run.stack = active.duel.player_stack();
     run.set_loaded_dice(active.duel.dice_left());
     commands.remove_resource::<ActiveDuel>();
@@ -187,8 +209,21 @@ mod tests {
         table_with(player_stack, enemy_stack, house_edge, Vec::new())
     }
 
-    pub(super) fn table_with(player_stack: u32, enemy_stack: u32, house_edge: u32, perks: Vec<Perk>) -> App {
-        table_for_run(RunState { stack: player_stack, perks, ..RunState::new() }, enemy_stack, house_edge)
+    pub(super) fn table_with(
+        player_stack: u32,
+        enemy_stack: u32,
+        house_edge: u32,
+        perks: Vec<Perk>,
+    ) -> App {
+        table_for_run(
+            RunState {
+                stack: player_stack,
+                perks,
+                ..RunState::new()
+            },
+            enemy_stack,
+            house_edge,
+        )
     }
 
     /// A table set for a run that has already picked things up.
@@ -201,19 +236,33 @@ mod tests {
             .insert_resource(run)
             .insert_resource(Encounter {
                 id: EncounterId::FloorMinion,
-                enemy: Enemy { name: "shill", stack: enemy_stack, house_edge, blinds: RisingBlinds { every_turns: 2, increase: 2 } },
+                enemy: Enemy {
+                    name: "shill",
+                    stack: enemy_stack,
+                    house_edge,
+                    blinds: RisingBlinds {
+                        every_turns: 2,
+                        increase: 2,
+                    },
+                },
             })
             .add_plugins(CombatPlugin);
         app.update();
-        app.world_mut().resource_mut::<NextState<AppState>>().set(AppState::Combat);
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Combat);
         app.update();
         app
     }
 
     pub(super) fn press(app: &mut App, key: KeyCode) {
-        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
         app.update();
-        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
         app.update();
     }
 
@@ -222,7 +271,25 @@ mod tests {
     }
 
     pub(super) fn rig(app: &mut App, coin: Coin) {
-        app.world_mut().resource_mut::<ActiveDuel>().duel.set_coin(coin);
+        app.world_mut()
+            .resource_mut::<ActiveDuel>()
+            .duel
+            .set_coin(coin);
+    }
+
+    #[test]
+    fn the_big_shots_table_plays_under_the_hole_card_rule() {
+        let mut app = table(50, 35, 1);
+        app.world_mut().resource_mut::<Encounter>().id = EncounterId::TheHouse;
+        // Re-enter Combat so start_duel sees the House.
+        app.world_mut().resource_mut::<NextState<AppState>>().set(AppState::Lobby);
+        app.update();
+        app.world_mut().resource_mut::<NextState<AppState>>().set(AppState::Combat);
+        app.update();
+
+        let active = app.world().resource::<ActiveDuel>();
+        assert_eq!(active.duel.margin(), Some(1));
+        assert_eq!(active.duel.locked_edge(), None);
     }
 
     #[test]
@@ -244,7 +311,10 @@ mod tests {
         press(&mut app, KeyCode::Enter);
 
         assert_eq!(state(&app), AppState::PostCombat);
-        assert_eq!(*app.world().resource::<CombatOutcome>(), CombatOutcome::Lost);
+        assert_eq!(
+            *app.world().resource::<CombatOutcome>(),
+            CombatOutcome::Lost
+        );
         assert_eq!(app.world().resource::<RunState>().stack, 0);
         assert!(app.world().get_resource::<Encounter>().is_none());
         assert!(app.world().get_resource::<ActiveDuel>().is_none());
@@ -257,7 +327,12 @@ mod tests {
 
         // Slot 1 might be an All In; if so the next key names the sacrifice.
         press(&mut app, KeyCode::Digit1);
-        if app.world().resource::<ActiveDuel>().awaiting_sacrifice.is_some() {
+        if app
+            .world()
+            .resource::<ActiveDuel>()
+            .awaiting_sacrifice
+            .is_some()
+        {
             press(&mut app, KeyCode::Digit2); // All In burns the next card
         }
         press(&mut app, KeyCode::Enter); // shows the Hand: the prompt goes up
@@ -273,8 +348,8 @@ mod tests {
 mod push_your_luck_tests {
     use bevy::prelude::*;
 
-    use super::tests::{press, rig, state, table, table_with};
     use super::ActiveDuel;
+    use super::tests::{press, rig, state, table, table_with};
     use crate::combat::duel::{Coin, Outcome, Phase, Push};
     use crate::run::{CombatOutcome, Perk, RunState};
     use crate::state::AppState;
@@ -282,7 +357,12 @@ mod push_your_luck_tests {
     /// Play the card in slot 1, burning slot 2 if it turns out to be All In.
     fn play_one(app: &mut App) {
         press(app, KeyCode::Digit1);
-        if app.world().resource::<ActiveDuel>().awaiting_sacrifice.is_some() {
+        if app
+            .world()
+            .resource::<ActiveDuel>()
+            .awaiting_sacrifice
+            .is_some()
+        {
             press(app, KeyCode::Digit2);
         }
     }
@@ -360,7 +440,10 @@ mod push_your_luck_tests {
         press(&mut app, KeyCode::KeyP);
 
         assert_eq!(state(&app), AppState::PostCombat);
-        assert_eq!(*app.world().resource::<CombatOutcome>(), CombatOutcome::Lost);
+        assert_eq!(
+            *app.world().resource::<CombatOutcome>(),
+            CombatOutcome::Lost
+        );
         assert_eq!(app.world().resource::<RunState>().stack, 0);
     }
 
@@ -376,7 +459,10 @@ mod push_your_luck_tests {
         let active = app.world().resource::<ActiveDuel>();
         assert_eq!(active.duel.hand(), hand);
         assert_eq!(active.duel.phase(), Phase::PushYourLuck);
-        assert!(active.notice.is_some(), "the screen says why nothing happened");
+        assert!(
+            active.notice.is_some(),
+            "the screen says why nothing happened"
+        );
     }
 
     #[test]
@@ -395,10 +481,16 @@ mod push_your_luck_tests {
     #[test]
     fn the_slotz_perk_arms_the_best_of_three_coin() {
         let plain = table(40, 999, 20);
-        assert_eq!(plain.world().resource::<ActiveDuel>().duel.coin(), Coin::BASE);
+        assert_eq!(
+            plain.world().resource::<ActiveDuel>().duel.coin(),
+            Coin::BASE
+        );
 
         let slotz = table_with(40, 999, 20, vec![Perk::PylBestTwoOfThree]);
-        assert_eq!(slotz.world().resource::<ActiveDuel>().duel.coin(), Coin::SLOTZ);
+        assert_eq!(
+            slotz.world().resource::<ActiveDuel>().duel.coin(),
+            Coin::SLOTZ
+        );
     }
 
     fn payout(kind: Outcome) -> u32 {
@@ -421,7 +513,11 @@ mod run_modifier_tests {
     #[test]
     fn the_pit_boss_perk_deals_a_sixth_play() {
         assert_eq!(
-            table(40, 999, 20).world().resource::<ActiveDuel>().duel.plays_left(),
+            table(40, 999, 20)
+                .world()
+                .resource::<ActiveDuel>()
+                .duel
+                .plays_left(),
             5
         );
 
@@ -447,7 +543,10 @@ mod run_modifier_tests {
 
     #[test]
     fn loaded_dice_come_to_the_table_and_what_is_left_goes_home() {
-        let mut run = RunState { stack: 40, ..RunState::new() };
+        let mut run = RunState {
+            stack: 40,
+            ..RunState::new()
+        };
         run.apply(Reward::LoadedDice, 1);
         let mut app = table_for_run(run, 1, 0);
 
@@ -464,13 +563,18 @@ mod run_modifier_tests {
 
     #[test]
     fn the_deck_the_rewards_built_is_the_deck_that_is_dealt() {
-        let mut run = RunState { stack: 40, ..RunState::new() };
+        let mut run = RunState {
+            stack: 40,
+            ..RunState::new()
+        };
         run.deck.clear();
         run.apply(Reward::SlotzStreakCards, 1);
         let app = table_for_run(run, 999, 20);
 
         let draw = app.world().resource::<ActiveDuel>().duel.draw();
         assert_eq!(draw.len(), 3, "a three-card deck deals three cards");
-        assert!(draw.iter().all(|c| c.name == "Loose Slot" || c.name == "Second Cherry" || c.name == "Jackpot Bell"));
+        assert!(draw.iter().all(|c| c.name == "Loose Slot"
+            || c.name == "Second Cherry"
+            || c.name == "Jackpot Bell"));
     }
 }

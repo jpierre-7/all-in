@@ -43,12 +43,22 @@ pub struct Coin {
 
 impl Coin {
     /// 45% player / 55% House, one flip.
-    pub const BASE: Coin = Coin { player_pct: 45, best_of: 1 };
+    pub const BASE: Coin = Coin {
+        player_pct: 45,
+        best_of: 1,
+    };
     /// Slotz Option 1: best 2-of-3 at 49/51, which is 3p2 - 2p3 =~ 48.5%.
-    pub const SLOTZ: Coin = Coin { player_pct: 49, best_of: 3 };
+    pub const SLOTZ: Coin = Coin {
+        player_pct: 49,
+        best_of: 3,
+    };
 
     pub fn for_perks(perks: &[Perk]) -> Coin {
-        if perks.contains(&Perk::PylBestTwoOfThree) { Coin::SLOTZ } else { Coin::BASE }
+        if perks.contains(&Perk::PylBestTwoOfThree) {
+            Coin::SLOTZ
+        } else {
+            Coin::BASE
+        }
     }
 
     /// `rolls` yields flips; the player takes one when `roll % 100` is under
@@ -110,7 +120,20 @@ pub struct Duel {
     coin: Coin,
     /// Hands still carrying the Loaded Dice bonus, carried in from the run.
     dice_left: u8,
+    /// Set for The House only: the Hole Card rule (#5).
+    house: Option<HouseRule>,
     rng: u64,
+}
+
+/// The House reads The Hand when one Play remains and sets its Edge to that
+/// plus a margin; the final Play is the Hole Card. Rising Blinds raise the
+/// margin, not the Edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HouseRule {
+    margin: u32,
+    /// The Edge is unknown until the read; `None` means it hasn't happened
+    /// this turn.
+    locked: Option<u32>,
 }
 
 impl Duel {
@@ -132,6 +155,7 @@ impl Duel {
             phase: Phase::Playing,
             coin: Coin::BASE,
             dice_left: 0,
+            house: None,
             rng: 0x5eed_cafe_f00d_d1ce,
         };
         duel.refill();
@@ -156,6 +180,42 @@ impl Duel {
     pub fn with_loaded_dice(mut self, hands: u8) -> Self {
         self.dice_left = hands;
         self
+    }
+
+    /// Play this duel under the Hole Card rule. The enemy's `house_edge` is
+    /// read as the starting margin and its `blinds` as the margin ramp, which
+    /// is how `Enemy::for_encounter` writes The House.
+    pub fn under_the_hole_card_rule(mut self) -> Self {
+        self.house = Some(HouseRule {
+            margin: self.enemy.house_edge,
+            locked: None,
+        });
+        self.house_edge = 0;
+        self
+    }
+
+    /// The House's current margin; `None` for an ordinary enemy.
+    pub fn margin(&self) -> Option<u32> {
+        self.house.map(|h| h.margin)
+    }
+
+    /// The House Edge as the player can see it: an ordinary enemy's is always
+    /// known; The House's only once it has read The Hand this turn.
+    pub fn locked_edge(&self) -> Option<u32> {
+        match self.house {
+            None => Some(self.house_edge),
+            Some(h) => h.locked,
+        }
+    }
+
+    /// The House locks its Edge on everything played so far, plus the margin.
+    fn house_reads_the_hand(&mut self) {
+        if let Some(h) = self.house.as_mut()
+            && h.locked.is_none()
+        {
+            h.locked = Some(self.hand + h.margin);
+            self.house_edge = self.hand + h.margin;
+        }
     }
 
     pub fn coin(&self) -> Coin {
@@ -206,6 +266,9 @@ impl Duel {
         if self.phase == Phase::PushYourLuck {
             return None;
         }
+        // Showing early against The House still locks the Edge at "one Play
+        // remaining"; with no Hole Card played it's a Whiff by the margin.
+        self.house_reads_the_hand();
         // Step 4: the items that modify The Hand land here, after every card
         // is down and after The House has locked its Edge on what it saw.
         if self.dice_left > 0 {
@@ -258,8 +321,16 @@ impl Duel {
 
         let every = u32::from(self.enemy.blinds.every_turns.max(1));
         let blinds_rose = self.turn.is_multiple_of(every);
-        if blinds_rose {
-            self.house_edge += self.enemy.blinds.increase;
+        match self.house.as_mut() {
+            Some(h) => {
+                if blinds_rose {
+                    h.margin += self.enemy.blinds.increase;
+                }
+                h.locked = None;
+                self.house_edge = 0;
+            }
+            None if blinds_rose => self.house_edge += self.enemy.blinds.increase,
+            None => {}
         }
 
         self.turn += 1;
@@ -269,7 +340,13 @@ impl Duel {
         self.phase = Phase::Playing;
         self.refill();
 
-        TurnResult { hand, house_edge, kind, pyl, blinds_rose }
+        TurnResult {
+            hand,
+            house_edge,
+            kind,
+            pyl,
+            blinds_rose,
+        }
     }
 
     pub fn draw(&self) -> &[Card] {
@@ -298,7 +375,9 @@ impl Duel {
         let sacrificed = match (played.tell, sacrifice) {
             (Some(Tell::AllIn), None) => return Err(PlayError::AllInNeedsSacrifice),
             (Some(Tell::AllIn), Some(i)) if i == card => return Err(PlayError::NoSuchCard),
-            (Some(Tell::AllIn), Some(i)) => Some(self.draw.get(i).ok_or(PlayError::NoSuchCard)?.clone()),
+            (Some(Tell::AllIn), Some(i)) => {
+                Some(self.draw.get(i).ok_or(PlayError::NoSuchCard)?.clone())
+            }
             (_, Some(_)) => return Err(PlayError::NotAllIn),
             (_, None) => None,
         };
@@ -321,6 +400,9 @@ impl Duel {
         self.hand += value;
         self.plays_left -= 1;
         self.last_had_tell = played.tell.is_some();
+        if self.plays_left == 1 {
+            self.house_reads_the_hand();
+        }
         Ok(value)
     }
 
@@ -356,8 +438,14 @@ impl Duel {
 /// without saying what the odds are.
 #[cfg(test)]
 impl Coin {
-    pub const SURE_THING: Coin = Coin { player_pct: 100, best_of: 1 };
-    pub const RIGGED: Coin = Coin { player_pct: 0, best_of: 1 };
+    pub const SURE_THING: Coin = Coin {
+        player_pct: 100,
+        best_of: 1,
+    };
+    pub const RIGGED: Coin = Coin {
+        player_pct: 0,
+        best_of: 1,
+    };
 }
 
 /// Conveniences for tests that don't care about the prompt.
@@ -371,7 +459,9 @@ impl Duel {
     pub fn end_turn(&mut self) -> TurnResult {
         match self.show_hand() {
             Some(result) => result,
-            None => self.hold().expect("showing a clearing Hand puts the prompt up"),
+            None => self
+                .hold()
+                .expect("showing a clearing Hand puts the prompt up"),
         }
     }
 }
@@ -382,16 +472,36 @@ mod tests {
     use crate::run::{RisingBlinds, Tell};
 
     pub(super) fn card(stack: u32) -> Card {
-        Card { name: "card", stack, tell: None }
+        Card {
+            name: "card",
+            stack,
+            tell: None,
+        }
     }
     fn streak(stack: u32) -> Card {
-        Card { name: "streak", stack, tell: Some(Tell::Streak) }
+        Card {
+            name: "streak",
+            stack,
+            tell: Some(Tell::Streak),
+        }
     }
     fn all_in(stack: u32) -> Card {
-        Card { name: "all in", stack, tell: Some(Tell::AllIn) }
+        Card {
+            name: "all in",
+            stack,
+            tell: Some(Tell::AllIn),
+        }
     }
     pub(super) fn enemy(stack: u32, house_edge: u32) -> Enemy {
-        Enemy { name: "shill", stack, house_edge, blinds: RisingBlinds { every_turns: 2, increase: 2 } }
+        Enemy {
+            name: "shill",
+            stack,
+            house_edge,
+            blinds: RisingBlinds {
+                every_turns: 2,
+                increase: 2,
+            },
+        }
     }
     /// A deck of vanilla cards 1..=n, so card n is drawn first.
     fn vanilla_deck(n: u32) -> Vec<Card> {
@@ -423,7 +533,15 @@ mod tests {
     #[test]
     fn streak_doubles_when_the_previous_card_had_any_tell() {
         // Drawn first: all_in(2), streak(5), card(3), ...
-        let deck = vec![card(1), card(1), card(1), card(1), card(3), streak(5), all_in(2)];
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(3),
+            streak(5),
+            all_in(2),
+        ];
         let mut duel = Duel::new(deck, 40, 5, enemy(30, 20));
 
         duel.play(0, Some(2)).unwrap(); // All In 2, sacrificing card(3): 5
@@ -435,7 +553,15 @@ mod tests {
 
     #[test]
     fn streak_does_not_double_after_a_vanilla_card_or_as_the_first_play() {
-        let deck = vec![card(1), card(1), card(1), card(1), streak(4), card(3), streak(5)];
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            streak(4),
+            card(3),
+            streak(5),
+        ];
         let mut duel = Duel::new(deck, 40, 5, enemy(30, 20));
 
         assert_eq!(duel.play(0, None).unwrap(), 5); // first play
@@ -446,7 +572,15 @@ mod tests {
 
     #[test]
     fn all_in_burns_the_sacrifice_and_adds_its_stack() {
-        let deck = vec![card(1), card(1), card(1), card(1), card(3), card(8), all_in(2)];
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(3),
+            card(8),
+            all_in(2),
+        ];
         let mut duel = Duel::new(deck, 40, 5, enemy(30, 20));
 
         let contributed = duel.play(0, Some(1)).unwrap(); // sacrifice card(8)
@@ -461,7 +595,15 @@ mod tests {
 
     #[test]
     fn illegal_plays_are_refused_and_change_nothing() {
-        let deck = vec![card(1), card(1), card(1), card(1), card(3), card(8), all_in(2)];
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(3),
+            card(8),
+            all_in(2),
+        ];
         let mut duel = Duel::new(deck, 40, 5, enemy(30, 20));
 
         assert_eq!(duel.play(9, None), Err(PlayError::NoSuchCard));
@@ -488,7 +630,16 @@ mod tests {
 
         let result = duel.end_turn();
 
-        assert_eq!(result, TurnResult { hand: 80, house_edge: 20, kind: Outcome::Payout(60), pyl: None, blinds_rose: false });
+        assert_eq!(
+            result,
+            TurnResult {
+                hand: 80,
+                house_edge: 20,
+                kind: Outcome::Payout(60),
+                pyl: None,
+                blinds_rose: false
+            }
+        );
         assert_eq!(duel.enemy_stack(), 40);
         assert_eq!(duel.player_stack(), 40);
         assert_eq!(duel.outcome(), None);
@@ -576,7 +727,12 @@ mod tests {
         let mut stacks: Vec<u32> = duel.draw().iter().map(|c| c.stack).collect();
         stacks.sort_unstable();
         // 4,3 carried over; 2,1 from the deck; three of {9,8,7,6,5} recycled.
-        assert!(stacks.contains(&4) && stacks.contains(&3) && stacks.contains(&2) && stacks.contains(&1));
+        assert!(
+            stacks.contains(&4)
+                && stacks.contains(&3)
+                && stacks.contains(&2)
+                && stacks.contains(&1)
+        );
         assert_eq!(stacks.iter().filter(|&&v| v >= 5).count(), 3);
     }
 }
@@ -627,7 +783,16 @@ mod push_your_luck_tests {
 
         let result = duel.hold().expect("the prompt is up");
 
-        assert_eq!(result, TurnResult { hand: 30, house_edge: 20, kind: Outcome::Payout(10), pyl: None, blinds_rose: false });
+        assert_eq!(
+            result,
+            TurnResult {
+                hand: 30,
+                house_edge: 20,
+                kind: Outcome::Payout(10),
+                pyl: None,
+                blinds_rose: false
+            }
+        );
         assert_eq!(duel.enemy_stack(), 989);
         assert_eq!(duel.phase(), Phase::Playing);
     }
@@ -706,7 +871,13 @@ mod push_your_luck_tests {
 
     #[test]
     fn the_base_coin_is_one_flip_the_player_takes_45_times_in_100() {
-        assert_eq!(Coin::BASE, Coin { player_pct: 45, best_of: 1 });
+        assert_eq!(
+            Coin::BASE,
+            Coin {
+                player_pct: 45,
+                best_of: 1
+            }
+        );
         assert_eq!(Coin::BASE.resolve([44].into_iter()), Push::Won);
         assert_eq!(Coin::BASE.resolve([45].into_iter()), Push::Lost);
         assert_eq!(wins_over_every_roll(Coin::BASE), 450_000);
@@ -729,7 +900,13 @@ mod push_your_luck_tests {
 
     #[test]
     fn slotz_option_one_is_best_two_of_three_at_49_51() {
-        assert_eq!(Coin::SLOTZ, Coin { player_pct: 49, best_of: 3 });
+        assert_eq!(
+            Coin::SLOTZ,
+            Coin {
+                player_pct: 49,
+                best_of: 3
+            }
+        );
         // Two wins take it, whichever way the third would have gone.
         assert_eq!(Coin::SLOTZ.resolve([10, 90, 10].into_iter()), Push::Won);
         assert_eq!(Coin::SLOTZ.resolve([90, 10, 10].into_iter()), Push::Won);
@@ -757,7 +934,10 @@ mod push_your_luck_tests {
     fn slotz_option_one_is_worth_about_48_point_5_percent() {
         // 3p^2 - 2p^3 at p = 49/100, over the million flips it can be handed.
         assert_eq!(wins_over_every_roll(Coin::SLOTZ), 485_002);
-        assert!(wins_over_every_roll(Coin::SLOTZ) > wins_over_every_roll(Coin::BASE), "the perk is worth taking");
+        assert!(
+            wins_over_every_roll(Coin::SLOTZ) > wins_over_every_roll(Coin::BASE),
+            "the perk is worth taking"
+        );
     }
 
     #[test]
@@ -773,7 +953,11 @@ mod push_your_luck_tests {
                 None => panic!("a Push always flips"),
             }
         }
-        assert_eq!(seen, (true, true), "the duel's own rolls reach both sides of the coin");
+        assert_eq!(
+            seen,
+            (true, true),
+            "the duel's own rolls reach both sides of the coin"
+        );
     }
 }
 
@@ -840,5 +1024,106 @@ mod loaded_dice_tests {
 
         assert_eq!(duel.hand(), LOADED_DICE_BONUS);
         assert_eq!(duel.dice_left(), 1);
+    }
+}
+
+#[cfg(test)]
+mod the_house_tests {
+    use super::tests::{card, enemy};
+    use super::*;
+    use crate::run::RisingBlinds;
+
+    fn vanilla_deck(n: u32) -> Vec<Card> {
+        (1..=n).map(card).collect()
+    }
+
+    // ---- The House: the Hole Card rule (#5, #14) ----
+
+    /// The House from `Enemy::for_encounter`: `house_edge` is the starting
+    /// margin, `blinds` the margin ramp.
+    fn the_house(stack: u32) -> Enemy {
+        Enemy {
+            name: "THE HOUSE",
+            stack,
+            house_edge: 1,
+            blinds: RisingBlinds {
+                every_turns: 2,
+                increase: 2,
+            },
+        }
+    }
+
+    #[test]
+    fn the_house_has_no_edge_until_one_play_remains() {
+        // Draw: 18,17,16,15,14,13,12.
+        let mut duel = Duel::new(vanilla_deck(18), 50, 5, the_house(35)).under_the_hole_card_rule();
+
+        assert_eq!(duel.locked_edge(), None);
+        for _ in 0..3 {
+            duel.play(0, None).unwrap();
+        }
+        assert_eq!(duel.locked_edge(), None);
+
+        duel.play(0, None).unwrap(); // fourth card: 18+17+16+15 = 66
+
+        assert_eq!(duel.plays_left(), 1);
+        assert_eq!(duel.locked_edge(), Some(67)); // Hand + margin 1
+        assert_eq!(duel.house_edge(), 67);
+    }
+
+    #[test]
+    fn the_hole_card_pays_its_value_minus_the_margin() {
+        let mut duel = Duel::new(vanilla_deck(18), 50, 5, the_house(35)).under_the_hole_card_rule();
+        for _ in 0..5 {
+            duel.play(0, None).unwrap(); // hole card is 14
+        }
+
+        assert_eq!(duel.show_hand(), None); // 80 >= 67: PYL is offered
+        let result = duel.hold().unwrap();
+
+        assert_eq!(result.kind, Outcome::Payout(13)); // 14 - 1
+        assert_eq!(duel.enemy_stack(), 22);
+    }
+
+    #[test]
+    fn showing_the_hand_early_locks_the_edge_and_whiffs_by_the_margin() {
+        let mut duel = Duel::new(vanilla_deck(18), 50, 5, the_house(35)).under_the_hole_card_rule();
+        duel.play(0, None).unwrap();
+        duel.play(0, None).unwrap(); // 35, three Plays unused
+
+        let result = duel.show_hand().unwrap(); // no hole card: never offered PYL
+
+        assert_eq!(result.house_edge, 36);
+        assert_eq!(result.kind, Outcome::Whiff(1));
+        assert_eq!(duel.player_stack(), 49);
+    }
+
+    #[test]
+    fn the_blinds_raise_the_margin_not_the_edge() {
+        let mut duel =
+            Duel::new(vanilla_deck(40), 999, 5, the_house(9999)).under_the_hole_card_rule();
+
+        assert_eq!(duel.margin(), Some(1));
+        duel.show_hand(); // turn 1
+        duel.show_hand(); // turn 2: blinds tick
+        assert_eq!(duel.margin(), Some(3));
+        assert_eq!(duel.locked_edge(), None); // a fresh turn, nothing read yet
+
+        for _ in 0..4 {
+            duel.play(0, None).unwrap();
+        }
+        assert_eq!(duel.locked_edge(), Some(duel.hand() + 3));
+    }
+
+    #[test]
+    fn ordinary_enemies_are_untouched_by_the_house_rule() {
+        let mut duel = Duel::new(vanilla_deck(18), 40, 5, enemy(30, 20));
+
+        assert_eq!(duel.margin(), None);
+        assert_eq!(duel.locked_edge(), Some(20));
+        for _ in 0..4 {
+            duel.play(0, None).unwrap();
+        }
+        assert_eq!(duel.house_edge(), 20);
     }
 }
