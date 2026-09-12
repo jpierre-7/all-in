@@ -7,7 +7,6 @@
 #[allow(dead_code)] // superseded by combat::CombatPlugin; the tests below still drive it
 pub mod combat_stub;
 pub mod narrative;
-pub mod placeholder;
 pub mod progression;
 pub mod screens;
 
@@ -16,7 +15,7 @@ use bevy::prelude::*;
 use progression::{Progress, encounter_intro, win_line};
 use screens::{Screen, any_key, confirm, digit_pressed};
 
-use crate::run::{CombatOutcome, Encounter, RunState};
+use crate::run::{CombatOutcome, Encounter, Enemy, RewardOffer, RunState};
 use crate::state::AppState;
 
 pub struct OverworldPlugin;
@@ -31,7 +30,7 @@ impl Plugin for OverworldPlugin {
         // `PostCombat` (ADR-0001).
         app.init_state::<AppState>()
             .insert_resource(Progress::new())
-            .insert_resource(placeholder::new_run_state())
+            .insert_resource(RunState::new())
             .add_systems(Startup, spawn_camera)
             .add_systems(OnEnter(AppState::Opening), show_opening)
             .add_systems(OnEnter(AppState::Lobby), (end_the_run, show_lobby))
@@ -112,7 +111,7 @@ fn show_lobby(mut commands: Commands, folded: Option<Res<Folded>>) {
 /// Every way back into the Lobby ends a run, so the reset lives here: Fold and
 /// death both leave behind the perks, items and deck changes of the old one.
 fn end_the_run(mut run: ResMut<RunState>, mut progress: ResMut<Progress>) {
-    *run = placeholder::new_run_state();
+    *run = RunState::new();
     *progress = Progress::new();
 }
 
@@ -193,10 +192,7 @@ fn fight_or_fold(
         Some(1) => {
             // The whole handover: an `Encounter` and the state. Combat takes it
             // from here and comes back at `PostCombat`.
-            commands.insert_resource(Encounter {
-                id,
-                enemy: placeholder::enemy_for(id),
-            });
+            commands.insert_resource(Encounter { id, enemy: Enemy::for_encounter(id) });
             next.set(AppState::Combat);
         }
         Some(2) => {
@@ -247,31 +243,54 @@ fn leave_outcome(
 // ---------------------------------------------------------------------------
 
 fn show_reward(mut commands: Commands, progress: Res<Progress>) {
-    let boss = progress.encounter().is_some_and(|id| id.is_boss());
+    let Some(offer) = progress.encounter().and_then(RewardOffer::for_encounter) else {
+        return;
+    };
 
-    Screen::new()
-        .title(if boss { "A perk" } else { "Something drops" })
-        .prose(if boss {
-            "You pick one thing to carry up the stairs."
-        } else {
-            "Somebody left something on the felt, and you pocket it."
-        })
-        .footer(format!(
-            "{} (the pick itself lands with #12)",
-            narrative::ANY_KEY
-        ))
-        .spawn(&mut commands, AppState::Reward);
+    let screen = match offer {
+        RewardOffer::Drop(reward) => Screen::new()
+            .title("Something drops")
+            .prose(narrative::ITEM_DROP)
+            .prose(reward.label())
+            .footer(narrative::ANY_KEY),
+        RewardOffer::Pick(one, two) => Screen::new()
+            .title("A perk")
+            .prose(narrative::PERK_PICK)
+            .option(1, one.label())
+            .option(2, two.label())
+            .footer("Press 1 or 2 — or Enter to take the first."),
+    };
+
+    screen.spawn(&mut commands, AppState::Reward);
 }
 
+/// The reward is granted here rather than on the way in, so there is one place
+/// the run changes and it is the same place for a drop and a pick.
 fn take_reward(
     keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    mut run: ResMut<RunState>,
     mut progress: ResMut<Progress>,
     mut next: ResMut<NextState<AppState>>,
 ) {
-    if any_key(&keys) {
-        progress.advance();
-        next.set(progress.arrival());
-    }
+    let Some(offer) = progress.encounter().and_then(RewardOffer::for_encounter) else {
+        return;
+    };
+
+    let taken = match offer {
+        RewardOffer::Drop(reward) => any_key(&keys).then_some(reward),
+        RewardOffer::Pick(one, two) => match digit_pressed(&keys).or(confirm(&keys).then_some(1)) {
+            Some(1) => Some(one),
+            Some(2) => Some(two),
+            _ => None,
+        },
+    };
+    let Some(reward) = taken else { return };
+
+    // The only roll the overworld makes: the Pit Boss card pack.
+    run.apply(reward, time.elapsed_secs_f64().to_bits());
+    progress.advance();
+    next.set(progress.arrival());
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +320,7 @@ mod tests {
     use super::OverworldPlugin;
     use super::combat_stub::CombatStubPlugin;
     use super::progression::Progress;
-    use crate::run::{CombatOutcome, Encounter, EncounterId, RunState};
+    use crate::run::{CombatOutcome, Encounter, EncounterId, Perk, RunState, Tell};
     use crate::state::AppState;
 
     /// The shell with no window, no renderer and no real input device: enough
@@ -484,6 +503,74 @@ mod tests {
 
         press(&mut app, KeyCode::Enter);
         assert_eq!(state(&app), AppState::Lobby);
+    }
+
+    #[test]
+    fn beating_a_minion_drops_the_loaded_dice() {
+        let mut app = shell();
+        press(&mut app, KeyCode::Enter);
+        begin_run(&mut app);
+
+        duel(&mut app, true);
+        assert_eq!(state(&app), AppState::Reward);
+        assert_eq!(app.world().resource::<RunState>().loaded_dice(), 0);
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(app.world().resource::<RunState>().loaded_dice(), 2);
+        assert_eq!(state(&app), AppState::FightOrFold);
+    }
+
+    /// Walk to the Slotz reward screen and take the option `key` picks.
+    fn slotz_reward(key: KeyCode) -> App {
+        let mut app = shell();
+        press(&mut app, KeyCode::Enter);
+        begin_run(&mut app);
+        duel(&mut app, true); // the Floor minion
+        press(&mut app, KeyCode::Enter); // pocket the drop
+        duel(&mut app, true); // Slotz
+        assert_eq!(state(&app), AppState::Reward);
+
+        press(&mut app, key);
+        app
+    }
+
+    #[test]
+    fn a_boss_pays_out_the_perk_you_pressed_and_not_the_other_one() {
+        let coin = slotz_reward(KeyCode::Digit1);
+        let run = coin.world().resource::<RunState>();
+        assert_eq!(run.perks, vec![Perk::PylBestTwoOfThree]);
+        assert_eq!(run.deck.len(), crate::run::starter_deck().len());
+
+        let cards = slotz_reward(KeyCode::Digit2);
+        let run = cards.world().resource::<RunState>();
+        assert!(run.perks.is_empty());
+        let added = &run.deck[crate::run::starter_deck().len()..];
+        assert_eq!(added.len(), 3);
+        assert!(added.iter().all(|c| c.tell == Some(Tell::Streak)));
+    }
+
+    #[test]
+    fn taking_a_perk_walks_on_to_the_next_encounter() {
+        let app = slotz_reward(KeyCode::Digit2);
+
+        assert_eq!(progress(&app).encounter(), Some(EncounterId::PitMinion));
+        assert_eq!(state(&app), AppState::FloorIntro);
+    }
+
+    #[test]
+    fn folding_leaves_every_reward_behind() {
+        let mut app = slotz_reward(KeyCode::Digit1);
+        assert_eq!(app.world().resource::<RunState>().loaded_dice(), 2);
+
+        press(&mut app, KeyCode::Enter); // onto the Pit
+        assert_eq!(state(&app), AppState::FightOrFold);
+        press(&mut app, KeyCode::Digit2); // Fold
+
+        assert_eq!(state(&app), AppState::Lobby);
+        let run = app.world().resource::<RunState>();
+        assert!(run.perks.is_empty());
+        assert!(run.items.is_empty());
+        assert_eq!(run.deck.len(), crate::run::starter_deck().len());
     }
 
     #[test]

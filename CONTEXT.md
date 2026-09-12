@@ -79,3 +79,7 @@ A run-long modifier chosen from a pair after beating a boss.
 
 **Item**:
 A run-long modifier dropped at random after beating a minion.
+
+**Loaded Dice**:
+Item: +5 to The Hand for the next 2 Hands. Spent as The Hand is shown, and carried between encounters until it runs out.
+_Avoid_: buff, charge

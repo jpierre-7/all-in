@@ -153,6 +153,14 @@ His hand goes under his jacket.
 
 BANG.";
 
+pub const ITEM_DROP: &str = "\
+Nobody's coming back for what's left on the felt, so it goes in your coat
+pocket on the way past.";
+
+pub const PERK_PICK: &str = "\
+Something about how you play changes from here. You only get to change one
+thing, and you don't get to change it back.";
+
 pub const GAME_OVER: &str = "ALL IN";
 
 pub const ANY_KEY: &str = "Press any key.";

@@ -38,17 +38,16 @@ pub struct ActiveDuel {
 }
 
 fn start_duel(mut commands: Commands, encounter: Res<Encounter>, run: Res<RunState>, time: Res<Time>) {
-    let deck = if run.deck.is_empty() {
-        // The overworld still builds RunState from its own placeholder; once
-        // it calls `RunState::new` this branch is dead.
-        crate::run::starter_deck()
-    } else {
-        run.deck.clone()
-    };
     let seed = time.elapsed_secs_f64().to_bits() | 1;
-    let duel = Duel::new(shuffled(deck, seed), run.stack, run.plays(), encounter.enemy.clone())
+    // Everything the run has picked up lands here, in one place: the deck the
+    // rewards built, the Plays and Blinds the perks bought, the coin Slotz
+    // rigged, and whatever is left of the Loaded Dice.
+    let mut enemy = encounter.enemy.clone();
+    enemy.blinds = run.blinds(enemy.blinds);
+    let duel = Duel::new(shuffled(run.deck.clone(), seed), run.stack, run.plays(), enemy)
         .with_seed(seed.rotate_left(17))
-        .with_coin(Coin::for_perks(&run.perks));
+        .with_coin(Coin::for_perks(&run.perks))
+        .with_loaded_dice(run.loaded_dice());
 
     commands.insert_resource(ActiveDuel {
         duel,
@@ -152,6 +151,7 @@ fn finish_if_over(
 ) {
     let Some(outcome) = active.duel.outcome() else { return };
     run.stack = active.duel.player_stack();
+    run.set_loaded_dice(active.duel.dice_left());
     commands.remove_resource::<ActiveDuel>();
     commands.remove_resource::<Encounter>();
     commands.insert_resource(outcome);
@@ -190,12 +190,17 @@ mod tests {
     }
 
     pub(super) fn table_with(player_stack: u32, enemy_stack: u32, house_edge: u32, perks: Vec<Perk>) -> App {
+        table_for(RunState { stack: player_stack, perks, ..RunState::new() }, enemy_stack, house_edge)
+    }
+
+    /// A table set for a run that has already picked things up.
+    pub(super) fn table_for(run: RunState, enemy_stack: u32, house_edge: u32) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_plugins(StatesPlugin)
             .init_resource::<ButtonInput<KeyCode>>()
             .init_state::<AppState>()
-            .insert_resource(RunState { stack: player_stack, deck: Vec::new(), perks, items: Vec::new() })
+            .insert_resource(run)
             .insert_resource(Encounter {
                 id: EncounterId::FloorMinion,
                 enemy: Enemy { name: "shill", stack: enemy_stack, house_edge, blinds: RisingBlinds { every_turns: 2, increase: 2 } },
@@ -403,5 +408,71 @@ mod push_your_luck_tests {
             Outcome::Payout(n) => n,
             Outcome::Whiff(n) => panic!("expected a Payout, got a Whiff of {n}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod run_modifier_tests {
+    use bevy::prelude::*;
+
+    use super::ActiveDuel;
+    use super::tests::{press, state, table, table_for, table_with};
+    use crate::run::{CombatOutcome, Perk, Reward, RunState};
+    use crate::state::AppState;
+
+    #[test]
+    fn the_pit_boss_perk_deals_a_sixth_play() {
+        assert_eq!(
+            table(40, 999, 20).world().resource::<ActiveDuel>().duel.plays_left(),
+            5
+        );
+
+        let six = table_with(40, 999, 20, vec![Perk::SixPlaysSteepBlinds]);
+
+        assert_eq!(six.world().resource::<ActiveDuel>().duel.plays_left(), 6);
+    }
+
+    #[test]
+    fn the_pit_boss_perk_raises_the_blinds_every_turn() {
+        // Base blinds are every 3 turns, so a plain table's Edge sits still
+        // after one turn and the perk's has already moved.
+        let mut plain = table(400, 999, 30);
+        let mut steep = table_with(400, 999, 30, vec![Perk::SixPlaysSteepBlinds]);
+
+        for app in [&mut plain, &mut steep] {
+            press(app, KeyCode::Enter); // a Whiff: the turn resolves on the spot
+        }
+
+        assert_eq!(plain.world().resource::<ActiveDuel>().duel.house_edge(), 30);
+        assert_eq!(steep.world().resource::<ActiveDuel>().duel.house_edge(), 32);
+    }
+
+    #[test]
+    fn loaded_dice_come_to_the_table_and_what_is_left_goes_home() {
+        let mut run = RunState { stack: 40, ..RunState::new() };
+        run.apply(Reward::LoadedDice, 1);
+        let mut app = table_for(run, 1, 0);
+
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.dice_left(), 2);
+
+        // One Hand of nothing at all still clears an Edge of 0 on the dice.
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::KeyH);
+
+        assert_eq!(state(&app), AppState::PostCombat);
+        assert_eq!(*app.world().resource::<CombatOutcome>(), CombatOutcome::Won);
+        assert_eq!(app.world().resource::<RunState>().loaded_dice(), 1);
+    }
+
+    #[test]
+    fn the_deck_the_rewards_built_is_the_deck_that_is_dealt() {
+        let mut run = RunState { stack: 40, ..RunState::new() };
+        run.deck.clear();
+        run.apply(Reward::SlotzStreakCards, 1);
+        let app = table_for(run, 999, 20);
+
+        let draw = app.world().resource::<ActiveDuel>().duel.draw();
+        assert_eq!(draw.len(), 3, "a three-card deck deals three cards");
+        assert!(draw.iter().all(|c| c.name == "Loose Slot" || c.name == "Second Cherry" || c.name == "Jackpot Bell"));
     }
 }
