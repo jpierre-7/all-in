@@ -1,6 +1,6 @@
 //! The pure combat model: one duel, no Bevy. Vocabulary follows `CONTEXT.md`.
 
-use crate::run::{Card, CombatOutcome, Enemy, Tell};
+use crate::run::{Card, CombatOutcome, Enemy, Perk, Tell};
 
 pub const DRAW_SIZE: usize = 7;
 
@@ -12,6 +12,64 @@ pub enum PlayError {
     AllInNeedsSacrifice,
     /// A sacrifice was named for a card that isn't All In.
     NotAllIn,
+    /// The Hand has been shown and the Push Your Luck prompt is up.
+    HandIsFinal,
+}
+
+/// Where the turn is. Playing covers steps 1-4; the Hand is only final once
+/// it has been shown and cleared House Edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Playing,
+    PushYourLuck,
+}
+
+/// How a Push went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Push {
+    Won,
+    Lost,
+}
+
+/// The Push Your Luck coin. House-favoured by default, so Slotz Option 1 is
+/// worth taking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Coin {
+    /// The player's chance of taking one flip, in percent.
+    pub player_pct: u32,
+    /// How many flips are tossed, best-of. The majority takes it.
+    pub best_of: u8,
+}
+
+impl Coin {
+    /// 45% player / 55% House, one flip.
+    pub const BASE: Coin = Coin { player_pct: 45, best_of: 1 };
+    /// Slotz Option 1: best 2-of-3 at 49/51, which is 3p2 - 2p3 =~ 48.5%.
+    pub const SLOTZ: Coin = Coin { player_pct: 49, best_of: 3 };
+
+    pub fn for_perks(perks: &[Perk]) -> Coin {
+        if perks.contains(&Perk::PylBestTwoOfThree) { Coin::SLOTZ } else { Coin::BASE }
+    }
+
+    /// `rolls` yields flips; the player takes one when `roll % 100` is under
+    /// `player_pct`. Stops as soon as one side has the majority, so a decided
+    /// best-of-three never tosses its third coin.
+    pub fn resolve(&self, rolls: impl Iterator<Item = u32>) -> Push {
+        let best_of = u32::from(self.best_of.max(1));
+        let needed = best_of / 2 + 1;
+        let (mut won, mut lost) = (0, 0);
+        for roll in rolls.take(best_of as usize) {
+            if roll % 100 < self.player_pct {
+                won += 1;
+            } else {
+                lost += 1;
+            }
+            if won >= needed || lost >= needed {
+                break;
+            }
+        }
+        if won >= needed { Push::Won } else { Push::Lost }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +86,8 @@ pub struct TurnResult {
     /// The House Edge this Hand was compared against.
     pub house_edge: u32,
     pub kind: Outcome,
+    /// The flip, if the player Pushed. `None` means Hold, or no prompt.
+    pub pyl: Option<Push>,
     /// Whether Rising Blinds ticked at the end of this turn.
     pub blinds_rose: bool,
 }
@@ -46,6 +106,8 @@ pub struct Duel {
     enemy: Enemy,
     house_edge: u32,
     turn: u32,
+    phase: Phase,
+    coin: Coin,
     rng: u64,
 }
 
@@ -65,6 +127,8 @@ impl Duel {
             house_edge: enemy.house_edge,
             enemy,
             turn: 1,
+            phase: Phase::Playing,
+            coin: Coin::BASE,
             rng: 0x5eed_cafe_f00d_d1ce,
         };
         duel.refill();
@@ -76,6 +140,26 @@ impl Duel {
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.rng = seed | 1;
         self
+    }
+
+    /// The coin Push Your Luck is flipped with; Slotz Option 1 swaps it.
+    pub fn with_coin(mut self, coin: Coin) -> Self {
+        self.coin = coin;
+        self
+    }
+
+    pub fn coin(&self) -> Coin {
+        self.coin
+    }
+
+    pub fn phase(&self) -> Phase {
+        self.phase
+    }
+
+    /// The Payout The Hand would deal right now: its excess over House Edge,
+    /// doubled by a won Push. 0 on a Whiff.
+    pub fn payout(&self, pyl: Option<Push>) -> u32 {
+        self.hand.saturating_sub(self.house_edge) * if pyl == Some(Push::Won) { 2 } else { 1 }
     }
 
     pub fn house_edge(&self) -> u32 {
@@ -100,14 +184,49 @@ impl Duel {
         }
     }
 
-    /// Compare The Hand to House Edge, deal the Payout or Whiff, tick Rising
-    /// Blinds, and refill the Draw for the next turn. The enemy does nothing
-    /// on its turn.
-    pub fn end_turn(&mut self) -> TurnResult {
+    /// Step 5: The Hand is final. A Hand that clears House Edge puts the
+    /// Push Your Luck prompt up and resolves nothing yet (`None`); a Whiff is
+    /// never offered the flip and resolves on the spot.
+    pub fn show_hand(&mut self) -> Option<TurnResult> {
+        if self.phase == Phase::PushYourLuck {
+            return None;
+        }
+        if self.hand >= self.house_edge {
+            self.phase = Phase::PushYourLuck;
+            return None;
+        }
+        Some(self.resolve(None))
+    }
+
+    /// Answer the prompt with Hold: the turn resolves as normal. `None` when
+    /// no prompt is up.
+    pub fn hold(&mut self) -> Option<TurnResult> {
+        (self.phase == Phase::PushYourLuck).then(|| self.resolve(None))
+    }
+
+    /// Answer the prompt with Push: flip the coin. Win and the Payout
+    /// doubles; lose and The Hand becomes 0, a full Whiff for the whole House
+    /// Edge. `None` when no prompt is up.
+    pub fn push(&mut self) -> Option<TurnResult> {
+        if self.phase != Phase::PushYourLuck {
+            return None;
+        }
+        let coin = self.coin;
+        let flip = coin.resolve(std::iter::repeat_with(|| (self.next_rng() % 100) as u32));
+        if flip == Push::Lost {
+            self.hand = 0;
+        }
+        Some(self.resolve(Some(flip)))
+    }
+
+    /// Step 6 onwards: compare The Hand to House Edge, deal the Payout or
+    /// Whiff, tick Rising Blinds, and refill the Draw for the next turn. The
+    /// enemy does nothing on its turn.
+    fn resolve(&mut self, pyl: Option<Push>) -> TurnResult {
         let hand = self.hand;
         let house_edge = self.house_edge;
         let kind = if hand >= house_edge {
-            let payout = hand - house_edge;
+            let payout = self.payout(pyl);
             self.enemy.stack = self.enemy.stack.saturating_sub(payout);
             Outcome::Payout(payout)
         } else {
@@ -126,9 +245,10 @@ impl Duel {
         self.hand = 0;
         self.plays_left = self.plays;
         self.last_had_tell = false;
+        self.phase = Phase::Playing;
         self.refill();
 
-        TurnResult { hand, house_edge, kind, blinds_rose }
+        TurnResult { hand, house_edge, kind, pyl, blinds_rose }
     }
 
     pub fn draw(&self) -> &[Card] {
@@ -147,6 +267,9 @@ impl Duel {
     /// Hand and the contribution is returned. All In must name a `sacrifice`
     /// index (also into the Draw); no other card may.
     pub fn play(&mut self, card: usize, sacrifice: Option<usize>) -> Result<u32, PlayError> {
+        if self.phase == Phase::PushYourLuck {
+            return Err(PlayError::HandIsFinal);
+        }
         if self.plays_left == 0 {
             return Err(PlayError::NoPlaysLeft);
         }
@@ -194,14 +317,43 @@ impl Duel {
         }
     }
 
-    /// Fisher-Yates over a xorshift64; enough randomness for a card game.
+    /// Fisher-Yates over the duel's xorshift64; enough randomness for a card
+    /// game, and the same stream the coin is flipped from.
     fn shuffle_deck(&mut self) {
         for i in (1..self.deck.len()).rev() {
-            self.rng ^= self.rng << 13;
-            self.rng ^= self.rng >> 7;
-            self.rng ^= self.rng << 17;
-            let j = (self.rng % (i as u64 + 1)) as usize;
+            let j = (self.next_rng() % (i as u64 + 1)) as usize;
             self.deck.swap(i, j);
+        }
+    }
+
+    fn next_rng(&mut self) -> u64 {
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 7;
+        self.rng ^= self.rng << 17;
+        self.rng
+    }
+}
+
+/// Coins with no suspense in them, so a test can say what a Push does
+/// without saying what the odds are.
+#[cfg(test)]
+impl Coin {
+    pub const SURE_THING: Coin = Coin { player_pct: 100, best_of: 1 };
+    pub const RIGGED: Coin = Coin { player_pct: 0, best_of: 1 };
+}
+
+/// Conveniences for tests that don't care about the prompt.
+#[cfg(test)]
+impl Duel {
+    pub fn set_coin(&mut self, coin: Coin) {
+        self.coin = coin;
+    }
+
+    /// Show the Hand and Hold.
+    pub fn end_turn(&mut self) -> TurnResult {
+        match self.show_hand() {
+            Some(result) => result,
+            None => self.hold().expect("showing a clearing Hand puts the prompt up"),
         }
     }
 }
@@ -211,7 +363,7 @@ mod tests {
     use super::*;
     use crate::run::{RisingBlinds, Tell};
 
-    fn card(stack: u32) -> Card {
+    pub(super) fn card(stack: u32) -> Card {
         Card { name: "card", stack, tell: None }
     }
     fn streak(stack: u32) -> Card {
@@ -220,7 +372,7 @@ mod tests {
     fn all_in(stack: u32) -> Card {
         Card { name: "all in", stack, tell: Some(Tell::AllIn) }
     }
-    fn enemy(stack: u32, house_edge: u32) -> Enemy {
+    pub(super) fn enemy(stack: u32, house_edge: u32) -> Enemy {
         Enemy { name: "shill", stack, house_edge, blinds: RisingBlinds { every_turns: 2, increase: 2 } }
     }
     /// A deck of vanilla cards 1..=n, so card n is drawn first.
@@ -318,7 +470,7 @@ mod tests {
 
         let result = duel.end_turn();
 
-        assert_eq!(result, TurnResult { hand: 80, house_edge: 20, kind: Outcome::Payout(60), blinds_rose: false });
+        assert_eq!(result, TurnResult { hand: 80, house_edge: 20, kind: Outcome::Payout(60), pyl: None, blinds_rose: false });
         assert_eq!(duel.enemy_stack(), 40);
         assert_eq!(duel.player_stack(), 40);
         assert_eq!(duel.outcome(), None);
@@ -408,5 +560,201 @@ mod tests {
         // 4,3 carried over; 2,1 from the deck; three of {9,8,7,6,5} recycled.
         assert!(stacks.contains(&4) && stacks.contains(&3) && stacks.contains(&2) && stacks.contains(&1));
         assert_eq!(stacks.iter().filter(|&&v| v >= 5).count(), 3);
+    }
+}
+
+#[cfg(test)]
+mod push_your_luck_tests {
+    use super::tests::{card, enemy};
+    use super::*;
+    use crate::run::Perk;
+
+    /// Play the whole Draw down to a Hand of `hand` against `house_edge`.
+    fn hand_of(hand: u32, house_edge: u32) -> Duel {
+        // One vanilla card worth `hand`, then filler the test never plays.
+        let mut deck = vec![card(1); 6];
+        deck.push(card(hand));
+        let mut duel = Duel::new(deck, 40, 5, enemy(999, house_edge)).with_coin(Coin::SURE_THING);
+        duel.play(0, None).unwrap();
+        duel
+    }
+
+    #[test]
+    fn showing_a_clearing_hand_offers_push_your_luck_instead_of_resolving() {
+        let mut duel = hand_of(30, 20);
+
+        assert_eq!(duel.show_hand(), None);
+        assert_eq!(duel.phase(), Phase::PushYourLuck);
+        // Nothing has been dealt yet.
+        assert_eq!(duel.enemy_stack(), 999);
+        assert_eq!(duel.hand(), 30);
+    }
+
+    #[test]
+    fn a_whiff_is_never_offered_the_flip_and_resolves_on_the_spot() {
+        let mut duel = hand_of(10, 20);
+
+        let result = duel.show_hand().expect("a Whiff resolves without a prompt");
+
+        assert_eq!(result.kind, Outcome::Whiff(10));
+        assert_eq!(result.pyl, None);
+        assert_eq!(duel.phase(), Phase::Playing);
+        assert_eq!(duel.player_stack(), 30);
+    }
+
+    #[test]
+    fn holding_resolves_the_turn_as_normal() {
+        let mut duel = hand_of(30, 20);
+        duel.show_hand();
+
+        let result = duel.hold().expect("the prompt is up");
+
+        assert_eq!(result, TurnResult { hand: 30, house_edge: 20, kind: Outcome::Payout(10), pyl: None, blinds_rose: false });
+        assert_eq!(duel.enemy_stack(), 989);
+        assert_eq!(duel.phase(), Phase::Playing);
+    }
+
+    #[test]
+    fn pushing_and_winning_doubles_the_payout_and_not_the_hand() {
+        let mut duel = hand_of(30, 20);
+        duel.show_hand();
+
+        let result = duel.push().expect("the prompt is up");
+
+        assert_eq!(result.pyl, Some(Push::Won));
+        assert_eq!(result.hand, 30);
+        assert_eq!(result.kind, Outcome::Payout(20));
+        assert_eq!(duel.enemy_stack(), 979);
+    }
+
+    #[test]
+    fn pushing_and_losing_zeroes_the_hand_into_a_full_whiff() {
+        let mut duel = hand_of(30, 20);
+        duel.set_coin(Coin::RIGGED);
+        duel.show_hand();
+
+        let result = duel.push().expect("the prompt is up");
+
+        assert_eq!(result.pyl, Some(Push::Lost));
+        assert_eq!(result.hand, 0);
+        assert_eq!(result.kind, Outcome::Whiff(20));
+        assert_eq!(duel.player_stack(), 20);
+        assert_eq!(duel.enemy_stack(), 999);
+    }
+
+    #[test]
+    fn a_lost_push_can_end_the_duel() {
+        let mut deck = vec![card(1); 6];
+        deck.push(card(30));
+        let mut duel = Duel::new(deck, 15, 5, enemy(999, 20)).with_coin(Coin::RIGGED);
+        duel.play(0, None).unwrap();
+        duel.show_hand();
+
+        duel.push().unwrap();
+
+        assert_eq!(duel.player_stack(), 0);
+        assert_eq!(duel.outcome(), Some(CombatOutcome::Lost));
+    }
+
+    #[test]
+    fn the_hand_is_final_once_the_prompt_is_up() {
+        let mut duel = hand_of(30, 20);
+        duel.show_hand();
+
+        assert_eq!(duel.play(0, None), Err(PlayError::HandIsFinal));
+        assert_eq!(duel.show_hand(), None);
+        assert_eq!(duel.hand(), 30);
+    }
+
+    #[test]
+    fn push_and_hold_do_nothing_when_no_prompt_is_up() {
+        let mut duel = hand_of(30, 20);
+
+        assert_eq!(duel.push(), None);
+        assert_eq!(duel.hold(), None);
+        assert_eq!(duel.enemy_stack(), 999);
+    }
+
+    #[test]
+    fn end_turn_shows_the_hand_and_holds() {
+        let mut duel = hand_of(30, 20);
+
+        let result = duel.end_turn();
+
+        assert_eq!(result.kind, Outcome::Payout(10));
+        assert_eq!(result.pyl, None);
+        assert_eq!(duel.phase(), Phase::Playing);
+    }
+
+    #[test]
+    fn the_base_coin_is_one_flip_the_player_takes_45_times_in_100() {
+        assert_eq!(Coin::BASE, Coin { player_pct: 45, best_of: 1 });
+        assert_eq!(Coin::BASE.resolve([44].into_iter()), Push::Won);
+        assert_eq!(Coin::BASE.resolve([45].into_iter()), Push::Lost);
+        assert_eq!(wins_over_every_roll(Coin::BASE), 450_000);
+    }
+
+    /// Every flip the coin can be handed, counted: 100 rolls per flip.
+    fn wins_over_every_roll(coin: Coin) -> u32 {
+        let mut wins = 0;
+        for a in 0..100 {
+            for b in 0..100 {
+                for c in 0..100 {
+                    if coin.resolve([a, b, c].into_iter()) == Push::Won {
+                        wins += 1;
+                    }
+                }
+            }
+        }
+        wins
+    }
+
+    #[test]
+    fn slotz_option_one_is_best_two_of_three_at_49_51() {
+        assert_eq!(Coin::SLOTZ, Coin { player_pct: 49, best_of: 3 });
+        // Two wins take it, whichever way the third would have gone.
+        assert_eq!(Coin::SLOTZ.resolve([10, 90, 10].into_iter()), Push::Won);
+        assert_eq!(Coin::SLOTZ.resolve([90, 10, 10].into_iter()), Push::Won);
+        assert_eq!(Coin::SLOTZ.resolve([90, 10, 90].into_iter()), Push::Lost);
+        // 49 is the House's; 48 is the player's.
+        assert_eq!(Coin::SLOTZ.resolve([48, 48].into_iter()), Push::Won);
+        assert_eq!(Coin::SLOTZ.resolve([49, 49].into_iter()), Push::Lost);
+    }
+
+    #[test]
+    fn a_decided_best_of_three_stops_flipping() {
+        let mut rolls = [10, 10, 10].into_iter();
+        assert_eq!(Coin::SLOTZ.resolve(rolls.by_ref()), Push::Won);
+        assert_eq!(rolls.count(), 1, "the third coin is never tossed");
+    }
+
+    #[test]
+    fn the_slotz_perk_is_what_swaps_the_coin() {
+        assert_eq!(Coin::for_perks(&[]), Coin::BASE);
+        assert_eq!(Coin::for_perks(&[Perk::SixPlaysSteepBlinds]), Coin::BASE);
+        assert_eq!(Coin::for_perks(&[Perk::PylBestTwoOfThree]), Coin::SLOTZ);
+    }
+
+    #[test]
+    fn slotz_option_one_is_worth_about_48_point_5_percent() {
+        // 3p^2 - 2p^3 at p = 49/100, over the million flips it can be handed.
+        assert_eq!(wins_over_every_roll(Coin::SLOTZ), 485_002);
+        assert!(wins_over_every_roll(Coin::SLOTZ) > wins_over_every_roll(Coin::BASE), "the perk is worth taking");
+    }
+
+    #[test]
+    fn the_duels_own_coin_lands_on_both_sides() {
+        let mut seen = (false, false);
+        for seed in 1..200u64 {
+            let mut duel = hand_of(30, 20).with_seed(seed * 2 + 1);
+            duel.set_coin(Coin::BASE);
+            duel.show_hand();
+            match duel.push().unwrap().pyl {
+                Some(Push::Won) => seen.0 = true,
+                Some(Push::Lost) => seen.1 = true,
+                None => panic!("a Push always flips"),
+            }
+        }
+        assert_eq!(seen, (true, true), "the duel's own rolls reach both sides of the coin");
     }
 }

@@ -5,7 +5,7 @@ use std::path::Path;
 
 use bevy::prelude::*;
 
-use super::duel::Outcome;
+use super::duel::{Coin, Outcome, Phase, Push, TurnResult};
 use super::plugin::ActiveDuel;
 use crate::run::Tell;
 use crate::state::AppState;
@@ -94,12 +94,15 @@ pub fn redraw(
         .with_children(|mid| {
             text(mid, format!("The Hand   {}", duel.hand()), 44.0, GOLD);
             text(mid, format!("Plays left  {}", duel.plays_left()), 20.0, DIM);
+            if duel.phase() == Phase::PushYourLuck {
+                let held = duel.payout(None);
+                let pushed = duel.payout(Some(Push::Won));
+                text(mid, format!("Push Your Luck?   Hold for a Payout of {held}, or {pushed} if the coin lands your way."), 24.0, GOLD);
+                text(mid, format!("Lose and The Hand is 0: a Whiff of {}, out of your own Stack.", duel.house_edge()), 18.0, NEON);
+                text(mid, coin_line(duel.coin()), 18.0, DIM);
+            }
             if let Some(turn) = &active.last_turn {
-                let line = match turn.kind {
-                    Outcome::Payout(n) => format!("{} vs House Edge {}: Payout {n}.", turn.hand, turn.house_edge),
-                    Outcome::Whiff(n) => format!("{} vs House Edge {}: Whiff. You lose {n}.", turn.hand, turn.house_edge),
-                };
-                text(mid, line, 20.0, INK);
+                text(mid, turn_line(turn), 20.0, INK);
                 if turn.blinds_rose {
                     text(mid, "The Blinds rise.", 18.0, NEON);
                 }
@@ -148,9 +151,33 @@ pub fn redraw(
         row(root, JustifyContent::SpaceBetween, |r| {
             text(r, "Lucky Jack", 26.0, INK);
             text(r, format!("Stack {}", duel.player_stack()), 26.0, GOLD);
-            text(r, "1-7 play a card   Enter show your Hand", 16.0, DIM);
+            let keys = match duel.phase() {
+                Phase::PushYourLuck => "P push   H hold",
+                Phase::Playing => "1-7 play a card   Enter show your Hand",
+            };
+            text(r, keys, 16.0, DIM);
         });
     });
+}
+
+/// What the coin is, in the player's terms.
+fn coin_line(coin: Coin) -> String {
+    let house = 100 - coin.player_pct;
+    match coin.best_of {
+        1 => format!("One flip, {}/{house} the House's way.", coin.player_pct),
+        n => format!("Best {} of {n} at {}/{house}.", n / 2 + 1, coin.player_pct),
+    }
+}
+
+/// The one-line story of the turn that just resolved.
+fn turn_line(turn: &TurnResult) -> String {
+    let edge = turn.house_edge;
+    match (turn.pyl, turn.kind) {
+        (Some(Push::Won), Outcome::Payout(n)) => format!("The coin is yours. Payout doubled to {n}."),
+        (Some(Push::Lost), Outcome::Whiff(n)) => format!("The coin is the House's. The Hand is 0: Whiff. You lose {n}."),
+        (_, Outcome::Payout(n)) => format!("{} vs House Edge {edge}: Payout {n}.", turn.hand),
+        (_, Outcome::Whiff(n)) => format!("{} vs House Edge {edge}: Whiff. You lose {n}.", turn.hand),
+    }
 }
 
 fn row(parent: &mut ChildSpawnerCommands, justify: JustifyContent, f: impl FnOnce(&mut ChildSpawnerCommands)) {
