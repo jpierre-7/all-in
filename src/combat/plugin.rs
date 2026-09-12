@@ -39,8 +39,9 @@ pub struct ActiveDuel {
 
 fn start_duel(mut commands: Commands, encounter: Res<Encounter>, run: Res<RunState>, time: Res<Time>) {
     let deck = if run.deck.is_empty() {
-        // The overworld still builds RunState from its placeholder (#3, #8).
-        crate::run::placeholder_deck()
+        // The overworld still builds RunState from its own placeholder; once
+        // it calls `RunState::new` this branch is dead.
+        crate::run::starter_deck()
     } else {
         run.deck.clone()
     };

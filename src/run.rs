@@ -80,7 +80,12 @@ pub struct RunState {
 impl RunState {
     /// A fresh run with the fixed starter deck and starting Stack.
     pub fn new() -> Self {
-        todo!("starter deck: #3; starting Stack: #8")
+        RunState {
+            stack: STARTING_STACK,
+            deck: starter_deck(),
+            perks: Vec::new(),
+            items: Vec::new(),
+        }
     }
 
     /// Grant a reward. The only way perks, items, or the deck change between
@@ -166,10 +171,26 @@ pub enum CombatOutcome {
     Lost,
 }
 
-/// Stands in for the starter deck until #3 lands: 2..=8 vanilla, four
-/// Streak, four All In. Delete when `RunState::new` is real.
-pub fn placeholder_deck() -> Vec<Card> {
-    let vanilla = [("Two", 2), ("Three", 3), ("Three", 3), ("Four", 4), ("Four", 4), ("Five", 5), ("Five", 5), ("Six", 6), ("Seven", 7), ("Eight", 8)];
+/// Placeholder until #8 sets the real number.
+pub const STARTING_STACK: u32 = 40;
+
+/// The fixed starter deck (#3): 18 cards, 44% with a Tell. Ten vanilla
+/// cards 2..=8, four Streak 3..=6, four All In 2..=5. Prototyped on the
+/// `prototype/starter-deck` branch; a careless player fires Streak about a
+/// third of the time, a careful one nearly always, and that gap is the game.
+pub fn starter_deck() -> Vec<Card> {
+    let vanilla = [
+        ("Two of Clubs", 2),
+        ("Cheap Seat", 3),
+        ("Comped Drink", 3),
+        ("Four of Hearts", 4),
+        ("Bus Ticket Home", 4),
+        ("Five of Spades", 5),
+        ("Borrowed Watch", 5),
+        ("Six of Diamonds", 6),
+        ("Marked Card", 7),
+        ("Pawned Ring", 8),
+    ];
     let streak = [("Hot Streak", 3), ("Lucky Seat", 4), ("Dealer Blinks", 5), ("Table Runs Hot", 6)];
     let all_in = [("Last Dollar", 2), ("Car Keys", 3), ("Deed to the House", 4), ("Firstborn", 5)];
     vanilla
