@@ -33,9 +33,16 @@ undistorted. Any other aspect ratio will skew the corners.
 
 - **Safe area: 16px inset** in authored pixels. The node carries 8px of padding,
   leaving a 104×154 content box for name, Stack, and Tell icon.
-- The node already draws its own `BackgroundColor(CARD_FACE)` **and a 2px gold
-  border**, both underneath the frame image. A drawn bezel will read as a double
-  border unless that `BorderColor` is dropped when `art.frame` is `Some`.
+- **The frame owns the card's edge.** When `art.frame` is `Some` the node sets
+  `BorderColor` to `Color::NONE`, because a square 2px border against the art's
+  rounded bezel left a gold notch in every corner. Without art the border is the
+  only edge there is, so it keeps its old gold/neon behaviour.
+- A pending All In sacrifice is shown by **tinting the frame** through
+  `ImageNode::color`, not by recolouring a border. The tint is kept light
+  (`SACRIFICE_TINT`): multiplying green felt by a saturated red crushes it to
+  black.
+- The bezel is a double rule with a diamond in each corner. A single heavy rule
+  read as a slab at 120×170.
 
 ## Tell icons
 

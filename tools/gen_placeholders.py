@@ -70,29 +70,55 @@ def _vertical_gradient(w, h, top, bottom):
 
 
 def card_frame(path):
-    """Opaque card body with a gold bezel; corners transparent for the 9-slice.
+    """The card face: a double-rule gold bezel with deco corners.
 
-    The interior is left flat so name / Stack / Tell render legibly on top.
+    The node draws no border of its own once this art is present (see
+    `src/combat/ui.rs`), so everything the card's edge does has to happen here.
+    A single heavy rule read as a slab at 120x170, so it is two rules with air
+    between them, and the corners carry a small diamond to break the sameness.
     """
     body = _vertical_gradient(CARD_W, CARD_H, FELT, FELT_DEEP).convert("RGBA")
     body.putalpha(_rounded_mask(CARD_W, CARD_H, RADIUS))
 
-    # Outer gold stroke, then a hairline bezel inset from it.
+    # Darken the body towards its edge so the Stack number sits on flat felt.
+    inner = Image.new("RGBA", (CARD_W * SS, CARD_H * SS), (0, 0, 0, 0))
+    vd = ImageDraw.Draw(inner)
+    for i in range(18):
+        t = i / 17
+        vd.rounded_rectangle(
+            (i * SS, i * SS, (CARD_W - 1 - i) * SS, (CARD_H - 1 - i) * SS),
+            radius=max((RADIUS - i), 2) * SS,
+            outline=FELT_DEEP + (int(26 * (1 - t)),),
+            width=2 * SS,
+        )
+    body.alpha_composite(inner.resize((CARD_W, CARD_H), Image.LANCZOS))
+
     stroke = Image.new("RGBA", (CARD_W * SS, CARD_H * SS), (0, 0, 0, 0))
     d = ImageDraw.Draw(stroke)
+
+    # Outer rule, then a hairline set in from it: a classic playing-card edge.
     d.rounded_rectangle(
         (0, 0, CARD_W * SS - 1, CARD_H * SS - 1),
-        radius=RADIUS * SS,
-        outline=GOLD + (255,),
-        width=BORDER * SS,
+        radius=RADIUS * SS, outline=GOLD + (255,), width=BORDER * SS,
     )
-    inset = 11 * SS
+    gap = 9 * SS
     d.rounded_rectangle(
-        (inset, inset, CARD_W * SS - 1 - inset, CARD_H * SS - 1 - inset),
-        radius=(RADIUS - 6) * SS,
-        outline=GOLD_LIT + (110,),
-        width=max(SS // 2, 1),
+        (gap, gap, CARD_W * SS - 1 - gap, CARD_H * SS - 1 - gap),
+        radius=(RADIUS - 6) * SS, outline=GOLD_LIT + (150,), width=max(SS, 1),
     )
+
+    # A diamond tucked into each corner of the inner rule.
+    m = 21 * SS
+    r = 5 * SS
+    for cx, cy in (
+        (m, m), (CARD_W * SS - m, m),
+        (m, CARD_H * SS - m), (CARD_W * SS - m, CARD_H * SS - m),
+    ):
+        d.polygon(
+            [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)],
+            fill=GOLD + (235,),
+        )
+
     body.alpha_composite(stroke.resize((CARD_W, CARD_H), Image.LANCZOS))
     body.save(path)
 
