@@ -33,8 +33,12 @@ The number of cards the player may play from the Draw in one turn.
 _Avoid_: actions, energy, mana
 
 **Push Your Luck**:
-An optional wager after building The Hand and before resolving it: stake part of your own Stack on a coin flip to double the Payout, or lose The Hand outright.
-_Avoid_: gamble, double-or-nothing
+An optional coin flip offered once The Hand is final and clears House Edge. Push and win: the Payout doubles. Push and lose: The Hand becomes 0, a full Whiff. The Hand itself is the stake; there is no separate wager.
+_Avoid_: gamble, double-or-nothing, wager
+
+**Push / Hold**:
+The two answers to Push Your Luck. Hold resolves the turn as normal.
+_Avoid_: yes/no, gamble/pass
 
 **Payout**:
 Damage dealt to the enemy's Stack when The Hand clears House Edge: the excess over it.
