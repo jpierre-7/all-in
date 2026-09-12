@@ -11,7 +11,6 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(overworld::OverworldPlugin)
-        // Stands in for combat until #9 and #11 land. Delete this line then.
-        .add_plugins(overworld::combat_stub::CombatStubPlugin)
+        .add_plugins(combat::CombatPlugin)
         .run();
 }

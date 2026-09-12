@@ -1,6 +1,9 @@
-//! Combat. Owned by Dev 1. The pure duel model lives in `duel`; the Bevy
-//! plugin and UI (#11) wrap it and are the only things that touch the seam
-//! in `run.rs`.
+//! Combat. Owned by Dev 1. The pure duel model lives in `duel`; `plugin`
+//! wraps it in Bevy and is the only thing that touches the seam in `run.rs`;
+//! `ui` draws it.
 
-#[allow(dead_code)] // the plugin and UI that call this arrive with #11
 pub mod duel;
+pub mod plugin;
+pub mod ui;
+
+pub use plugin::CombatPlugin;

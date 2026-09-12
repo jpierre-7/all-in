@@ -4,7 +4,7 @@
 //! and `RunState::apply`; changes to this file go through a PR to Dev 1.
 //! `Encounter` and `CombatOutcome` are the whole combat ↔ overworld seam.
 
-#![allow(dead_code)] // seam types; callers arrive with #9 and #10
+#![allow(dead_code)] // perks, items, rewards and enemy numbers land with #12 and #8
 
 use bevy::prelude::*;
 
@@ -90,9 +90,9 @@ impl RunState {
         todo!("#12")
     }
 
-    /// Plays per turn after perks. 5 by default.
+    /// Plays per turn after perks. 5 by default; the Pit Boss perk is #12.
     pub fn plays(&self) -> u8 {
-        todo!("#12")
+        5
     }
 }
 
@@ -164,4 +164,18 @@ pub struct Encounter {
 pub enum CombatOutcome {
     Won,
     Lost,
+}
+
+/// Stands in for the starter deck until #3 lands: 2..=8 vanilla, four
+/// Streak, four All In. Delete when `RunState::new` is real.
+pub fn placeholder_deck() -> Vec<Card> {
+    let vanilla = [("Two", 2), ("Three", 3), ("Three", 3), ("Four", 4), ("Four", 4), ("Five", 5), ("Five", 5), ("Six", 6), ("Seven", 7), ("Eight", 8)];
+    let streak = [("Hot Streak", 3), ("Lucky Seat", 4), ("Dealer Blinks", 5), ("Table Runs Hot", 6)];
+    let all_in = [("Last Dollar", 2), ("Car Keys", 3), ("Deed to the House", 4), ("Firstborn", 5)];
+    vanilla
+        .into_iter()
+        .map(|(name, stack)| Card { name, stack, tell: None })
+        .chain(streak.into_iter().map(|(name, stack)| Card { name, stack, tell: Some(Tell::Streak) }))
+        .chain(all_in.into_iter().map(|(name, stack)| Card { name, stack, tell: Some(Tell::AllIn) }))
+        .collect()
 }

@@ -4,6 +4,7 @@
 //! Combat is a black box: the overworld inserts an `Encounter`, hands over, and
 //! routes on the `CombatOutcome` it gets back.
 
+#[allow(dead_code)] // superseded by combat::CombatPlugin; the tests below still drive it
 pub mod combat_stub;
 pub mod narrative;
 pub mod placeholder;
