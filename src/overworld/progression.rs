@@ -67,6 +67,15 @@ const RUN: [EncounterId; 5] = [
     EncounterId::TheHouse,
 ];
 
+/// Which floor the encounter at `index` sits on.
+fn floor_of(index: usize) -> Floor {
+    match RUN.get(index) {
+        Some(EncounterId::FloorMinion | EncounterId::Slotz) => Floor::TheFloor,
+        Some(EncounterId::PitMinion | EncounterId::PitBoss) => Floor::ThePit,
+        _ => Floor::BigShotsTable,
+    }
+}
+
 /// How far into `RUN` the player is. Reset with `Progress::new` on Fold or death.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Progress {
@@ -85,23 +94,15 @@ impl Progress {
 
     /// The floor the current encounter sits on.
     pub fn floor(&self) -> Floor {
-        match self.encounter() {
-            Some(EncounterId::FloorMinion | EncounterId::Slotz) => Floor::TheFloor,
-            Some(EncounterId::PitMinion | EncounterId::PitBoss) => Floor::ThePit,
-            _ => Floor::BigShotsTable,
-        }
+        floor_of(self.next)
     }
 
     /// The screen the player meets on reaching the current encounter: the
     /// floor's arrival prose the first time, then straight to Fight or Fold.
     pub fn arrival(&self) -> AppState {
-        let previous = Self {
-            next: self.next.wrapping_sub(1),
-        };
-        if self.next == 0 || previous.floor() != self.floor() {
-            AppState::FloorIntro
-        } else {
-            AppState::FightOrFold
+        match self.next.checked_sub(1) {
+            Some(previous) if floor_of(previous) == self.floor() => AppState::FightOrFold,
+            _ => AppState::FloorIntro,
         }
     }
 

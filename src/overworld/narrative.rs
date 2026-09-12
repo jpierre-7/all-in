@@ -156,3 +156,4 @@ BANG.";
 pub const GAME_OVER: &str = "ALL IN";
 
 pub const ANY_KEY: &str = "Press any key.";
+pub const ANY_KEY_BACK: &str = "Press any key to go back.";

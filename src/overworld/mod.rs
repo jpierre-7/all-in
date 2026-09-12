@@ -13,7 +13,7 @@ pub mod screens;
 use bevy::prelude::*;
 
 use progression::{Progress, encounter_intro, win_line};
-use screens::{Screen, any_key, digit_pressed};
+use screens::{Screen, any_key, confirm, digit_pressed};
 
 use crate::run::{CombatOutcome, Encounter, RunState};
 use crate::state::AppState;
@@ -33,7 +33,7 @@ impl Plugin for OverworldPlugin {
             .insert_resource(placeholder::new_run_state())
             .add_systems(Startup, spawn_camera)
             .add_systems(OnEnter(AppState::Opening), show_opening)
-            .add_systems(OnEnter(AppState::Lobby), show_lobby)
+            .add_systems(OnEnter(AppState::Lobby), (end_the_run, show_lobby))
             .add_systems(OnEnter(AppState::InfoRoom), show_info_room)
             .add_systems(OnEnter(AppState::Tutorial), show_tutorial)
             .add_systems(OnEnter(AppState::FloorIntro), show_floor_intro)
@@ -45,16 +45,20 @@ impl Plugin for OverworldPlugin {
             .add_systems(
                 Update,
                 (
-                    leave_opening.run_if(in_state(AppState::Opening)),
+                    // Every screen that only needs dismissing goes the same
+                    // place: back to the Lobby.
+                    back_to_lobby.run_if(
+                        in_state(AppState::Opening)
+                            .or_else(in_state(AppState::InfoRoom))
+                            .or_else(in_state(AppState::Tutorial))
+                            .or_else(in_state(AppState::Ending))
+                            .or_else(in_state(AppState::GameOver)),
+                    ),
                     pick_from_lobby.run_if(in_state(AppState::Lobby)),
-                    back_to_lobby
-                        .run_if(in_state(AppState::InfoRoom).or_else(in_state(AppState::Tutorial))),
                     leave_floor_intro.run_if(in_state(AppState::FloorIntro)),
                     fight_or_fold.run_if(in_state(AppState::FightOrFold)),
                     leave_outcome.run_if(in_state(AppState::PostCombat)),
                     take_reward.run_if(in_state(AppState::Reward)),
-                    end_the_night
-                        .run_if(in_state(AppState::Ending).or_else(in_state(AppState::GameOver))),
                 ),
             );
     }
@@ -76,7 +80,8 @@ fn show_opening(mut commands: Commands) {
         .spawn(&mut commands, AppState::Opening);
 }
 
-fn leave_opening(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<AppState>>) {
+/// Dismisses the Opening, the two side rooms, and both endings.
+fn back_to_lobby(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<AppState>>) {
     if any_key(&keys) {
         next.set(AppState::Lobby);
     }
@@ -99,26 +104,27 @@ fn show_lobby(mut commands: Commands, folded: Option<Res<Folded>>) {
         .option(1, narrative::LOBBY_OPT_INFO)
         .option(2, narrative::LOBBY_OPT_TUTORIAL)
         .option(3, narrative::LOBBY_OPT_BEGIN)
-        .footer("Press 1, 2 or 3.")
+        .footer("Press 1, 2 or 3 — or Enter to walk the Floor.")
         .spawn(&mut commands, AppState::Lobby);
+}
+
+/// Every way back into the Lobby ends a run, so the reset lives here: Fold and
+/// death both leave behind the perks, items and deck changes of the old one.
+fn end_the_run(mut run: ResMut<RunState>, mut progress: ResMut<Progress>) {
+    *run = placeholder::new_run_state();
+    *progress = Progress::new();
 }
 
 fn pick_from_lobby(
     keys: Res<ButtonInput<KeyCode>>,
-    mut run: ResMut<RunState>,
-    mut progress: ResMut<Progress>,
+    progress: Res<Progress>,
     mut next: ResMut<NextState<AppState>>,
 ) {
     match digit_pressed(&keys) {
         Some(1) => next.set(AppState::InfoRoom),
         Some(2) => next.set(AppState::Tutorial),
-        Some(3) => {
-            // A run always starts clean: Fold and death both leave the old one
-            // behind.
-            *run = placeholder::new_run_state();
-            *progress = Progress::new();
-            next.set(progress.arrival());
-        }
+        Some(3) => next.set(progress.arrival()),
+        _ if confirm(&keys) => next.set(progress.arrival()),
         _ => {}
     }
 }
@@ -127,7 +133,7 @@ fn show_info_room(mut commands: Commands) {
     Screen::new()
         .title("The Info Room")
         .prose(narrative::INFO_ROOM)
-        .footer(narrative::ANY_KEY)
+        .footer(narrative::ANY_KEY_BACK)
         .spawn(&mut commands, AppState::InfoRoom);
 }
 
@@ -135,14 +141,8 @@ fn show_tutorial(mut commands: Commands) {
     Screen::new()
         .title("The Arcade")
         .prose(narrative::TUTORIAL)
-        .footer(narrative::ANY_KEY)
+        .footer(narrative::ANY_KEY_BACK)
         .spawn(&mut commands, AppState::Tutorial);
-}
-
-fn back_to_lobby(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<AppState>>) {
-    if any_key(&keys) {
-        next.set(AppState::Lobby);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ fn show_fight_or_fold(mut commands: Commands, progress: Res<Progress>, run: Res<
         .prose(narrative::FIGHT_OR_FOLD)
         .option(1, "Fight")
         .option(2, "Fold")
-        .footer(format!("Your Stack: {}", run.stack))
+        .footer(format!("Your Stack: {} — Enter sits down.", run.stack))
         .spawn(&mut commands, AppState::FightOrFold);
 }
 
@@ -188,7 +188,7 @@ fn fight_or_fold(
         return;
     };
 
-    match digit_pressed(&keys) {
+    match digit_pressed(&keys).or(confirm(&keys).then_some(1)) {
         Some(1) => {
             // The whole handover: an `Encounter` and the state. Combat takes it
             // from here and comes back at `PostCombat`.
@@ -211,10 +211,15 @@ fn fight_or_fold(
 // ---------------------------------------------------------------------------
 
 fn show_outcome(mut commands: Commands, progress: Res<Progress>, outcome: Res<CombatOutcome>) {
-    let body = match (*outcome, progress.encounter()) {
-        (CombatOutcome::Lost, _) => narrative::LOSE,
-        (CombatOutcome::Won, Some(id)) => win_line(id),
-        (CombatOutcome::Won, None) => narrative::WIN_THE_HOUSE,
+    // The run only advances on the reward screen, so the encounter just
+    // played is still the current one.
+    let Some(id) = progress.encounter() else {
+        return;
+    };
+
+    let body = match *outcome {
+        CombatOutcome::Lost => narrative::LOSE,
+        CombatOutcome::Won => win_line(id),
     };
 
     Screen::new()
@@ -284,12 +289,6 @@ fn show_game_over(mut commands: Commands) {
         .title(narrative::GAME_OVER)
         .footer(narrative::ANY_KEY)
         .spawn(&mut commands, AppState::GameOver);
-}
-
-fn end_the_night(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<AppState>>) {
-    if any_key(&keys) {
-        next.set(AppState::Lobby);
-    }
 }
 
 #[cfg(test)]
@@ -385,6 +384,40 @@ mod tests {
             press(&mut app, KeyCode::Enter);
             assert_eq!(state(&app), AppState::Lobby);
         }
+    }
+
+    #[test]
+    fn enter_takes_the_option_each_menu_leads_with() {
+        let mut app = shell();
+        press(&mut app, KeyCode::Enter);
+
+        // The Lobby leads with Walk the Floor...
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::FloorIntro);
+        press(&mut app, KeyCode::Enter);
+
+        // ...and Fight or Fold leads with Fight.
+        assert_eq!(state(&app), AppState::FightOrFold);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Combat);
+    }
+
+    #[test]
+    fn the_lobby_is_where_a_run_ends() {
+        let mut app = shell();
+        press(&mut app, KeyCode::Enter);
+        begin_run(&mut app);
+        duel(&mut app, true);
+        press(&mut app, KeyCode::Enter);
+
+        // Deep enough into the run for a reset to show.
+        assert_eq!(progress(&app).encounter(), Some(EncounterId::Slotz));
+        app.world_mut().resource_mut::<RunState>().stack = 7;
+
+        press(&mut app, KeyCode::Digit2); // Fold
+        assert_eq!(state(&app), AppState::Lobby);
+        assert_eq!(progress(&app).encounter(), Some(EncounterId::FloorMinion));
+        assert_ne!(app.world().resource::<RunState>().stack, 7);
     }
 
     #[test]

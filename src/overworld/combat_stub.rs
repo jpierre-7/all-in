@@ -4,7 +4,8 @@
 //! It honours the seam exactly as ADR-0001 describes it: it consumes the
 //! `Encounter`, mutates `RunState.stack`, inserts `CombatOutcome` and makes the
 //! one transition combat is allowed to make, `Combat -> PostCombat`. The
-//! handover is deleting the `CombatStubPlugin` line in `main.rs`.
+//! handover is deleting this file, its `pub mod combat_stub;` line in
+//! `mod.rs`, and the `CombatStubPlugin` line in `main.rs`.
 
 use bevy::prelude::*;
 

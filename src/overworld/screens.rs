@@ -107,6 +107,11 @@ pub fn any_key(keys: &ButtonInput<KeyCode>) -> bool {
     keys.get_just_pressed().next().is_some()
 }
 
+/// Enter, for taking the option a menu leads with.
+pub fn confirm(keys: &ButtonInput<KeyCode>) -> bool {
+    keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)
+}
+
 /// The number key just pressed, top row or numpad, for menus.
 pub fn digit_pressed(keys: &ButtonInput<KeyCode>) -> Option<u8> {
     keys.get_just_pressed().find_map(|key| match key {
