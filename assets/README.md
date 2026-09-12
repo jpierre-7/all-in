@@ -1,62 +1,97 @@
 # Assets
 
-The contract between art (#7) and the combat UI (#11). **Paths and dimensions
-in this file are the interface.** Every PNG here is currently a placeholder;
-each will be replaced by hand-drawn or generated art at the same path and the
-same size, so no Rust code needs to change when the real art lands.
+The contract between art (#7) and the combat UI (#11). **The paths below are not
+a convention — they are bound in code.** `load_art` in `src/combat/ui.rs` checks
+each one with `.exists()` and falls back to a text label when it is missing, so
+a misnamed file fails silently rather than erroring. Match the path exactly.
 
-Regenerate the placeholders with `python3 tools/gen_placeholders.py`.
+Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
+`python3 tools/gen_backdrops.py` (backdrops).
 
 ## Files
 
-| Path | Size | Notes |
-| --- | --- | --- |
-| `cards/frame.png` | 320×448 | Card body. Transparent outside the corner radius. 9-slice. |
-| `icons/tell_streak.png` | 128×128 | Tell icon, transparent. Renders at ~24–40px. |
-| `icons/tell_all_in.png` | 128×128 | Tell icon, transparent. Renders at ~24–40px. |
-| `backdrops/combat.png` | 1920×1080 | Opaque. Sits behind the duel. |
-| `backdrops/lobby.png` | 1920×1080 | Opaque. Sits behind Lobby / prose screens. |
+| Path | Source size | Drawn at | Bound in |
+| --- | --- | --- | --- |
+| `cards/frame.png` | 240×340 | 120×170 node | `ui.rs` — `Art::frame` |
+| `tells/streak.png` | 128×128 | 28×28 node | `ui.rs` — `Art::streak` |
+| `tells/all_in.png` | 128×128 | 28×28 node | `ui.rs` — `Art::all_in` |
+| `backdrops/combat.png` | 1920×1080 | full screen | `ui.rs` — `Art::backdrop` |
+| `backdrops/lobby.png` | 1920×1080 | — | **not wired yet** |
+
+`backdrops/lobby.png` has no slot in the overworld. The file is here and ready;
+the overworld screens need an `ImageNode` before it appears.
 
 ## Card frame
 
-Authored at 2x: 7 cards across a ~1280px window is ~160px per card, on the
-2.5:3.5 poker ratio.
+The card node is a fixed **120×170** and the frame is drawn with a plain
+`ImageNode` — no nine-slice, no tiling. The image is simply **stretched to
+fill**, so authoring at exactly 2x keeps the scale uniform and the bezel
+undistorted. Any other aspect ratio will skew the corners.
 
-- **9-slice inset: 48px on all four sides.** The corner radius (28px) plus the
-  border stroke (6px) both fit inside that, so corners stay undistorted at any
-  node size. Bevy UI draws this with a sliced image mode — confirm the exact
-  enum path for 0.19 when wiring it.
-- **Safe area: inset 24px from every edge** (a 272×400 rect at 24,24 in
-  authored pixels, or 15% of the node's width/height). The body is flat inside
-  it so name, Stack, and Tell render legibly on top. Keep text out of the bezel.
-- Suggested layout, not binding: name top-left, Stack large and centered,
-  Tell icon top-right at ~40×40.
+- **Safe area: 16px inset** in authored pixels. The node carries 8px of padding,
+  leaving a 104×154 content box for name, Stack, and Tell icon.
+- The node already draws its own `BackgroundColor(CARD_FACE)` **and a 2px gold
+  border**, both underneath the frame image. A drawn bezel will read as a double
+  border unless that `BorderColor` is dropped when `art.frame` is `Some`.
+
+## Tell icons
+
+Rendered into a 28×28 node, so **silhouette is the whole job** — check any
+redraw at 28px before committing. 128px source leaves room to work.
+
+`all_in.png` is a card with a diagonal strike: the Tell sacrifices a card from
+the Draw. A side-on chip stack was the first attempt and it turned to mush at
+28px — the gaps between chips disappear.
+
+## Backdrops
+
+Neon-noir: saturated magenta, cyan and gold signage against a dark ground. The
+colour sits at the edges and the centre stays dark **on purpose** — the combat
+UI lays gold and bone text directly over this image with no scrim.
+
+If you replace these, keep the luminance discipline. `gen_backdrops.py` prints
+the check it cares about:
+
+```
+combat   overall p99 0.382   text-band p99 0.182
+lobby    overall p99 0.331   text-band p99 0.236
+```
+
+The **text band** is the outer ~150px top and bottom, where the Stack and House
+Edge lines are drawn. Keep its p99 luminance under ~0.25 and gold text stays
+legible; the middle can be brighter.
 
 ## Palette
-
-Casino-noir per #11 — dark felt green/black, gold text. These seven are the
-whole vocabulary. Generated backdrops get graded into them so generated and
-hand-drawn art agree; the values live in `tools/gen_placeholders.py`.
 
 | Token | Hex | Use |
 | --- | --- | --- |
 | felt | `#10392C` | Table felt green |
 | felt-deep | `#0A211A` | Shadowed felt, card body |
-| noir | `#08080A` | Near-black |
+| noir | `#08080A` | Near-black ground |
 | gold | `#C9A227` | Frame stroke, primary text |
 | gold-lit | `#F2DC8B` | Rim light, highlights |
 | bone | `#EDE4D0` | High-contrast text on felt |
 | blood | `#8E1B23` | Accent: Whiff, red suits |
 
-Contrast on felt-deep: gold 6.97:1, gold-lit 12.35:1, bone 13.34:1 — all clear
-WCAG AA for body text.
+Neon extensions, backdrops only:
 
-## Replacing a placeholder
+| Token | Hex |
+| --- | --- |
+| magenta | `#FF2E88` |
+| cyan | `#26D9E0` |
+| gold-neon | `#FFC53D` |
+| violet | `#6B2FA8` |
+| indigo | `#160A30` |
+| teal | `#0E4A44` |
 
-1. Match the path and the pixel dimensions in the table above.
-2. Keep transparency where the table says transparent — the frame's corners and
-   the icons' backgrounds.
-3. Grade backdrops into the palette and keep them dark; gold text sits on top
-   of them and untreated art will swallow it.
-4. Icons must hold their silhouette at 24px. Check before committing.
-5. Keep each file under ~1MB. There is no git-lfs here.
+Contrast on felt-deep: gold 6.97:1, gold-lit 12.35:1, bone 13.34:1.
+
+## Replacing a file
+
+1. Match the path and the source size in the table above.
+2. Keep transparency where it exists — the frame's corners, the icons' ground.
+3. Check icons at 28px.
+4. Keep backdrops' text-band luminance low (see above).
+5. Backdrops are palettised PNGs to hold the file size down; Bevy's decoder
+   expands them on load. Keep each file near or under ~1.5MB — there is no
+   git-lfs here.

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the placeholder art set for `assets/`.
+"""Generate placeholder card art for `assets/`: the frame and the two Tell icons.
 
-Every file this writes is sized and named to match `assets/README.md`, so the
-combat UI can bind to real paths before the final art exists. Replacing a file
-with hand-drawn art needs no code change as long as the dimensions hold.
+Paths and sizes come from the merged combat UI (`src/combat/ui.rs`), not from
+taste — `load_art` binds these exact relative paths, and a mismatch fails
+silently as a text fallback. Replacing a file with hand-drawn art needs no code
+change as long as the path and dimensions hold.
+
+Backdrops are a separate job; see `tools/gen_backdrops.py`.
 
 Run: python3 tools/gen_placeholders.py
 """
@@ -32,15 +35,18 @@ BONE = (0xED, 0xE4, 0xD0)  # high-contrast text on felt
 BLOOD = (0x8E, 0x1B, 0x23)  # accent: Whiff, red suits
 
 # --- Card frame geometry -----------------------------------------------------
-# 7 cards across a ~1280px window is ~160px per card; authored at 2x on the
-# 2.5:3.5 poker ratio. SLICE must exceed RADIUS + BORDER so a 9-slice corner
-# region contains the entire corner.
-CARD_W, CARD_H = 320, 448
-RADIUS, BORDER, SLICE = 28, 6, 48
-SAFE = 24  # text inset from the card edge
+# The card node is a fixed 120x170 (src/combat/ui.rs), drawn with a plain
+# ImageNode and no slicing, so the frame is simply stretched to fit. Authoring
+# at exactly 2x keeps that stretch uniform and the bezel undistorted.
+CARD_W, CARD_H = 240, 340
+RADIUS, BORDER = 21, 5
+# The node carries 8px of padding, so content lives inside a 104x154 box:
+# 16px of inset in authored pixels.
+SAFE = 16
 
+# Tell icons render into a 28x28 node. 128 source gives room to redraw at
+# higher fidelity without rebinding anything.
 ICON = 128
-BACKDROP_W, BACKDROP_H = 1920, 1080
 
 
 def _lerp(a, b, t):
@@ -80,10 +86,10 @@ def card_frame(path):
         outline=GOLD + (255,),
         width=BORDER * SS,
     )
-    inset = 14 * SS
+    inset = 11 * SS
     d.rounded_rectangle(
         (inset, inset, CARD_W * SS - 1 - inset, CARD_H * SS - 1 - inset),
-        radius=(RADIUS - 8) * SS,
+        radius=(RADIUS - 6) * SS,
         outline=GOLD_LIT + (110,),
         width=max(SS // 2, 1),
     )
@@ -138,38 +144,6 @@ def tell_all_in(path):
     _save_icon(img, path)
 
 
-def backdrop_combat(path):
-    """Felt table under a low lamp: bright center falling off to near-black."""
-    img = _vertical_gradient(BACKDROP_W, BACKDROP_H, FELT_DEEP, NOIR)
-    px = img.load()
-    cx, cy = BACKDROP_W / 2, BACKDROP_H * 0.42
-    max_d = (cx**2 + cy**2) ** 0.5
-    for y in range(BACKDROP_H):
-        for x in range(0, BACKDROP_W, 2):
-            t = 1.0 - min((((x - cx) ** 2 + (y - cy) ** 2) ** 0.5) / max_d, 1.0)
-            glow = _lerp(px[x, y], FELT, t**2 * 0.55)
-            px[x, y] = glow
-            if x + 1 < BACKDROP_W:
-                px[x + 1, y] = glow
-    img.save(path)
-
-
-def backdrop_lobby(path):
-    """Noir entryway with a warm marquee glow bleeding down from the top."""
-    img = _vertical_gradient(BACKDROP_W, BACKDROP_H, NOIR, (0x04, 0x04, 0x05))
-    px = img.load()
-    cx, cy = BACKDROP_W / 2, -BACKDROP_H * 0.12
-    max_d = BACKDROP_H * 1.15
-    for y in range(BACKDROP_H):
-        for x in range(0, BACKDROP_W, 2):
-            t = 1.0 - min((((x - cx) ** 2 + (y - cy) ** 2) ** 0.5) / max_d, 1.0)
-            glow = _lerp(px[x, y], GOLD, t**3 * 0.30)
-            px[x, y] = glow
-            if x + 1 < BACKDROP_W:
-                px[x + 1, y] = glow
-    img.save(path)
-
-
 def _relative_luminance(rgb):
     def channel(c):
         c /= 255
@@ -186,14 +160,11 @@ def contrast(fg, bg):
 
 def main():
     (ASSETS / "cards").mkdir(parents=True, exist_ok=True)
-    (ASSETS / "icons").mkdir(parents=True, exist_ok=True)
-    (ASSETS / "backdrops").mkdir(parents=True, exist_ok=True)
+    (ASSETS / "tells").mkdir(parents=True, exist_ok=True)
 
     card_frame(ASSETS / "cards" / "frame.png")
-    tell_streak(ASSETS / "icons" / "tell_streak.png")
-    tell_all_in(ASSETS / "icons" / "tell_all_in.png")
-    backdrop_combat(ASSETS / "backdrops" / "combat.png")
-    backdrop_lobby(ASSETS / "backdrops" / "lobby.png")
+    tell_streak(ASSETS / "tells" / "streak.png")
+    tell_all_in(ASSETS / "tells" / "all_in.png")
 
     # Text on the card body is the one readability risk worth checking.
     for name, fg in (("gold", GOLD), ("gold-lit", GOLD_LIT), ("bone", BONE)):
