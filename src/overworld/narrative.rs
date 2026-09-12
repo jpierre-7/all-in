@@ -99,7 +99,7 @@ what it's worth.\"";
 pub const ENC_THE_HOUSE: &str = "\
 THE HOUSE. No face, just a pair of hands resting on the felt and a
 voice that comes from the walls. \"Sit down, Jack. Let's see what you
-learned.\"";
+learned. Play four. I'll set the line. Then show me your last card.\"";
 
 pub const FIGHT_OR_FOLD: &str = "\
 Fight: sit down and play.

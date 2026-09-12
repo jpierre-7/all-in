@@ -38,7 +38,7 @@ pub struct Card {
 pub enum Perk {
     /// Slotz option 1: Push Your Luck is best 2-of-3 at 49/51.
     PylBestTwoOfThree,
-    /// Pit Boss option 1: 6 Plays per turn, but Rising Blinds are +4 every turn.
+    /// Pit Boss option 1: 6 Plays per turn, but Rising Blinds are +2 every turn.
     SixPlaysSteepBlinds,
 }
 
@@ -147,10 +147,27 @@ pub struct Enemy {
 }
 
 impl Enemy {
-    /// The single place enemy numbers live (#8).
+    /// The single place enemy numbers live (#8). Tuned on the
+    /// `prototype/starter-deck` sim: fights run 2-5 turns for a decent
+    /// player, and Rising Blinds only bite past ~6.
+    ///
+    /// The House has no fixed Edge (the Hole Card rule, #5): for it,
+    /// `house_edge` is the **starting margin** and `blinds` is the margin
+    /// ramp. #14 reads it that way.
     pub fn for_encounter(id: EncounterId) -> Self {
-        let _ = id;
-        todo!("#8")
+        let blinds = RisingBlinds { every_turns: 3, increase: 2 };
+        match id {
+            EncounterId::FloorMinion => Enemy { name: "A shill in a rented tux", stack: 25, house_edge: 18, blinds },
+            EncounterId::Slotz => Enemy { name: "SLOTZ", stack: 32, house_edge: 20, blinds },
+            EncounterId::PitMinion => Enemy { name: "A dealer with a scar", stack: 32, house_edge: 22, blinds },
+            EncounterId::PitBoss => Enemy { name: "THE PIT BOSS", stack: 40, house_edge: 24, blinds },
+            EncounterId::TheHouse => Enemy {
+                name: "THE HOUSE",
+                stack: 35,
+                house_edge: 1,
+                blinds: RisingBlinds { every_turns: 2, increase: 2 },
+            },
+        }
     }
 }
 
@@ -171,8 +188,8 @@ pub enum CombatOutcome {
     Lost,
 }
 
-/// Placeholder until #8 sets the real number.
-pub const STARTING_STACK: u32 = 40;
+/// Lucky Jack sits down with this many chips (#8).
+pub const STARTING_STACK: u32 = 50;
 
 /// The fixed starter deck (#3): 18 cards, 44% with a Tell. Ten vanilla
 /// cards 2..=8, four Streak 3..=6, four All In 2..=5. Prototyped on the

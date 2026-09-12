@@ -45,7 +45,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | **Tell** | A single passive keyword on a card that modifies how it resolves. (Balatro/Inscryption-inspired, one per card, no stack/targeting.) |
 | **Streak** | Tell: doubles a card's value if the previous card played shared a Tell. |
 | **All In** | Tell: sacrifice a card from hand to add its value to the current Hand. |
-| **Rising Blinds** | Difficulty/cost escalates as combat goes on (turn-based scaling). E.g., +2 to House Edge every 2 turns. |
+| **Rising Blinds** | Difficulty/cost escalates as combat goes on (turn-based scaling). +2 to House Edge every 3 turns. |
 | **Plays** | Limited number of cards you may play per turn (Hand of 7 cards, up to 5 can be played by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final and clears House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Coin is 45/55 in the House's favor. |
 | **Hole Card** | Against The House only: the player's final Play of the turn, made after the House has locked its Edge on everything played before it. |
@@ -78,7 +78,7 @@ Before each encounter, the player chooses to:
    - Clear it → Payout (excess over House Edge, ×2 if PYL won) is dealt to the enemy's Stack.
    - Whiff (fall short) → the difference is dealt to the **player's** Stack. Damage = House Edge − The Hand. No Payout.
 7. Enemy turn: nothing (MVP). Enemies are a Stack + House Edge + Rising Blinds.
-8. Rising Blinds check: escalate House Edge every 2 turns (or per active perk modifier).
+8. Rising Blinds check: escalate House Edge +2 every 3 turns (or per active perk modifier).
 9. Repeat until player or enemy Stack hits 0.
 
 **Loss condition:** player Stack reaches 0 (run ends / back to Lobby).
@@ -107,7 +107,7 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
   - **Option 2:** Adds 3x "Streak" Tell cards to the player's deck.
 
 - **Boss: Pit Boss (The Pit)**
-  - **Option 1:** You can play up to 6 cards per turn, but House Edge increases every turn by +4 instead.
+  - **Option 1:** You can play up to 6 cards per turn, but Rising Blinds become +2 every turn (3× the base rate). Pays in short fights, punishes long ones.
   - **Option 2:** Adds 4x random cards to deck (2x with random Tells, 2x normal/vanilla cards).
 
 - **Secret Boss: The Man Who Beat the House (The Back Room)**
@@ -159,6 +159,16 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 ## 7. Enemy Design & Encounters
 
 **MVP scope:** single enemy archetype, House Edge scales with Rising Blinds. No unique per-enemy behavior required for MVP.
+
+**Combat numbers** (first pass, tuned on the `prototype/starter-deck` sim with 300 full runs per player model; playtesting adjusts):
+
+| | Player | Floor minion | Slotz | Pit minion | Pit Boss | The House |
+| --- | --- | --- | --- | --- | --- | --- |
+| Stack | **50** | 25 | 32 | 32 | 40 | 35 |
+| House Edge | | 18 | 20 | 22 | 24 | Hand + margin |
+| Rising Blinds | | +2 / 3 turns | +2 / 3 turns | +2 / 3 turns | +2 / 3 turns | margin +1, +2 / 2 turns |
+
+What the sim said: a careless player (top five cards, random order) beats the Pit Boss 82% of the time and the House 19%; a player who leads with All In then Streaks beats everything up to the House with a full Stack, then loses to the House every time because that habit makes the hole card a low vanilla card; a player who saves the biggest Tell for last beats the House in ~4 turns. The House inverts the habit the Tutorial teaches, on purpose. Blinds every 2 turns (the earlier draft) made every fight past 6 turns unwinnable; every 3 is the difference.
 
 **Stretch goal — reactive House:** enemy reveals one card from hand each turn (fixed or shuffled sequence). Effects could include:
 
