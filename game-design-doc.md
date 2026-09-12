@@ -1,4 +1,4 @@
-# [Title: All In]
+# All In
 
 **Event:** HackRice 16 — Rice University, Sept 11–13, 2026
 **Team:** 2 devs, 1 artist
@@ -198,8 +198,8 @@ slips, cut from Section 11's stretch items before splitting attention further.
 
 ## 11. Open Questions / TODO
 
-- [ ] Final title
+- [x] Final title: All In
 - [ ] Full starter deck list (~15-20 cards)
 - [ ] Enemy encounter list and flavor
-- [ ] Opening/ending narrative beats
+- [x] Opening/ending narrative beats: see `docs/narrative.md`
 - [ ] Pitch/demo script for judging
