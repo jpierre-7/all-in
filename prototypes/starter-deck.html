@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE: All In starter deck</title>
+<style>
+  :root { --bg:#0f1a14; --panel:#16241c; --ink:#e8e2d0; --dim:#9a9484; --gold:#d8b25a; --red:#c8553d; --blue:#7fb7d6; --line:#2a3a30; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 Georgia, serif; }
+  main { max-width:1060px; margin:0 auto; padding:28px 20px 80px; }
+  h1 { font-size:26px; margin:0 0 4px; color:var(--gold); font-weight:normal }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:2px; color:var(--dim); margin:28px 0 10px; font-weight:normal }
+  .intro { color:var(--dim); margin:0 0 6px; max-width:80ch }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px }
+  @media (max-width:800px) { .grid { grid-template-columns:1fr } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px 16px }
+  .stat { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dotted var(--line) }
+  .stat b { color:var(--gold); font-weight:normal }
+  .cards { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 }
+  .card { width:96px; min-height:88px; border:1px solid var(--line); border-radius:6px; background:#0b1410; padding:8px; cursor:pointer; user-select:none; position:relative }
+  .card:hover { border-color:var(--gold) }
+  .card.pending { border-color:var(--red) }
+  .card .v { font-size:24px; color:var(--gold) }
+  .card .n { font-size:12px; line-height:1.2 }
+  .card .t { font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--red); position:absolute; bottom:6px; left:8px }
+  .card .t.streak { color:var(--blue) }
+  button { background:transparent; color:var(--gold); border:1px solid var(--gold); border-radius:4px; padding:7px 12px; font:inherit; cursor:pointer; margin:3px 4px 3px 0 }
+  button:hover { background:#1f2f26 }
+  button.primary { background:var(--gold); color:#111 }
+  button:disabled { opacity:.35; cursor:default }
+  .log { font-family:ui-monospace, monospace; font-size:13px; white-space:pre-wrap; max-height:300px; overflow:auto; color:var(--dim) }
+  .log .hi { color:var(--ink) }
+  .tabs button.active { background:#1f2f26 }
+  .scenario { display:none } .scenario.active { display:block }
+  table { border-collapse:collapse; width:100%; font-size:14px }
+  td, th { text-align:left; padding:4px 8px; border-bottom:1px solid var(--line) }
+  th { color:var(--dim); font-weight:normal; font-size:12px; text-transform:uppercase; letter-spacing:1px }
+  input[type=number] { width:64px; background:#0b1410; color:var(--ink); border:1px solid var(--line); padding:4px 6px; font:inherit }
+  input[type=text] { width:160px; background:#0b1410; color:var(--ink); border:1px solid var(--line); padding:4px 6px; font:inherit }
+  select { background:#0b1410; color:var(--ink); border:1px solid var(--line); padding:4px; font:inherit }
+  .hint { font-size:13px; color:var(--dim) }
+  .bad { color:var(--red) } .good { color:#8fc98f }
+</style>
+</head>
+<body>
+<main>
+<h1>All In: starter deck prototype</h1>
+<p class="intro"><b>Question:</b> does this fixed starter deck, played as Draw 7 / Play 5, produce both Payouts and Whiffs against a plausible House Edge, and do Streak chains and All In sacrifices fire often enough to matter? Edit the deck at the bottom; everything above re-reads it.</p>
+<p class="intro hint">Rules, as in <code>src/combat/duel.rs</code>: cards resolve left to right. <b>Streak</b> doubles its own Stack if the card played immediately before it this turn had any Tell. <b>All In</b> burns a card you name from the rest of your Draw and adds its Stack; the burned card is discarded, not played, so it doesn't count for Streak. Leftover Draw carries over and refills to 7; the discard reshuffles when the deck runs dry. Whiff damage = House Edge − Hand. Rising Blinds: +2 to House Edge every 2 turns.</p>
+
+<div class="grid">
+  <div class="panel">
+    <h2 style="margin-top:0">This turn</h2>
+    <div id="state"></div>
+    <h2>Your Draw <span class="hint">(click to play; with an All In pending, click the card to burn)</span></h2>
+    <div id="draw" class="cards"></div>
+    <div>
+      <button class="primary" id="btn-resolve">Show your Hand</button>
+      <button id="btn-new">New encounter</button>
+      <div style="margin-top:8px">House Edge <input type="number" id="edge" value="22"> Enemy Stack <input type="number" id="estack" value="40"> Your Stack <input type="number" id="pstack" value="40"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2 style="margin-top:0">What happened</h2>
+    <div id="log" class="log"></div>
+  </div>
+</div>
+
+<h2>Guided walkthroughs</h2>
+<div class="panel">
+  <div class="tabs" id="tabs"></div>
+  <div id="scenarios"></div>
+</div>
+
+<h2>Simulate many turns</h2>
+<div class="panel">
+  <p class="hint">Runs turns from the deck below against a fixed House Edge (no Blinds, infinite Stacks) so the numbers describe the deck, not the fight. <b>Naive</b> plays the 5 highest-Stack cards in a random order and burns the lowest leftover to any All In. <b>Smart</b> tries every ordering of every 5-card subset and every burn, and plays the best. Real players land in between.</p>
+  Turns <input type="number" id="sim-n" value="2000">
+  Edges <input type="text" id="sim-edges" value="14, 18, 22, 26, 30">
+  <button class="primary" id="btn-sim">Simulate</button>
+  <div id="sim-out" style="margin-top:10px"></div>
+</div>
+
+<h2>The deck <span class="hint">(this is what's being tested; edit freely)</span></h2>
+<div class="panel">
+  <table id="deck-table"><thead><tr><th>#</th><th>Name</th><th>Stack</th><th>Tell</th><th></th></tr></thead><tbody></tbody></table>
+  <button id="btn-add">Add card</button> <button id="btn-reset-deck">Reset to draft</button>
+  <span class="hint" id="deck-summary"></span>
+</div>
+</main>
+
+<script>
+// ===================== PURE MODULE: mirrors src/combat/duel.rs =====================
+const Tell = { STREAK: 'Streak', ALL_IN: 'All In' };
+
+const DRAFT_DECK = [
+  { name: 'Two of Clubs',      stack: 2, tell: null },
+  { name: 'Cheap Seat',        stack: 3, tell: null },
+  { name: 'Comped Drink',      stack: 3, tell: null },
+  { name: 'Four of Hearts',    stack: 4, tell: null },
+  { name: 'Bus Ticket Home',   stack: 4, tell: null },
+  { name: 'Five of Spades',    stack: 5, tell: null },
+  { name: 'Borrowed Watch',    stack: 5, tell: null },
+  { name: 'Six of Diamonds',   stack: 6, tell: null },
+  { name: 'Marked Card',       stack: 7, tell: null },
+  { name: 'Pawned Ring',       stack: 8, tell: null },
+  { name: 'Hot Streak',        stack: 3, tell: Tell.STREAK },
+  { name: 'Lucky Seat',        stack: 4, tell: Tell.STREAK },
+  { name: 'Dealer Blinks',     stack: 5, tell: Tell.STREAK },
+  { name: 'Table Runs Hot',    stack: 6, tell: Tell.STREAK },
+  { name: 'Last Dollar',       stack: 2, tell: Tell.ALL_IN },
+  { name: 'Car Keys',          stack: 3, tell: Tell.ALL_IN },
+  { name: 'Deed to the House', stack: 4, tell: Tell.ALL_IN },
+  { name: 'Firstborn',         stack: 5, tell: Tell.ALL_IN },
+];
+
+function shuffle(a, rng = Math.random) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+// plays: ordered [{card, sacrifice?}]. Returns { hand, steps }.
+function resolvePlays(plays) {
+  let hand = 0, prevHadTell = false; const steps = [];
+  for (const p of plays) {
+    let v = p.card.stack, note = '';
+    if (p.card.tell === Tell.STREAK && prevHadTell) { v *= 2; note = 'Streak doubled'; }
+    if (p.card.tell === Tell.ALL_IN) {
+      if (p.sacrifice) { v += p.sacrifice.stack; note = `burned ${p.sacrifice.name} for +${p.sacrifice.stack}`; }
+      else note = 'nothing to burn';
+    }
+    hand += v; steps.push({ card: p.card, contributed: v, note });
+    prevHadTell = p.card.tell !== null;
+  }
+  return { hand, steps };
+}
+
+function newEncounter(deck, { houseEdge, enemyStack, playerStack, plays = 5, drawSize = 7, blinds = { every: 2, inc: 2 }, rng = Math.random }) {
+  return refill({ deck: shuffle(deck, rng), discard: [], draw: [], houseEdge, enemyStack, playerStack, plays, drawSize, blinds, turn: 1, over: null, rng });
+}
+function refill(s) {
+  s = { ...s, deck: s.deck.slice(), discard: s.discard.slice(), draw: s.draw.slice() };
+  while (s.draw.length < s.drawSize) {
+    if (s.deck.length === 0) { if (s.discard.length === 0) break; s.deck = shuffle(s.discard, s.rng); s.discard = []; }
+    s.draw.push(s.deck.pop());
+  }
+  return s;
+}
+function playTurn(s, plays) {
+  const { hand, steps } = resolvePlays(plays);
+  const used = new Set(plays.flatMap(p => [p.card, p.sacrifice].filter(Boolean)));
+  const draw = s.draw.filter(c => !used.has(c));
+  const discard = s.discard.concat([...used]);
+  let enemyStack = s.enemyStack, playerStack = s.playerStack, kind, amount;
+  if (hand >= s.houseEdge) { kind = 'Payout'; amount = hand - s.houseEdge; enemyStack = Math.max(0, enemyStack - amount); }
+  else { kind = 'Whiff'; amount = s.houseEdge - hand; playerStack = Math.max(0, playerStack - amount); }
+  let houseEdge = s.houseEdge, blindsRose = false;
+  if (s.turn % s.blinds.every === 0) { houseEdge += s.blinds.inc; blindsRose = true; }
+  const over = enemyStack === 0 ? 'won' : playerStack === 0 ? 'lost' : null;
+  const state = refill({ ...s, draw, discard, enemyStack, playerStack, houseEdge, turn: s.turn + 1, over });
+  return { state, result: { hand, steps, kind, amount, blindsRose, houseEdgeFaced: s.houseEdge } };
+}
+
+// ---- player models ----
+function naivePlays(draw, plays, rng) {
+  const sorted = draw.slice().sort((a, b) => b.stack - a.stack);
+  const chosen = shuffle(sorted.slice(0, plays), rng);
+  const leftover = sorted.slice(plays).sort((a, b) => a.stack - b.stack);
+  return chosen.map(c => c.tell === Tell.ALL_IN ? { card: c, sacrifice: leftover.shift() || null } : { card: c });
+}
+function smartPlays(draw, plays) {
+  let best = null, bestHand = -1;
+  const want = Math.min(plays, draw.length);
+  const perm = (chosen, rest) => {
+    if (chosen.length === want) {
+      const pool = rest.slice().sort((a, b) => b.stack - a.stack); let k = 0;
+      const ps = chosen.map(c => c.tell === Tell.ALL_IN ? { card: c, sacrifice: pool[k++] || null } : { card: c });
+      const { hand } = resolvePlays(ps);
+      if (hand > bestHand) { bestHand = hand; best = ps; }
+      return;
+    }
+    for (let i = 0; i < rest.length; i++) perm(chosen.concat([rest[i]]), rest.slice(0, i).concat(rest.slice(i + 1)));
+  };
+  perm([], draw);
+  return best;
+}
+function simulate(deck, { turns, houseEdge, model, rng = Math.random }) {
+  const out = { turns: 0, payouts: 0, whiffs: 0, handSum: 0, hands: [], streakFired: 0, streakPlayed: 0, allInFired: 0, allInPlayed: 0, minHand: 1e9, maxHand: 0 };
+  let s = newEncounter(deck, { houseEdge, enemyStack: 1e9, playerStack: 1e9, blinds: { every: 1e9, inc: 0 }, rng });
+  while (out.turns < turns) {
+    const ps = model === 'smart' ? smartPlays(s.draw, s.plays) : naivePlays(s.draw, s.plays, rng);
+    const r = playTurn(s, ps); s = r.state;
+    out.turns++; out.handSum += r.result.hand; out.hands.push(r.result.hand);
+    out.minHand = Math.min(out.minHand, r.result.hand); out.maxHand = Math.max(out.maxHand, r.result.hand);
+    if (r.result.kind === 'Payout') out.payouts++; else out.whiffs++;
+    for (const st of r.result.steps) {
+      if (st.card.tell === Tell.STREAK) { out.streakPlayed++; if (st.note.startsWith('Streak')) out.streakFired++; }
+      if (st.card.tell === Tell.ALL_IN) { out.allInPlayed++; if (st.note.startsWith('burned')) out.allInFired++; }
+    }
+  }
+  return out;
+}
+if (typeof module !== 'undefined') module.exports = { Tell, DRAFT_DECK, simulate, resolvePlays, newEncounter, playTurn };
+// ===================== END PURE MODULE =====================
+
+if (typeof document !== 'undefined') {
+// ------------------------ throwaway page ------------------------
+let deck = DRAFT_DECK.map(c => ({ ...c }));
+let S = null, plan = [], pendingAllIn = null, logLines = [];
+const $ = id => document.getElementById(id);
+const readDeck = () => deck.map(c => ({ ...c }));
+function log(msg, hi) { logLines.unshift(hi ? `<span class="hi">${msg}</span>` : msg); $('log').innerHTML = logLines.slice(0, 60).join('\n'); }
+
+function startEncounter(opts = {}) {
+  const o = { houseEdge: +$('edge').value, enemyStack: +$('estack').value, playerStack: +$('pstack').value, ...opts };
+  S = newEncounter(readDeck(), o); plan = []; pendingAllIn = null;
+  if (opts.fixedDraw) S.draw = opts.fixedDraw.map(n => deck.find(c => c.name === n));
+  logLines = []; log(`New encounter. House Edge ${S.houseEdge}, enemy Stack ${S.enemyStack}, your Stack ${S.playerStack}.`, true);
+  render();
+}
+function render() {
+  if (!S) return;
+  $('state').innerHTML = [
+    ['Turn', S.turn], ['House Edge', S.houseEdge], ['Enemy Stack', S.enemyStack], ['Your Stack', S.playerStack],
+    ['Plays left', S.plays - plan.length], ['The Hand so far', resolvePlays(plan).hand],
+    ['Deck / discard', `${S.deck.length} / ${S.discard.length}`],
+    ['Status', S.over ? (S.over === 'won' ? '<span class="good">YOU WIN</span>' : '<span class="bad">YOU LOSE</span>') : (pendingAllIn ? '<span class="bad">All In: click a card to burn</span>' : 'playing')],
+  ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+  const used = new Set(plan.flatMap(p => [p.card, p.sacrifice].filter(Boolean)));
+  $('draw').innerHTML = S.draw.map((c, i) => used.has(c) ? '' :
+    `<div class="card ${pendingAllIn && pendingAllIn.card === c ? 'pending' : ''}" data-i="${i}"><div class="v">${c.stack}</div><div class="n">${c.name}</div>${c.tell ? `<div class="t ${c.tell === Tell.STREAK ? 'streak' : ''}">${c.tell}</div>` : ''}</div>`).join('');
+  $('btn-resolve').disabled = !!S.over || !!pendingAllIn;
+}
+$('draw').addEventListener('click', e => {
+  const el = e.target.closest('.card'); if (!el || S.over) return;
+  const c = S.draw[+el.dataset.i];
+  if (pendingAllIn) { if (c === pendingAllIn.card) return; pendingAllIn.sacrifice = c; log(`  burn ${c.name} (${c.stack}) for ${pendingAllIn.card.name}`); pendingAllIn = null; render(); return; }
+  if (plan.length >= S.plays) { log('  no Plays left'); return; }
+  const p = { card: c }; plan.push(p); log(`  play ${c.name} (${c.stack}${c.tell ? ', ' + c.tell : ''})`);
+  if (c.tell === Tell.ALL_IN) { const others = S.draw.filter(x => x !== c && !plan.some(q => q.card === x || q.sacrifice === x)); if (others.length) pendingAllIn = p; else log('  (nothing left to burn)'); }
+  render();
+});
+$('btn-resolve').onclick = () => {
+  const r = playTurn(S, plan); S = r.state; plan = [];
+  log(`Resolved: ${r.result.steps.map(st => `${st.card.name} → ${st.contributed}${st.note ? ' (' + st.note + ')' : ''}`).join(', ') || 'nothing played'}`);
+  log(`The Hand ${r.result.hand} vs House Edge ${r.result.houseEdgeFaced} → ${r.result.kind} ${r.result.amount}${r.result.blindsRose ? '. Blinds rise: House Edge now ' + S.houseEdge : ''}`, true);
+  if (S.over) log(S.over === 'won' ? 'Enemy Stack is 0. You win.' : 'Your Stack is 0. House always wins, pal.', true);
+  render();
+};
+$('btn-new').onclick = () => startEncounter();
+
+const scenarios = [
+  { title: 'Streak chain', text: 'A Draw built to chain. Play Last Dollar (All In; burn Two of Clubs), then Hot Streak, Dealer Blinks, Table Runs Hot, then Pawned Ring. Each Streak doubles because the card before it had a Tell. Expect a big Payout.', draw: ['Last Dollar', 'Hot Streak', 'Dealer Blinks', 'Table Runs Hot', 'Pawned Ring', 'Two of Clubs', 'Cheap Seat'], edge: 22 },
+  { title: 'Dead Streaks', text: 'Same Streak cards, no Tell to lead with. Play Pawned Ring first, then the three Streaks, then Marked Card. Only the second and third Streak double. Too punishing, or the right skill test?', draw: ['Pawned Ring', 'Hot Streak', 'Dealer Blinks', 'Table Runs Hot', 'Marked Card', 'Cheap Seat', 'Comped Drink'], edge: 22 },
+  { title: 'The Whiff', text: 'A bad Draw against a Pit-tier Edge of 30. Play the best five you can; you will Whiff and the shortfall comes off your Stack. Does one bad Draw feel survivable?', draw: ['Two of Clubs', 'Cheap Seat', 'Comped Drink', 'Four of Hearts', 'Bus Ticket Home', 'Five of Spades', 'Last Dollar'], edge: 30 },
+  { title: 'All In on a big card', text: 'Firstborn (All In, 5) with Pawned Ring (8) to burn: 13 from one Play. Then Deed to the House burning Marked Card: 11. Two Plays, 24 chips, and only 3 cards left for 3 Plays. Is All In too strong, or is the shrinking Draw its own cost?', draw: ['Firstborn', 'Pawned Ring', 'Deed to the House', 'Marked Card', 'Six of Diamonds', 'Two of Clubs', 'Cheap Seat'], edge: 22 },
+];
+scenarios.forEach((sc, i) => {
+  const b = document.createElement('button'); b.textContent = sc.title; b.onclick = () => selectScenario(i); $('tabs').appendChild(b);
+  const d = document.createElement('div'); d.className = 'scenario'; d.innerHTML = `<p>${sc.text}</p><button class="primary">Set up this Draw</button>`;
+  d.querySelector('button').onclick = () => { $('edge').value = sc.edge; startEncounter({ houseEdge: sc.edge, fixedDraw: sc.draw }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  $('scenarios').appendChild(d);
+});
+function selectScenario(i) { [...$('tabs').children].forEach((b, j) => b.classList.toggle('active', i === j)); [...$('scenarios').children].forEach((d, j) => d.classList.toggle('active', i === j)); }
+selectScenario(0);
+
+$('btn-sim').onclick = () => {
+  const turns = +$('sim-n').value;
+  const edges = $('sim-edges').value.split(',').map(s => +s.trim()).filter(n => !isNaN(n));
+  const rows = [];
+  for (const houseEdge of edges) for (const model of ['naive', 'smart']) {
+    const r = simulate(readDeck(), { turns, houseEdge, model });
+    const sorted = r.hands.slice().sort((a, b) => a - b), med = sorted[sorted.length >> 1];
+    rows.push(`<tr><td>${houseEdge}</td><td>${model}</td><td>${(r.handSum / r.turns).toFixed(1)}</td><td>${med}</td><td>${r.minHand}–${r.maxHand}</td><td class="good">${(100 * r.payouts / r.turns).toFixed(0)}%</td><td class="bad">${(100 * r.whiffs / r.turns).toFixed(0)}%</td><td>${r.streakPlayed ? (100 * r.streakFired / r.streakPlayed).toFixed(0) : '–'}%</td><td>${r.allInPlayed ? (100 * r.allInFired / r.allInPlayed).toFixed(0) : '–'}%</td></tr>`);
+  }
+  $('sim-out').innerHTML = `<table><thead><tr><th>Edge</th><th>Player</th><th>Mean Hand</th><th>Median</th><th>Range</th><th>Payout</th><th>Whiff</th><th>Streak fired</th><th>All In fired</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+};
+
+function renderDeck() {
+  $('deck-table').querySelector('tbody').innerHTML = deck.map((c, i) => `<tr><td>${i + 1}</td><td><input type="text" data-i="${i}" data-k="name" value="${c.name}"></td><td><input type="number" data-i="${i}" data-k="stack" value="${c.stack}"></td><td><select data-i="${i}" data-k="tell"><option value="">–</option><option ${c.tell === Tell.STREAK ? 'selected' : ''}>Streak</option><option ${c.tell === Tell.ALL_IN ? 'selected' : ''}>All In</option></select></td><td><button data-del="${i}">×</button></td></tr>`).join('');
+  const tells = deck.filter(c => c.tell).length, total = deck.reduce((a, c) => a + c.stack, 0);
+  $('deck-summary').textContent = `${deck.length} cards, ${tells} with Tells (${(100 * tells / deck.length).toFixed(0)}%), total Stack ${total}, mean ${(total / deck.length).toFixed(1)}`;
+}
+$('deck-table').addEventListener('change', e => { const t = e.target; if (!t.dataset.k) return; const c = deck[+t.dataset.i]; c[t.dataset.k] = t.dataset.k === 'stack' ? +t.value : t.dataset.k === 'tell' ? (t.value || null) : t.value; renderDeck(); });
+$('deck-table').addEventListener('click', e => { if (e.target.dataset.del !== undefined) { deck.splice(+e.target.dataset.del, 1); renderDeck(); } });
+$('btn-add').onclick = () => { deck.push({ name: 'New Card', stack: 4, tell: null }); renderDeck(); };
+$('btn-reset-deck').onclick = () => { deck = DRAFT_DECK.map(c => ({ ...c })); renderDeck(); };
+renderDeck(); startEncounter();
+}
+</script>
+</body>
+</html>
