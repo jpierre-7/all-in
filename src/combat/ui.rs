@@ -1,0 +1,184 @@
+//! Draws the duel. Text-first, with an image slot per card and Tell that the
+//! artist's files fill in when they exist under `assets/`.
+
+use std::path::Path;
+
+use bevy::prelude::*;
+
+use super::duel::Outcome;
+use super::plugin::ActiveDuel;
+use crate::run::Tell;
+use crate::state::AppState;
+
+const INK: Color = Color::srgb(0.90, 0.87, 0.80);
+const FELT: Color = Color::srgb(0.05, 0.07, 0.06);
+const NEON: Color = Color::srgb(0.85, 0.20, 0.30);
+const DIM: Color = Color::srgb(0.55, 0.53, 0.48);
+const GOLD: Color = Color::srgb(0.85, 0.70, 0.35);
+const STREAK_BLUE: Color = Color::srgb(0.50, 0.72, 0.84);
+const CARD_FACE: Color = Color::srgb(0.04, 0.08, 0.06);
+
+/// Art that exists on disk. Anything `None` renders as text.
+#[derive(Resource, Default)]
+pub struct Art {
+    pub frame: Option<Handle<Image>>,
+    pub streak: Option<Handle<Image>>,
+    pub all_in: Option<Handle<Image>>,
+    pub backdrop: Option<Handle<Image>>,
+}
+
+/// Checks `assets/` once at startup so a missing file is a fallback, not a
+/// load error at the table.
+pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
+    let load = |rel: &'static str| {
+        let assets = assets.as_ref()?;
+        Path::new("assets").join(rel).exists().then(|| assets.load(rel))
+    };
+    commands.insert_resource(Art {
+        frame: load("cards/frame.png"),
+        streak: load("tells/streak.png"),
+        all_in: load("tells/all_in.png"),
+        backdrop: load("backdrops/combat.png"),
+    });
+}
+
+#[derive(Component)]
+pub struct CombatScreen;
+
+/// Rebuilds the whole screen whenever the duel changes. Cheap enough at seven
+/// cards, and it keeps every node derived from one source of truth.
+pub fn redraw(
+    mut commands: Commands,
+    active: Res<ActiveDuel>,
+    art: Res<Art>,
+    existing: Query<Entity, With<CombatScreen>>,
+) {
+    for entity in &existing {
+        commands.entity(entity).despawn();
+    }
+
+    let duel = &active.duel;
+    let mut root = commands.spawn((
+        Node {
+            width: percent(100),
+            height: percent(100),
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::SpaceBetween,
+            padding: UiRect::all(px(40)),
+            ..default()
+        },
+        BackgroundColor(FELT),
+        CombatScreen,
+        DespawnOnExit(AppState::Combat),
+    ));
+
+    if let Some(backdrop) = &art.backdrop {
+        root.insert(ImageNode::new(backdrop.clone()));
+    }
+
+    root.with_children(|root| {
+        // Top: the enemy.
+        row(root, JustifyContent::SpaceBetween, |r| {
+            text(r, active.enemy_name, 30.0, NEON);
+            text(r, format!("Stack {}", duel.enemy_stack()), 26.0, GOLD);
+            text(r, format!("House Edge {}", duel.house_edge()), 26.0, INK);
+        });
+
+        // Middle: The Hand and the feedback line.
+        root.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: px(10),
+            ..default()
+        })
+        .with_children(|mid| {
+            text(mid, format!("The Hand   {}", duel.hand()), 44.0, GOLD);
+            text(mid, format!("Plays left  {}", duel.plays_left()), 20.0, DIM);
+            if let Some(turn) = &active.last_turn {
+                let line = match turn.kind {
+                    Outcome::Payout(n) => format!("{} vs House Edge {}: Payout {n}.", turn.hand, turn.house_edge),
+                    Outcome::Whiff(n) => format!("{} vs House Edge {}: Whiff. You lose {n}.", turn.hand, turn.house_edge),
+                };
+                text(mid, line, 20.0, INK);
+                if turn.blinds_rose {
+                    text(mid, "The Blinds rise.", 18.0, NEON);
+                }
+            }
+            if let Some(notice) = &active.notice {
+                text(mid, notice.clone(), 20.0, NEON);
+            }
+        });
+
+        // The Draw.
+        row(root, JustifyContent::Center, |r| {
+            for (i, card) in duel.draw().iter().enumerate() {
+                let sacrifice_pending = active.awaiting_sacrifice == Some(i);
+                let mut node = r.spawn((
+                    Node {
+                        width: px(120),
+                        height: px(170),
+                        flex_direction: FlexDirection::Column,
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        padding: UiRect::all(px(8)),
+                        margin: UiRect::all(px(6)),
+                        border: UiRect::all(px(2)),
+                        ..default()
+                    },
+                    BackgroundColor(CARD_FACE),
+                    BorderColor::all(if sacrifice_pending { NEON } else { GOLD }),
+                ));
+                if let Some(frame) = &art.frame {
+                    node.insert(ImageNode::new(frame.clone()));
+                }
+                node.with_children(|c| {
+                    text(c, format!("[{}]", i + 1), 16.0, DIM);
+                    text(c, card.name, 16.0, INK);
+                    text(c, card.stack.to_string(), 34.0, GOLD);
+                    match card.tell {
+                        Some(Tell::Streak) => tell(c, "Streak", STREAK_BLUE, art.streak.clone()),
+                        Some(Tell::AllIn) => tell(c, "All In", NEON, art.all_in.clone()),
+                        None => text(c, " ", 14.0, DIM),
+                    }
+                });
+            }
+        });
+
+        // Bottom: you.
+        row(root, JustifyContent::SpaceBetween, |r| {
+            text(r, "Lucky Jack", 26.0, INK);
+            text(r, format!("Stack {}", duel.player_stack()), 26.0, GOLD);
+            text(r, "1-7 play a card   Enter show your Hand", 16.0, DIM);
+        });
+    });
+}
+
+fn row(parent: &mut ChildSpawnerCommands, justify: JustifyContent, f: impl FnOnce(&mut ChildSpawnerCommands)) {
+    parent
+        .spawn(Node {
+            width: percent(100),
+            flex_direction: FlexDirection::Row,
+            justify_content: justify,
+            align_items: AlignItems::Center,
+            column_gap: px(24),
+            ..default()
+        })
+        .with_children(f);
+}
+
+fn text(parent: &mut ChildSpawnerCommands, s: impl Into<String>, size: f32, color: Color) {
+    parent.spawn((Text::new(s), TextFont::from_font_size(size), TextColor(color)));
+}
+
+/// A Tell label, or the artist's icon for it when the file exists.
+fn tell(parent: &mut ChildSpawnerCommands, label: &str, color: Color, icon: Option<Handle<Image>>) {
+    match icon {
+        Some(icon) => {
+            parent.spawn((
+                Node { width: px(28), height: px(28), ..default() },
+                ImageNode::new(icon),
+            ));
+        }
+        None => text(parent, label, 14.0, color),
+    }
+}
