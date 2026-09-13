@@ -4,22 +4,36 @@
 /// The marquee.
 pub const TITLE: &str = "ALL IN";
 
-pub const OPENING: &str = "\
+/// The Opening, one frame per screen, lifted from the `## OPENING` section of
+/// `docs/narrative.md` (split there by #37). The art slots are
+/// `assets/backstory/opening_N.png`, numbered to match.
+pub const OPENING_1: &str = "\
 Twenty-five years ago you sat down at the Big Shots Table with everything
-you owned, and it took the House about an hour to take it off you.
+you owned, and it took the House about an hour to take it off you.";
 
+pub const OPENING_2: &str = "\
 That should've been the end of it. Instead you did the thing this whole
 building still whispers about when the shift changes: you put your boy on
-the felt, your firstborn, because you were sure the next hand was yours.
+the felt.";
 
-It wasn't.
+pub const OPENING_3: &str = "\
+Your firstborn, because you were sure the next hand was yours.
 
-They still call you Lucky Jack. Nobody remembers why, and you've stopped
-correcting them.
+It wasn't. The House took him the way it takes everything: without
+looking up.";
 
+pub const OPENING_4: &str = "\
+That was twenty-five years ago. They still call you Lucky Jack. Nobody
+remembers why, and you've stopped correcting them.";
+
+pub const OPENING_5: &str = "\
 Tonight you walk back through the doors with a deck in your coat pocket
 and nothing else worth taking. Twenty-five years is a long time to owe
 someone, and you've come to collect.";
+
+/// The frames in the order they are paged through. Everything that walks the
+/// Opening — the screens, the art slots, the tests — counts from this.
+pub const OPENING: [&str; 5] = [OPENING_1, OPENING_2, OPENING_3, OPENING_4, OPENING_5];
 
 pub const LOBBY: &str = "\
 The lobby smells like carpet shampoo and old cigarettes; a slot machine
@@ -186,3 +200,5 @@ pub const GAME_OVER: &str = TITLE;
 pub const PRESS_SPACE: &str = "Press Space to play.";
 pub const ANY_KEY: &str = "Press any key.";
 pub const ANY_KEY_BACK: &str = "Press any key to go back.";
+/// The Opening names Esc, because a skip nobody can find is no skip.
+pub const ANY_KEY_OR_SKIP: &str = "Press any key — or Esc to skip ahead.";
