@@ -1,0 +1,11 @@
+# Pins the toolchain for rustup-driven builds, so cargo-remote's build host
+# matches the devshell. cargo-remote runs `rustup default stable` before cargo,
+# which would otherwise resolve independently on each machine and drift.
+#
+# Inert locally: the devshell's cargo comes from nixpkgs, not a rustup shim.
+# `channel` must therefore track the flake's rustc — bump both together.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy", "rust-src"]
+targets = ["x86_64-unknown-linux-gnu"]
+profile = "minimal"

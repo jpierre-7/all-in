@@ -1,0 +1,32 @@
+# Guards the one invariant that spans flake.lock and rust-toolchain.toml: both
+# must name the same rustc. See tools/check-toolchain-pin.sh for why.
+#
+# Only the files that can introduce drift trigger it, so the rest of the repo
+# pays nothing. The path lists are duplicated because GitHub Actions does not
+# support YAML anchors -- keep them in sync.
+name: toolchain pin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - rust-toolchain.toml
+      - tools/check-toolchain-pin.sh
+      - .github/workflows/toolchain-pin.yml
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - rust-toolchain.toml
+      - tools/check-toolchain-pin.sh
+      - .github/workflows/toolchain-pin.yml
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v23
+      - run: tools/check-toolchain-pin.sh
