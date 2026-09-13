@@ -23,6 +23,8 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `fonts/BarlowCondensed-Regular.ttf` | — | all text | `theme.rs` — the default font |
 | `fonts/Limelight-Regular.ttf` | — | screen titles | `theme.rs` — `Fonts::display` |
 | `icon.png` | 256×256 | — | **not wired** — see below |
+| `backstory/opening_1…5.png` | 1920×1080 | one per Opening frame | **awaiting #38** |
+| `backdrops/title.png` | 1920×1080 | title screen | **awaiting #36** |
 
 ## Card frame
 
@@ -124,6 +126,42 @@ the machine we demo from was not worth it. On Windows and Linux it would work,
 if someone wants it later.
 
 The window title *is* set, in `main.rs`: **ALL-IN**.
+
+## The Opening frames
+
+One image per frame of `OPENING` in `docs/narrative.md`. The split into
+`OPENING_1`…`OPENING_5` is #37's, and each frame there carries a *Scene* line
+written for the artist. **Those scene lines are the brief; this art does not yet
+match them** — see the note on #48.
+
+Neither these nor `title.png` are loaded yet: #38 builds the Opening paging and
+#36 the title screen. Any frame whose image is missing pages as text only, so
+they can land before the code does.
+
+**They are symbolic, not illustrative** — an object under a lamp rather than a
+drawn figure. That is an honest limit of geometry: code can put a photograph on
+felt convincingly and cannot draw a man's face. It also suits prose that is
+about what Lucky Jack lost rather than what he looks like.
+
+**Every frame keeps its lower third dark**, because that is where the prose
+goes. The subject lives in the upper two thirds. `gen_backstory.py` reports it:
+
+```
+opening_1  lower-third p99 0.081  contrast 7.01:1
+opening_2  lower-third p99 0.064  contrast 8.06:1
+opening_3  lower-third p99 0.054  contrast 8.82:1
+opening_4  lower-third p99 0.061  contrast 8.28:1
+opening_5  lower-third p99 0.112  contrast 5.68:1
+title      lower-third p99 0.206  contrast 3.60:1
+```
+
+An earlier pass scrimmed the *middle* and measured 1.04:1, because the chips,
+the photograph and the cards are the bright things in these frames and they sat
+exactly where the text did. Dimming only the background would not have helped.
+
+These are the heaviest files in the repo, ~1.6MB each. 64-colour quantising
+takes them to ~1.1MB but risks banding on long dark gradients, which is a bad
+trade on the most cinematic screens in the game.
 
 ## Palette
 
