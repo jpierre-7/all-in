@@ -72,19 +72,36 @@ def paste(dst, src, cx, cy, label=None, d=None):
         d.text((cx - w / 2, cy + im.height / 2 + 18), label, font=font(BODY, 28), fill=DIM)
 
 
-def card_at(size):
-    """The card as the game draws it, text and all."""
+def card_at(size, tell=None, value="8"):
+    """A card as `combat::ui` actually draws it.
+
+    Playing-card layout: the value in two opposite corners, and in the middle
+    either the Tell's icon or — for a card with no Tell — the value again,
+    large. Mirrors `corner_row` and `centre` so the deck cannot show a card the
+    game does not.
+    """
     frame = Image.open(ASSETS / "cards" / "frame.png").resize(size, Image.LANCZOS)
-    c = Image.new("RGBA", size, (10, 20, 15, 255))
-    c.alpha_composite(frame)
-    d = ImageDraw.Draw(c)
-    k = size[0] / 120
-    for txt, fs, y, col in (("[1]", 13, 10, DIM), ("Pawned Ring", 16, 26, BONE),
-                            ("8", 34, 70, GOLD), ("Streak", 13, 140, (128, 184, 214))):
-        f = font(BODY, int(fs * k))
-        w = d.textlength(txt, font=f)
-        d.text(((size[0] - w) / 2, y * k), txt, font=f, fill=col)
-    return c
+    card = Image.new("RGBA", size, (10, 20, 15, 255))
+    card.alpha_composite(frame)
+    d = ImageDraw.Draw(card)
+    k = size[0] / 150  # the node is 150 wide in game
+
+    corner = font(BODY, max(int(20 * k), 9))
+    d.text((26 * k, 20 * k), value, font=corner, fill=GOLD)
+    w = d.textlength(value, font=corner)
+    d.text((size[0] - 26 * k - w, size[1] - 20 * k - corner.size * 1.2), value,
+           font=corner, fill=GOLD)
+
+    if tell:
+        box = int(66 * k)
+        icon = Image.open(ASSETS / "tells" / f"{tell}.png").resize((box, box), Image.LANCZOS)
+        card.alpha_composite(icon, (int((size[0] - box) / 2), int((size[1] - box) / 2)))
+    else:
+        big = font(BODY, max(int(44 * k), 14))
+        w = d.textlength(value, font=big)
+        d.text(((size[0] - w) / 2, (size[1] - big.size * 1.3) / 2), value,
+               font=big, fill=GOLD)
+    return card
 
 
 # --- Slides ------------------------------------------------------------------
@@ -131,13 +148,14 @@ def s_system():
 
 def s_card():
     img, d = slide("The card face",
-                   "A guilloche rosette inside a three-part bezel — authored at 2x, drawn at 120x170.")
+                   "A guilloche rosette inside a three-part bezel. A card with no Tell shows its value in the middle.")
     paste(img, fit(Image.open(ASSETS / "cards" / "frame.png"), 440, 620), 470, 560,
           "240 x 340 authored", d)
     row_cx = 1310
-    for i in range(4):
-        paste(img, card_at((170, 241)), row_cx - 285 + i * 190, 545)
-    label = "as the game draws them — 120 x 170"
+    hand = [(None, "8"), ("streak", "5"), (None, "3"), ("all_in", "7")]
+    for i, (tell, value) in enumerate(hand):
+        paste(img, card_at((170, 238), tell, value), row_cx - 285 + i * 190, 545)
+    label = "value in both corners; the Tell, or the value again, in the middle"
     w = d.textlength(label, font=font(BODY, 28))
     d.text((row_cx - w / 2, 700), label, font=font(BODY, 28), fill=DIM)
     return img
