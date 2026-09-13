@@ -14,7 +14,7 @@ use bevy::prelude::*;
 
 use progression::{Progress, encounter_intro, win_line};
 use screens::{
-    Screen, any_key, apply_backdrop, confirm, digit_pressed, load_overworld_art,
+    Backdrop, Screen, any_key, apply_backdrop, confirm, digit_pressed, load_overworld_art, space,
 };
 
 use crate::run::{CombatOutcome, Encounter, Enemy, RewardOffer, RunState};
@@ -35,6 +35,7 @@ impl Plugin for OverworldPlugin {
             .insert_resource(RunState::new())
             .add_systems(Startup, (spawn_camera, load_overworld_art))
             .add_systems(Update, apply_backdrop)
+            .add_systems(OnEnter(AppState::Title), show_title)
             .add_systems(OnEnter(AppState::Opening), show_opening)
             .add_systems(OnEnter(AppState::Lobby), (end_the_run, show_lobby))
             .add_systems(OnEnter(AppState::InfoRoom), show_info_room)
@@ -48,6 +49,7 @@ impl Plugin for OverworldPlugin {
             .add_systems(
                 Update,
                 (
+                    leave_title.run_if(in_state(AppState::Title)),
                     // Every screen that only needs dismissing goes the same
                     // place: back to the Lobby.
                     back_to_lobby.run_if(
@@ -72,12 +74,33 @@ fn spawn_camera(mut commands: Commands) {
 }
 
 // ---------------------------------------------------------------------------
+// Title
+// ---------------------------------------------------------------------------
+
+fn show_title(mut commands: Commands) {
+    Screen::new()
+        .marquee(narrative::TITLE)
+        .backdrop(Backdrop::Title)
+        .footer(narrative::PRESS_SPACE)
+        .spawn(&mut commands, AppState::Title);
+}
+
+/// Space only. Every other screen in the shell takes any key, so the marquee
+/// deliberately does not: a stray keypress on the way to the table should not
+/// skip the game's own name.
+fn leave_title(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<AppState>>) {
+    if space(&keys) {
+        next.set(AppState::Opening);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Opening
 // ---------------------------------------------------------------------------
 
 fn show_opening(mut commands: Commands) {
     Screen::new()
-        .title("ALL IN")
+        .title(narrative::TITLE)
         .prose(narrative::OPENING)
         .footer(narrative::ANY_KEY)
         .spawn(&mut commands, AppState::Opening);
@@ -344,6 +367,15 @@ mod tests {
         app
     }
 
+    /// The shell past the Title screen, where every test but the two below
+    /// wants to start.
+    fn opened() -> App {
+        let mut app = shell();
+        press(&mut app, KeyCode::Space);
+        assert_eq!(state(&app), AppState::Opening);
+        app
+    }
+
     fn press(app: &mut App, key: KeyCode) {
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -389,8 +421,33 @@ mod tests {
     }
 
     #[test]
-    fn the_opening_leads_into_the_lobby() {
+    fn the_game_opens_on_the_title_screen() {
+        let app = shell();
+
+        assert_eq!(state(&app), AppState::Title);
+    }
+
+    #[test]
+    fn only_space_leaves_the_title() {
         let mut app = shell();
+
+        for key in [
+            KeyCode::Enter,
+            KeyCode::Digit1,
+            KeyCode::Escape,
+            KeyCode::KeyA,
+        ] {
+            press(&mut app, key);
+            assert_eq!(state(&app), AppState::Title, "{key:?} is not Space");
+        }
+
+        press(&mut app, KeyCode::Space);
+        assert_eq!(state(&app), AppState::Opening);
+    }
+
+    #[test]
+    fn the_opening_leads_into_the_lobby() {
+        let mut app = opened();
         assert_eq!(state(&app), AppState::Opening);
 
         press(&mut app, KeyCode::Enter);
@@ -400,7 +457,7 @@ mod tests {
 
     #[test]
     fn the_lobby_side_rooms_come_back_to_the_lobby() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
 
         for (key, room) in [
@@ -416,7 +473,7 @@ mod tests {
 
     #[test]
     fn enter_takes_the_option_each_menu_leads_with() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
 
         // The Lobby leads with Walk the Floor...
@@ -432,7 +489,7 @@ mod tests {
 
     #[test]
     fn the_lobby_is_where_a_run_ends() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
         duel(&mut app, true);
@@ -450,7 +507,7 @@ mod tests {
 
     #[test]
     fn winning_every_encounter_walks_three_floors_and_reaches_the_ending() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
 
@@ -484,7 +541,7 @@ mod tests {
 
     #[test]
     fn folding_walks_back_to_the_lobby_and_the_next_run_starts_over() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
 
@@ -501,7 +558,7 @@ mod tests {
 
     #[test]
     fn losing_ends_the_night_and_sends_you_back_to_the_lobby() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
 
@@ -516,7 +573,7 @@ mod tests {
 
     #[test]
     fn beating_a_minion_drops_the_loaded_dice() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
 
@@ -531,7 +588,7 @@ mod tests {
 
     /// Walk to the Slotz reward screen and take the option `key` picks.
     fn slotz_reward(key: KeyCode) -> App {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
         duel(&mut app, true); // the Floor minion
@@ -560,7 +617,7 @@ mod tests {
 
     #[test]
     fn enter_does_not_pick_a_perk_for_you() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
         duel(&mut app, true);
@@ -606,7 +663,7 @@ mod tests {
 
     #[test]
     fn the_fight_key_hands_combat_an_encounter_and_nothing_else() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
 
