@@ -4,22 +4,30 @@
 /// The marquee.
 pub const TITLE: &str = "ALL IN";
 
-pub const OPENING: &str = "\
+/// The Opening, one frame per screen. The split and the wording are #37's,
+/// lifted from `docs/narrative.md`; the matching art is
+/// `assets/backstory/opening_N.png`.
+pub const OPENING_FRAMES: [&str; 5] = [
+    "\
 Twenty-five years ago you sat down at the Big Shots Table with everything
-you owned, and it took the House about an hour to take it off you.
-
+you owned, and it took the House about an hour to take it off you.",
+    "\
 That should've been the end of it. Instead you did the thing this whole
 building still whispers about when the shift changes: you put your boy on
-the felt, your firstborn, because you were sure the next hand was yours.
+the felt.",
+    "\
+Your firstborn, because you were sure the next hand was yours.
 
-It wasn't.
-
-They still call you Lucky Jack. Nobody remembers why, and you've stopped
-correcting them.
-
+It wasn't. The House took him the way it takes everything: without
+looking up.",
+    "\
+That was twenty-five years ago. They still call you Lucky Jack. Nobody
+remembers why, and you've stopped correcting them.",
+    "\
 Tonight you walk back through the doors with a deck in your coat pocket
 and nothing else worth taking. Twenty-five years is a long time to owe
-someone, and you've come to collect.";
+someone, and you've come to collect.",
+];
 
 pub const LOBBY: &str = "\
 The lobby smells like carpet shampoo and old cigarettes; a slot machine

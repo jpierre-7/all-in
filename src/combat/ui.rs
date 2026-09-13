@@ -435,21 +435,42 @@ fn corner_row(parent: &mut ChildSpawnerCommands, justify: JustifyContent, value:
 }
 
 /// The middle of a card: the artist's face art for this card, else the
-/// Tell's icon drawn large, else nothing.
+/// Tell's icon drawn large, else the card's own value.
 fn centre(parent: &mut ChildSpawnerCommands, card: &crate::run::Card, art: &Art) {
     let image = art.face(card.name).cloned().or_else(|| match card.tell {
         Some(Tell::Streak) => art.streak.clone(),
         Some(Tell::AllIn) => art.all_in.clone(),
         None => None,
     });
-    let mut node = parent.spawn(Node {
-        width: px(72),
-        height: px(72),
-        ..default()
-    });
-    if let Some(image) = image {
-        node.insert(ImageNode::new(image));
-    }
+    let Some(image) = image else {
+        // Nothing to show in the middle: no face art drawn for this card, and
+        // no Tell to stand in for one. Ten of the eighteen starter cards land
+        // here, so leaving it empty leaves most of the Draw looking unfinished.
+        // A playing card puts its value in the middle, so this one does too.
+        parent.spawn((
+            Node {
+                width: px(72),
+                height: px(72),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            children![(
+                Text::new(card.stack.to_string()),
+                TextFont::from_font_size(44.0),
+                TextColor(GOLD),
+            )],
+        ));
+        return;
+    };
+    parent.spawn((
+        Node {
+            width: px(72),
+            height: px(72),
+            ..default()
+        },
+        ImageNode::new(image),
+    ));
 }
 
 #[cfg(test)]

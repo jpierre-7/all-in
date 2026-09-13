@@ -24,9 +24,11 @@ const NOTE: Color = Color::srgb(0.48, 0.47, 0.42);
 #[derive(Resource, Default)]
 pub struct OverworldArt {
     pub lobby: Option<Handle<Image>>,
-    /// The title screen's own art. Nothing is on disk for it yet, so the
-    /// marquee falls back to the lobby backdrop.
+    /// The title screen's own art. Falls back to the lobby backdrop.
     pub title: Option<Handle<Image>>,
+    /// One scene per Opening frame, indexed by frame. A frame with no art
+    /// still pages; it just pages as text.
+    pub backstory: [Option<Handle<Image>>; 5],
 }
 
 pub fn load_overworld_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
@@ -39,6 +41,13 @@ pub fn load_overworld_art(mut commands: Commands, assets: Option<Res<AssetServer
     commands.insert_resource(OverworldArt {
         lobby: on_disk("backdrops/lobby.png"),
         title: on_disk("backdrops/title.png"),
+        backstory: [
+            on_disk("backstory/opening_1.png"),
+            on_disk("backstory/opening_2.png"),
+            on_disk("backstory/opening_3.png"),
+            on_disk("backstory/opening_4.png"),
+            on_disk("backstory/opening_5.png"),
+        ],
     });
 }
 
@@ -49,7 +58,15 @@ pub enum Backdrop {
     Lobby,
     /// The title's own art, or the lobby's if the artist has not drawn one.
     Title,
+    /// One of the Opening scenes. These are composed with their lower third
+    /// dark so the prose can sit straight on top of them.
+    Backstory(usize),
 }
+
+/// Every screen's outermost node, so a screen that pages in place can tear
+/// down the frame before it without leaving its `AppState`.
+#[derive(Component)]
+pub struct ScreenRoot;
 
 /// A screen root that has not been given its backdrop yet.
 #[derive(Component)]
@@ -69,6 +86,7 @@ pub fn apply_backdrop(
         let image = match wants.0 {
             Backdrop::Lobby => art.lobby.as_ref(),
             Backdrop::Title => art.title.as_ref().or(art.lobby.as_ref()),
+            Backdrop::Backstory(i) => art.backstory.get(i).and_then(Option::as_ref),
         };
         let mut screen = commands.entity(entity);
         if let Some(image) = image {
@@ -175,6 +193,7 @@ impl Screen {
                 },
                 BackgroundColor(FELT),
                 WantsBackdrop(self.backdrop),
+                ScreenRoot,
                 DespawnOnExit(state),
             ))
             .with_children(|root| {
