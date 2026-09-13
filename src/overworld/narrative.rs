@@ -43,19 +43,34 @@ every chip that crosses the rope, and it's never once been wrong.
 The Big Shots Table. The House sits here, and the House already knows
 what's in your Hand.";
 
-pub const TUTORIAL: &str = "\
-An arcade cabinet, sticky with spilled rum, with a cracked screen that
-explains the only game in this building that matters.
+pub const TUTORIAL_INTRO: &str = "\
+An arcade cabinet, sticky with spilled rum. The screen flickers on and
+deals you a hand. Somebody's scratched into the bezel: play what it
+tells you, then play what you like.";
 
-Draw 7 and play up to 5; the cards you play stack into your Hand.
-Clear the House Edge and whatever's left over comes out of their
-Stack. Fall short, and the difference comes out of yours.
+/// The gated first turn, one prompt per keypress (#40).
+pub const TUTORIAL_STEPS: [&str; 8] = [
+    "Every card is worth its Stack. Press 1 to play Pawned Ring for 8.",
+    "Last Dollar is All In: it burns another card and takes its chips. Press 1 to play it.",
+    "Now press 2 to burn Two of Clubs. Its 2 chips join Last Dollar's.",
+    "Hot Streak is a Streak: it doubles if the card before it had a Tell. It did. Press 1.",
+    "Dealer Blinks is a Streak too, and the card before it had a Tell. Press 1 for 10.",
+    "Last Play. Press 1 to add Four of Hearts. That's 32 against a House Edge of 20.",
+    "Press Enter to show your Hand.",
+    "You cleared the Edge by 12: your Payout. Or Push Your Luck: press P and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way. The real one is 45/55.",
+];
 
-Streak cards double if the card before them had a Tell. All In
-cards burn a card from your Draw and add its chips to the pile.
+pub const TUTORIAL_HINT: &str = "\
+Free play. Lead with a Tell so your Streaks double, and burn your smallest
+card to an All In. In a real duel the Blinds rise every few turns, so
+don't sit here all night.";
 
-Every couple of turns the Blinds rise, because nobody gets to sit at
-this table forever.";
+pub const TUTORIAL_DONE: &str = "\
+The cabinet spits out a paper ticket that says WINNER and nothing else.
+Upstairs, nobody rigs the coin.";
+
+pub const TUTORIAL_LEFT: &str = "\
+You walk away from the cabinet mid-hand. It doesn't seem to mind.";
 
 pub const FLOOR_INTRO: &str = "\
 The main floor, where rows of slots blink like a migraine and the cocktail

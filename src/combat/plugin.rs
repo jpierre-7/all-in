@@ -6,7 +6,8 @@ use bevy::prelude::*;
 
 use super::duel::{Coin, Duel, Phase, PlayError, TurnResult};
 use super::ui;
-use crate::run::{Card, Encounter, EncounterId, RunState, xorshift64};
+use crate::overworld::narrative;
+use crate::run::{Card, CombatOutcome, Encounter, EncounterId, RunState, xorshift64};
 use crate::state::AppState;
 
 pub struct CombatPlugin;
@@ -40,6 +41,60 @@ pub struct ActiveDuel {
     pub last_turn: Option<TurnResult>,
     /// What the last keypress did, for the feedback line.
     pub notice: Option<String>,
+    /// The Arcade's script (#40). `None` in a real duel.
+    pub guide: Option<Guide>,
+}
+
+/// Walks the player through the scripted first turn, one expected key at a
+/// time, then lets go.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Guide {
+    step: usize,
+}
+
+impl Guide {
+    const SCRIPT: [KeyCode; 8] = [
+        KeyCode::Digit1,
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit1,
+        KeyCode::Digit1,
+        KeyCode::Digit1,
+        KeyCode::Enter,
+        KeyCode::KeyP,
+    ];
+
+    pub fn is_free_play(&self) -> bool {
+        self.step >= Self::SCRIPT.len()
+    }
+
+    /// What the screen tells the player to do next.
+    pub fn prompt(&self) -> &'static str {
+        narrative::TUTORIAL_STEPS
+            .get(self.step)
+            .copied()
+            .unwrap_or(narrative::TUTORIAL_HINT)
+    }
+
+    /// Whether this keypress is the one the script is waiting for; if so the
+    /// script advances. Free play accepts everything.
+    fn accepts(&mut self, keys: &ButtonInput<KeyCode>) -> bool {
+        let Some(expected) = Self::SCRIPT.get(self.step) else {
+            return true;
+        };
+        let numpad = match expected {
+            KeyCode::Digit1 => KeyCode::Numpad1,
+            KeyCode::Digit2 => KeyCode::Numpad2,
+            KeyCode::Enter => KeyCode::NumpadEnter,
+            other => *other,
+        };
+        if keys.just_pressed(*expected) || keys.just_pressed(numpad) {
+            self.step += 1;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// A pinned seed for every duel this session, set by the dev entry point
@@ -88,17 +143,33 @@ fn start_duel(
     // Everything the run has picked up lands here, in one place: the deck the
     // rewards built, the Plays and Blinds the perks bought, the coin Slotz
     // rigged, and whatever is left of the Loaded Dice.
-    let mut enemy = encounter.enemy.clone();
-    enemy.blinds = run.blinds(enemy.blinds);
-    let mut duel = Duel::new(
-        shuffled(run.deck.clone(), seed),
-        run.stack,
-        run.plays(),
-        enemy,
-    )
-    .with_seed(seed.rotate_left(17))
-    .with_coin(Coin::for_perks(&run.perks))
-    .with_loaded_dice(run.loaded_dice());
+    let tutorial = encounter.id == EncounterId::Tutorial;
+    let mut duel = if tutorial {
+        // The Arcade: a fixed deal, a fresh Stack, a coin that can't lose,
+        // and nothing the run has picked up (#40).
+        Duel::new(
+            crate::run::tutorial_deal(),
+            crate::run::STARTING_STACK,
+            5,
+            encounter.enemy.clone(),
+        )
+        .with_coin(Coin {
+            player_pct: 100,
+            best_of: 1,
+        })
+    } else {
+        let mut enemy = encounter.enemy.clone();
+        enemy.blinds = run.blinds(enemy.blinds);
+        Duel::new(
+            shuffled(run.deck.clone(), seed),
+            run.stack,
+            run.plays(),
+            enemy,
+        )
+        .with_seed(seed.rotate_left(17))
+        .with_coin(Coin::for_perks(&run.perks))
+        .with_loaded_dice(run.loaded_dice())
+    };
     if encounter.id == EncounterId::TheHouse {
         duel = duel.under_the_hole_card_rule();
     }
@@ -110,6 +181,7 @@ fn start_duel(
         awaiting_sacrifice: None,
         last_turn: None,
         notice: None,
+        guide: tutorial.then(Guide::default),
     });
 }
 
@@ -130,6 +202,22 @@ fn take_input(
     mut next: ResMut<NextState<AppState>>,
 ) {
     let Some(mut active) = active else { return };
+
+    if active.guide.is_some() {
+        // Esc leaves the Arcade from anywhere; the overworld routes it home.
+        if keys.just_pressed(KeyCode::Escape) && active.awaiting_sacrifice.is_none() {
+            hand_over(&mut commands, CombatOutcome::Lost, &mut next);
+            return;
+        }
+        // While the script runs, only the key it names does anything; every
+        // other key just leaves the prompt up.
+        let pressed_something = keys.get_just_pressed().next().is_some();
+        let accepted = active.guide.as_mut().is_none_or(|g| g.accepts(&keys));
+        if pressed_something && !accepted {
+            active.notice = None;
+            return;
+        }
+    }
 
     if let Some(digit) = card_key(&keys) {
         let index = usize::from(digit - 1);
@@ -209,8 +297,15 @@ fn finish_if_over(
     let Some(outcome) = active.duel.outcome() else {
         return;
     };
-    run.stack = active.duel.player_stack();
-    run.set_loaded_dice(active.duel.dice_left());
+    if active.guide.is_none() {
+        // The Arcade never touches the run.
+        run.stack = active.duel.player_stack();
+        run.set_loaded_dice(active.duel.dice_left());
+    }
+    hand_over(commands, outcome, next);
+}
+
+fn hand_over(commands: &mut Commands, outcome: CombatOutcome, next: &mut NextState<AppState>) {
     commands.remove_resource::<ActiveDuel>();
     commands.remove_resource::<Encounter>();
     commands.insert_resource(outcome);
@@ -378,9 +473,13 @@ mod tests {
         let mut app = table(50, 35, 1);
         app.world_mut().resource_mut::<Encounter>().id = EncounterId::TheHouse;
         // Re-enter Combat so start_duel sees the House.
-        app.world_mut().resource_mut::<NextState<AppState>>().set(AppState::Lobby);
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Lobby);
         app.update();
-        app.world_mut().resource_mut::<NextState<AppState>>().set(AppState::Combat);
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Combat);
         app.update();
 
         let active = app.world().resource::<ActiveDuel>();
@@ -698,5 +797,162 @@ mod run_modifier_tests {
         assert!(draw.iter().all(|c| c.name == "Loose Slot"
             || c.name == "Second Cherry"
             || c.name == "Jackpot Bell"));
+    }
+}
+
+#[cfg(test)]
+mod tutorial_tests {
+    use bevy::input::ButtonInput;
+    use bevy::prelude::*;
+    use bevy::state::app::StatesPlugin;
+
+    use super::{ActiveDuel, CombatPlugin};
+    use crate::run::{CombatOutcome, Encounter, EncounterId, Enemy, RunState, STARTING_STACK};
+    use crate::state::AppState;
+
+    /// The Arcade: the overworld inserts the Tutorial encounter and enters
+    /// Combat, same as any floor would.
+    fn arcade() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(StatesPlugin)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_state::<AppState>()
+            .insert_resource(RunState::new())
+            .insert_resource(Encounter {
+                id: EncounterId::Tutorial,
+                enemy: Enemy::for_encounter(EncounterId::Tutorial),
+            })
+            .add_plugins(CombatPlugin);
+        app.update();
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Combat);
+        app.update();
+        app
+    }
+
+    fn press(app: &mut App, key: KeyCode) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        app.update();
+    }
+
+    fn active(app: &App) -> &ActiveDuel {
+        app.world().resource::<ActiveDuel>()
+    }
+
+    fn state(app: &App) -> AppState {
+        *app.world().resource::<State<AppState>>().get()
+    }
+
+    #[test]
+    fn the_arcade_deals_the_scripted_hand_in_order() {
+        let app = arcade();
+        let names: Vec<&str> = active(&app).duel.draw().iter().map(|c| c.name).collect();
+        assert_eq!(
+            names,
+            [
+                "Pawned Ring",
+                "Last Dollar",
+                "Two of Clubs",
+                "Hot Streak",
+                "Dealer Blinks",
+                "Four of Hearts",
+                "Cheap Seat"
+            ]
+        );
+        assert_eq!(active(&app).duel.enemy_stack(), 30);
+        assert_eq!(active(&app).duel.house_edge(), 20);
+        assert!(active(&app).guide.is_some());
+    }
+
+    #[test]
+    fn the_wrong_key_plays_nothing_and_keeps_the_prompt() {
+        let mut app = arcade();
+        let prompt = active(&app).guide.as_ref().unwrap().prompt();
+
+        press(&mut app, KeyCode::Digit3);
+
+        assert_eq!(active(&app).duel.hand(), 0);
+        assert_eq!(active(&app).duel.draw().len(), 7);
+        assert_eq!(active(&app).guide.as_ref().unwrap().prompt(), prompt);
+    }
+
+    #[test]
+    fn following_the_script_makes_thirty_two_and_a_doubled_payout() {
+        let mut app = arcade();
+
+        press(&mut app, KeyCode::Digit1); // Pawned Ring 8
+        press(&mut app, KeyCode::Digit1); // Last Dollar: All In, waits for the burn
+        press(&mut app, KeyCode::Digit2); // burn Two of Clubs: +4
+        press(&mut app, KeyCode::Digit1); // Hot Streak, doubled: 6
+        press(&mut app, KeyCode::Digit1); // Dealer Blinks, doubled: 10
+        press(&mut app, KeyCode::Digit1); // Four of Hearts: 4
+        assert_eq!(active(&app).duel.hand(), 32);
+
+        press(&mut app, KeyCode::Enter); // show: 32 vs 20, PYL prompt
+        press(&mut app, KeyCode::KeyP); // rigged coin: Payout 24
+
+        assert_eq!(active(&app).duel.enemy_stack(), 6);
+        assert_eq!(active(&app).duel.player_stack(), STARTING_STACK);
+        // The script is done; free play from here.
+        assert!(active(&app).guide.as_ref().unwrap().is_free_play());
+        assert_eq!(state(&app), AppState::Combat);
+    }
+
+    #[test]
+    fn escape_leaves_the_arcade_without_touching_the_run() {
+        let mut app = arcade();
+        press(&mut app, KeyCode::Digit1);
+        app.world_mut().resource_mut::<RunState>().stack = 7;
+
+        press(&mut app, KeyCode::Escape);
+
+        assert_eq!(state(&app), AppState::PostCombat);
+        assert_eq!(
+            *app.world().resource::<CombatOutcome>(),
+            CombatOutcome::Lost
+        );
+        assert_eq!(app.world().resource::<RunState>().stack, 7);
+        assert!(app.world().get_resource::<Encounter>().is_none());
+    }
+
+    #[test]
+    fn winning_the_arcade_never_writes_the_run_stack() {
+        let mut app = arcade();
+        for key in [
+            KeyCode::Digit1,
+            KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit1,
+            KeyCode::Digit1,
+            KeyCode::Digit1,
+            KeyCode::Enter,
+            KeyCode::KeyP,
+        ] {
+            press(&mut app, key);
+        }
+        app.world_mut().resource_mut::<RunState>().stack = 7;
+        // Free play: the dealer has 6 left; any Hand of 26 clears it. Show whatever is dealt.
+        for _ in 0..5 {
+            let index = 0;
+            let _ = index;
+            press(&mut app, KeyCode::Digit1);
+            if active(&app).awaiting_sacrifice.is_some() {
+                press(&mut app, KeyCode::Digit2);
+            }
+        }
+        press(&mut app, KeyCode::Enter);
+        if app.world().get_resource::<ActiveDuel>().is_some() && state(&app) == AppState::Combat {
+            press(&mut app, KeyCode::KeyH);
+        }
+
+        assert_eq!(app.world().resource::<RunState>().stack, 7);
     }
 }

@@ -122,28 +122,32 @@ any point goes back to the Lobby; the run is never touched.
 ### Turn 1: gated. The prompt names the key; any other key repeats it.
 
 The deal, in Draw order: Pawned Ring 8 · Last Dollar (All In 2) · Two of
-Clubs 2 · Hot Streak 3 · Dealer Blinks 5 · Cheap Seat 3 · Four of Hearts 4.
+Clubs 2 · Hot Streak 3 · Dealer Blinks 5 · Four of Hearts 4 · Cheap Seat 3.
 
 | Step | Constant | Prompt | Key |
 | --- | --- | --- | --- |
-| 1 | `TUTORIAL_STEP_1` | Every card is worth its Stack. Press **1** to play Pawned Ring for 8. | 1 |
-| 2 | `TUTORIAL_STEP_2` | Last Dollar is **All In**: it burns another card and takes its chips. Press **1**, then **1** again to burn Two of Clubs. | 1, 1 |
-| 3 | `TUTORIAL_STEP_3` | Hot Streak is a **Streak**: it doubles if the card before it had a Tell. It did. Press **1**. | 1 |
-| 4 | `TUTORIAL_STEP_4` | Dealer Blinks is a Streak too, and the card before it had a Tell. Press **1** for 10. | 1 |
-| 5 | `TUTORIAL_STEP_5` | Last Play. Press **1** to add Four of Hearts. Your Hand is 32 against a House Edge of 20. | 1 |
-| 6 | `TUTORIAL_STEP_6` | Press **Enter** to show your Hand. | Enter |
-| 7 | `TUTORIAL_STEP_7` | You cleared the Edge by 12: that's your **Payout**. Or **Push Your Luck**: press **Y** and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way; the real one is 45/55. | Y |
+| 1 | `TUTORIAL_STEPS[0]` | Every card is worth its Stack. Press **1** to play Pawned Ring for 8. | 1 |
+| 2 | `TUTORIAL_STEPS[1..=2]` | Last Dollar is **All In**: it burns another card and takes its chips. Press **1** to play it, then **2** to burn Two of Clubs (the All In stays in slot 1 until the burn is named). | 1, 2 |
+| 3 | `TUTORIAL_STEPS[3]` | Hot Streak is a **Streak**: it doubles if the card before it had a Tell. It did. Press **1**. | 1 |
+| 4 | `TUTORIAL_STEPS[4]` | Dealer Blinks is a Streak too, and the card before it had a Tell. Press **1** for 10. | 1 |
+| 5 | `TUTORIAL_STEPS[5]` | Last Play. Press **1** to add Four of Hearts. Your Hand is 32 against a House Edge of 20. | 1 |
+| 6 | `TUTORIAL_STEPS[6]` | Press **Enter** to show your Hand. | Enter |
+| 7 | `TUTORIAL_STEPS[7]` | You cleared the Edge by 12: that's your **Payout**. Or **Push Your Luck**: press **P** and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way; the real one is 45/55. | P |
 
 Expected: 8 → +4 → +6 → +10 → +4 = 32. Push wins on the rigged coin.
 Payout 24 leaves the dealer on 6.
 
 ### Turn 2: free play, one hint, until the dealer is done (a Hand of 26 finishes it).
 
-`TUTORIAL_HINT`
+`TUTORIAL_HINT`. Leaving early shows `TUTORIAL_LEFT` instead of `TUTORIAL_DONE`.
 
 > Lead with a Tell so your Streaks double, and burn your smallest card to an
 > All In. In a real duel the **Blinds rise** every few turns, so don't sit
 > here all night.
+
+### TUTORIAL_LEFT
+
+> You walk away from the cabinet mid-hand. It doesn't seem to mind.
 
 ### TUTORIAL_DONE
 

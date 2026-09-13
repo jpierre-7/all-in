@@ -46,7 +46,7 @@ impl Art {
             EncounterId::Slotz => self.slotz.as_ref(),
             EncounterId::PitBoss => self.pit_boss.as_ref(),
             EncounterId::TheHouse => self.the_house.as_ref(),
-            EncounterId::FloorMinion | EncounterId::PitMinion => None,
+            EncounterId::FloorMinion | EncounterId::PitMinion | EncounterId::Tutorial => None,
         }
     }
 }
@@ -153,6 +153,12 @@ pub fn redraw(
                 let hands = duel.dice_left();
                 let plural = if hands == 1 { "Hand" } else { "Hands" };
                 text(mid, format!("Loaded Dice: +{LOADED_DICE_BONUS} on each of your next {hands} {plural}."), 18.0, GOLD);
+            }
+            if let Some(guide) = &active.guide {
+                // The script speaks in gold; once it lets go, the hint sits back.
+                let (size, color) = if guide.is_free_play() { (18.0, DIM) } else { (22.0, GOLD) };
+                text(mid, guide.prompt(), size, color);
+                text(mid, "Esc leaves the Arcade.", 14.0, DIM);
             }
             if duel.margin().is_some() && duel.plays_left() > 1 && duel.phase() == Phase::Playing {
                 text(mid, "The House is watching. It sets the line after your fourth card; your last card is the one it can't see.", 18.0, DIM);
