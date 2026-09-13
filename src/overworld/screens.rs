@@ -13,6 +13,9 @@ const INK: Color = Color::srgb(0.90, 0.87, 0.80);
 const FELT: Color = Color::srgb(0.05, 0.07, 0.06);
 const NEON: Color = Color::srgb(0.85, 0.20, 0.30);
 const DIM: Color = Color::srgb(0.55, 0.53, 0.48);
+/// Dimmer still, and one shade off DIM so `note` can be told apart from a
+/// footer by colour alone.
+const NOTE: Color = Color::srgb(0.48, 0.47, 0.42);
 
 /// Backdrop art for the prose screens, when the artist's file is on disk.
 ///
@@ -149,6 +152,13 @@ impl Screen {
         self
     }
 
+    /// Small dim text between the body and the footer: credits, licence
+    /// lines, anything that has to be there without being the point.
+    pub fn note(mut self, note: impl Into<String>) -> Self {
+        self.blocks.push((note.into(), NOTE));
+        self
+    }
+
     /// Put the screen on the felt, scoped to `state`.
     pub fn spawn(self, commands: &mut Commands, state: AppState) {
         commands
@@ -178,9 +188,10 @@ impl Screen {
                 }
 
                 for (body, color) in self.blocks {
+                    let size = if color == NOTE { 13.0 } else { 20.0 };
                     root.spawn((
                         Text::new(body),
-                        TextFont::from_font_size(20.0),
+                        TextFont::from_font_size(size),
                         TextColor(color),
                         TextLayout::justify(Justify::Left),
                     ));
