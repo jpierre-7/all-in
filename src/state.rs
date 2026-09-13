@@ -6,8 +6,10 @@ use bevy::prelude::*;
 
 #[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum AppState {
-    /// Lucky Jack's backstory, shown once on launch.
+    /// The marquee. Space, and only Space, starts the game.
     #[default]
+    Title,
+    /// Lucky Jack's backstory, shown once, on the way in from the Title.
     Opening,
     /// Three options: Info Room, Tutorial, Begin Run.
     Lobby,

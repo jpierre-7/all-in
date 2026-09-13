@@ -21,20 +21,36 @@ const DIM: Color = Color::srgb(0.55, 0.53, 0.48);
 #[derive(Resource, Default)]
 pub struct OverworldArt {
     pub lobby: Option<Handle<Image>>,
+    /// The title screen's own art. Nothing is on disk for it yet, so the
+    /// marquee falls back to the lobby backdrop.
+    pub title: Option<Handle<Image>>,
 }
 
 pub fn load_overworld_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
-    const LOBBY: &str = "backdrops/lobby.png";
-    let lobby = assets
-        .as_ref()
-        .filter(|_| Path::new("assets").join(LOBBY).exists())
-        .map(|assets| assets.load(LOBBY));
-    commands.insert_resource(OverworldArt { lobby });
+    let on_disk = |path: &'static str| {
+        assets
+            .as_ref()
+            .filter(|_| Path::new("assets").join(path).exists())
+            .map(|assets| assets.load(path))
+    };
+    commands.insert_resource(OverworldArt {
+        lobby: on_disk("backdrops/lobby.png"),
+        title: on_disk("backdrops/title.png"),
+    });
+}
+
+/// Which backdrop a screen hangs behind itself.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum Backdrop {
+    #[default]
+    Lobby,
+    /// The title's own art, or the lobby's if the artist has not drawn one.
+    Title,
 }
 
 /// A screen root that has not been given its backdrop yet.
 #[derive(Component)]
-pub struct WantsBackdrop;
+pub struct WantsBackdrop(pub Backdrop);
 
 /// Hangs the backdrop on every screen root that asked for one.
 ///
@@ -44,22 +60,32 @@ pub struct WantsBackdrop;
 pub fn apply_backdrop(
     mut commands: Commands,
     art: Res<OverworldArt>,
-    screens: Query<Entity, With<WantsBackdrop>>,
+    screens: Query<(Entity, &WantsBackdrop)>,
 ) {
-    for entity in &screens {
+    for (entity, wants) in &screens {
+        let image = match wants.0 {
+            Backdrop::Lobby => art.lobby.as_ref(),
+            Backdrop::Title => art.title.as_ref().or(art.lobby.as_ref()),
+        };
         let mut screen = commands.entity(entity);
-        if let Some(lobby) = &art.lobby {
-            screen.insert(ImageNode::new(lobby.clone()));
+        if let Some(image) = image {
+            screen.insert(ImageNode::new(image.clone()));
         }
         screen.remove::<WantsBackdrop>();
     }
 }
 
+/// Ordinary screen titles.
+const TITLE_SIZE: f32 = 38.0;
+/// The marquee: the game's own name, and the only text on its screen.
+const MARQUEE_SIZE: f32 = 128.0;
+
 /// A screen under construction. Build it up, then `spawn` it.
 pub struct Screen {
-    title: Option<&'static str>,
+    title: Option<(&'static str, f32)>,
     blocks: Vec<(String, Color)>,
     footer: Option<String>,
+    backdrop: Backdrop,
 }
 
 impl Screen {
@@ -68,11 +94,24 @@ impl Screen {
             title: None,
             blocks: Vec::new(),
             footer: None,
+            backdrop: Backdrop::default(),
         }
     }
 
     pub fn title(mut self, title: &'static str) -> Self {
-        self.title = Some(title);
+        self.title = Some((title, TITLE_SIZE));
+        self
+    }
+
+    /// A title at marquee size, for the one screen that is nothing else.
+    pub fn marquee(mut self, title: &'static str) -> Self {
+        self.title = Some((title, MARQUEE_SIZE));
+        self
+    }
+
+    /// Hang something other than the lobby behind this screen.
+    pub fn backdrop(mut self, backdrop: Backdrop) -> Self {
+        self.backdrop = backdrop;
         self
     }
 
@@ -109,14 +148,14 @@ impl Screen {
                     ..default()
                 },
                 BackgroundColor(FELT),
-                WantsBackdrop,
+                WantsBackdrop(self.backdrop),
                 DespawnOnExit(state),
             ))
             .with_children(|root| {
-                if let Some(title) = self.title {
+                if let Some((title, size)) = self.title {
                     root.spawn((
                         Text::new(title),
-                        TextFont::from_font_size(38.0),
+                        TextFont::from_font_size(size),
                         TextColor(NEON),
                         DisplayText,
                     ));
@@ -156,6 +195,11 @@ pub fn any_key(keys: &ButtonInput<KeyCode>) -> bool {
 /// Enter, for taking the option a menu leads with.
 pub fn confirm(keys: &ButtonInput<KeyCode>) -> bool {
     keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)
+}
+
+/// Space, and nothing else: the one key the Title screen answers to.
+pub fn space(keys: &ButtonInput<KeyCode>) -> bool {
+    keys.just_pressed(KeyCode::Space)
 }
 
 /// The number key just pressed, top row or numpad, for menus.
