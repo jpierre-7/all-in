@@ -76,14 +76,6 @@ carpet ahead.*
 
 *(~130 words across five frames)*
 
-## ANY_KEY_OR_SKIP
-
-The footer under every Opening frame. It names Esc, because a skip nobody can
-find is no skip — and the Opening is the one screen a returning player has
-already read.
-
-> *Press any key — or Esc to skip ahead.*
-
 ## LOBBY
 
 > The lobby smells like carpet shampoo and old cigarettes; a slot machine
