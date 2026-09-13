@@ -241,6 +241,11 @@ impl Duel {
         self.house_edge
     }
 
+    /// The turn about to be played, counting from 1.
+    pub fn turn(&self) -> u32 {
+        self.turn
+    }
+
     pub fn player_stack(&self) -> u32 {
         self.player_stack
     }
