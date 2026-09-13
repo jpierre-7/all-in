@@ -87,6 +87,20 @@ impl Progress {
         Self { next: 0 }
     }
 
+    /// Start the walk at `id` rather than at the door. Only the dev entry
+    /// point (`--encounter`, #33) uses this; a real run always starts at
+    /// `new()`. Going through `Progress` rather than dropping straight into
+    /// `Combat` is the point: the encounter after it, the floor prose, and the
+    /// reward screen all still come out right.
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
+    pub fn at(id: EncounterId) -> Self {
+        let next = RUN
+            .iter()
+            .position(|&encounter| encounter == id)
+            .expect("every EncounterId is somewhere in RUN");
+        Self { next }
+    }
+
     /// The encounter about to be played, or `None` once The House is beaten.
     pub fn encounter(&self) -> Option<EncounterId> {
         RUN.get(self.next).copied()
@@ -179,6 +193,39 @@ mod tests {
                 AppState::FloorIntro,  // The Big Shots Table
             ]
         );
+    }
+
+    #[test]
+    fn starting_at_an_encounter_leaves_the_rest_of_the_walk_intact() {
+        let mut progress = Progress::at(EncounterId::PitBoss);
+
+        assert_eq!(progress.encounter(), Some(EncounterId::PitBoss));
+        // Same floor as the Pit minion before it, so no arrival prose.
+        assert_eq!(progress.arrival(), AppState::FightOrFold);
+        assert_eq!(progress.floor(), Floor::ThePit);
+        assert!(matches!(
+            progress.reward_offer(),
+            Some(RewardOffer::Pick(..))
+        ));
+
+        progress.advance();
+        assert_eq!(progress.encounter(), Some(EncounterId::TheHouse));
+    }
+
+    #[test]
+    fn every_encounter_can_be_started_at() {
+        for (index, &id) in RUN.iter().enumerate() {
+            let mut walked = Progress::new();
+            for _ in 0..index {
+                walked.advance();
+            }
+
+            assert_eq!(
+                Progress::at(id),
+                walked,
+                "starting at {id:?} lands where walking there does"
+            );
+        }
     }
 
     #[test]
