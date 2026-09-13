@@ -416,10 +416,26 @@ fn show_ending(mut commands: Commands) {
 }
 
 fn show_game_over(mut commands: Commands) {
-    Screen::new()
+    let mut screen = Screen::new()
         .title(narrative::GAME_OVER)
+        .note(narrative::CREDITS);
+    // The music credit is a licence term, so it tracks the file, not the
+    // plan: present when a track ships under assets/music/, absent otherwise.
+    if music_is_shipping() {
+        screen = screen.note(narrative::MUSIC_CREDIT);
+    }
+    screen
         .footer(narrative::ANY_KEY)
         .spawn(&mut commands, AppState::GameOver);
+}
+
+fn music_is_shipping() -> bool {
+    std::fs::read_dir("assets/music")
+        .map(|d| {
+            d.flatten()
+                .any(|e| e.path().extension().is_some_and(|x| x == "ogg"))
+        })
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

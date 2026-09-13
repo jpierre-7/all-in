@@ -189,5 +189,16 @@ thing, and you don't get to change it back.";
 pub const GAME_OVER: &str = TITLE;
 
 pub const PRESS_SPACE: &str = "Press Space to play.";
+
+/// Under ALL IN on the Game Over screen (#69). Who, where, and whatever a
+/// licence asks for; nothing else, the screen is the punchline.
+pub const CREDITS: &str = "\
+jpierre-7, HefKer, MEmshousen  ·  HackRice 16, Rice University, September 2026";
+
+/// incompetech's required form, shown only when the track is shipping (#70).
+pub const MUSIC_CREDIT: &str = "\
+\"Deadly Roulette\" Kevin MacLeod (incompetech.com)
+Licensed under Creative Commons: By Attribution 4.0 License
+http://creativecommons.org/licenses/by/4.0/";
 pub const ANY_KEY: &str = "Press any key.";
 pub const ANY_KEY_BACK: &str = "Press any key to go back.";
