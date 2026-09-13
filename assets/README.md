@@ -23,7 +23,7 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `portraits/the_house.png` | 256×256 | — | **not wired yet** |
 | `fonts/BarlowCondensed-Regular.ttf` | — | all text | `theme.rs` — the default font |
 | `fonts/Limelight-Regular.ttf` | — | screen titles | `theme.rs` — `Fonts::display` |
-| `icon.png` | 256×256 | — | **not wired** — see below |
+| `icon.png` | 256×256 | — | `README.md` only — **not the window icon**, see below |
 | `backstory/opening_1…5.png` | 1920×1080 | one per Opening frame | **awaiting #38** |
 | `backdrops/title.png` | 1920×1080 | title screen | **awaiting #36** |
 
@@ -144,7 +144,12 @@ app bundle, not the running process. A new pinned dependency for no effect on
 the machine we demo from was not worth it. On Windows and Linux it would work,
 if someone wants it later.
 
-The window title *is* set, in `main.rs`: **ALL-IN**.
+Confirmed again against Bevy 0.19.1 for #68: `bevy_window` carries only cursor
+icons, and `bevy_winit` re-exports `EventLoopProxy` and the cursor types and
+nothing else from `winit::window`. The reasoning above still holds; the README
+carries the short version.
+
+The window title *is* set, in `main.rs`: **All In**.
 
 ## The Opening frames
 
