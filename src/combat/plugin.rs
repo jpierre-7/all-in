@@ -14,7 +14,8 @@ pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, ui::load_art)
+        app.add_plugins(super::info::InfoPlugin)
+            .add_systems(Startup, ui::load_art)
             .add_systems(OnEnter(AppState::Combat), start_duel)
             .add_systems(
                 Update,
@@ -198,10 +199,15 @@ fn take_input(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     active: Option<ResMut<ActiveDuel>>,
+    info: Option<Res<super::info::InfoOpen>>,
     mut run: ResMut<RunState>,
     mut next: ResMut<NextState<AppState>>,
 ) {
     let Some(mut active) = active else { return };
+    // The glossary is up, or is about to be: the table hears nothing.
+    if info.is_some() || super::info::toggled(&keys) {
+        return;
+    }
 
     if active.guide.is_some() {
         // Esc leaves the Arcade from anywhere; the overworld routes it home.
@@ -954,5 +960,66 @@ mod tutorial_tests {
         }
 
         assert_eq!(app.world().resource::<RunState>().stack, 7);
+    }
+}
+
+#[cfg(test)]
+mod info_tests {
+    use bevy::prelude::*;
+
+    use super::super::info::{InfoOpen, InfoOverlay};
+    use super::ActiveDuel;
+    use super::tests::{press, state, table};
+    use crate::state::AppState;
+
+    fn open(app: &App) -> bool {
+        app.world().get_resource::<InfoOpen>().is_some()
+    }
+    fn overlays(app: &mut App) -> usize {
+        app.world_mut()
+            .query::<&InfoOverlay>()
+            .iter(app.world())
+            .count()
+    }
+
+    #[test]
+    fn i_opens_the_glossary_over_the_table_and_again_closes_it() {
+        let mut app = table(40, 30, 20);
+        assert!(!open(&app));
+
+        press(&mut app, KeyCode::KeyI);
+        assert!(open(&app));
+        assert_eq!(overlays(&mut app), 1);
+
+        press(&mut app, KeyCode::KeyI);
+        assert!(!open(&app));
+        assert_eq!(overlays(&mut app), 0);
+        assert_eq!(state(&app), AppState::Combat);
+    }
+
+    #[test]
+    fn nothing_underneath_fires_while_the_glossary_is_up() {
+        let mut app = table(40, 30, 20);
+        press(&mut app, KeyCode::KeyI);
+
+        press(&mut app, KeyCode::Digit1);
+        press(&mut app, KeyCode::Enter);
+
+        let active = app.world().resource::<ActiveDuel>();
+        assert_eq!(active.duel.hand(), 0);
+        assert_eq!(active.duel.draw().len(), 7);
+        assert!(open(&app));
+    }
+
+    #[test]
+    fn escape_closes_the_glossary_and_nothing_else() {
+        let mut app = table(40, 30, 20);
+        press(&mut app, KeyCode::KeyI);
+
+        press(&mut app, KeyCode::Escape);
+
+        assert!(!open(&app));
+        assert_eq!(state(&app), AppState::Combat);
+        assert!(app.world().get_resource::<ActiveDuel>().is_some());
     }
 }
