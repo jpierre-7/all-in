@@ -41,8 +41,16 @@ undistorted. Any other aspect ratio will skew the corners.
   `ImageNode::color`, not by recolouring a border. The tint is kept light
   (`SACRIFICE_TINT`): multiplying green felt by a saturated red crushes it to
   black.
-- The bezel is a double rule with a diamond in each corner. A single heavy rule
-  read as a slab at 120×170.
+- The face is **engine-turned**: a guilloché rosette, the kind on a banknote or
+  a casino plaque, built from two rosettes beaten against each other. Its
+  frequencies are deliberately **low** — the card is drawn at half the size it
+  is authored, and a denser lattice dissolves into noise on the way down. A
+  first pass at 34 rings was invisible in game.
+- The bezel is three edges, not one: an outer gold rule, a dark channel, and a
+  fine inner rule, with a raking highlight down the top-left so it reads as
+  metal rather than paint.
+- Each corner carries a **stepped deco fan** — three rules turning the corner,
+  longest outermost. Plain diamonds read as dots at 120×170.
 
 ## Tell icons
 
