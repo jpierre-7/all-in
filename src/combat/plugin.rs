@@ -14,13 +14,15 @@ pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(super::info::InfoPlugin)
+        app.add_plugins((super::info::InfoPlugin, super::hits::HitsPlugin))
             .add_systems(Startup, ui::load_art)
+            .init_resource::<HandoverDelay>()
             .add_systems(OnEnter(AppState::Combat), start_duel)
             .add_systems(
                 Update,
                 (
-                    take_input,
+                    take_input.run_if(not(resource_exists::<Leaving>)),
+                    leave_when_ready.run_if(resource_exists::<Leaving>),
                     ui::redraw.run_if(resource_exists_and_changed::<ActiveDuel>),
                     ui::hover_cards,
                 )
@@ -98,6 +100,40 @@ impl Guide {
             self.step += 1;
         }
         matched
+    }
+}
+
+/// How long the table stays up after the last blow, so the final hit
+/// marker (#67) plays before the hand-over. Tests set it to zero.
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct HandoverDelay(pub f32);
+
+impl Default for HandoverDelay {
+    fn default() -> Self {
+        Self(0.9)
+    }
+}
+
+/// The duel is decided and the table is holding for `HandoverDelay` before
+/// combat makes its one transition. Input is ignored meanwhile.
+#[derive(Resource, Debug)]
+struct Leaving {
+    outcome: CombatOutcome,
+    age: f32,
+}
+
+fn leave_when_ready(
+    mut commands: Commands,
+    time: Res<Time>,
+    delay: Res<HandoverDelay>,
+    mut leaving: ResMut<Leaving>,
+    mut next: ResMut<NextState<AppState>>,
+) {
+    leaving.age += time.delta_secs();
+    if leaving.age >= delay.0 {
+        let outcome = leaving.outcome;
+        commands.remove_resource::<Leaving>();
+        hand_over(&mut commands, outcome, &mut next);
     }
 }
 
@@ -318,7 +354,9 @@ fn finish_if_over(
         run.stack = active.duel.player_stack();
         run.set_loaded_dice(active.duel.dice_left());
     }
-    hand_over(commands, outcome, next);
+    // Hold the table for the last hit marker, then go.
+    let _ = next;
+    commands.insert_resource(Leaving { outcome, age: 0.0 });
 }
 
 fn hand_over(commands: &mut Commands, outcome: CombatOutcome, next: &mut NextState<AppState>) {
@@ -392,6 +430,7 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_state::<AppState>()
             .insert_resource(run)
+            .insert_resource(super::HandoverDelay(0.0))
             .insert_resource(Encounter {
                 id: EncounterId::FloorMinion,
                 enemy: Enemy {
@@ -843,6 +882,7 @@ mod tutorial_tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_state::<AppState>()
             .insert_resource(RunState::new())
+            .insert_resource(super::HandoverDelay(0.0))
             .insert_resource(Encounter {
                 id: EncounterId::Tutorial,
                 enemy: Enemy::for_encounter(EncounterId::Tutorial),
@@ -1165,5 +1205,94 @@ mod mouse_tutorial_tests {
 
         click(&mut app, 0); // Pawned Ring
         assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 8);
+    }
+}
+
+#[cfg(test)]
+mod hit_marker_tests {
+    use bevy::prelude::*;
+
+    use super::super::hits::{HitMarker, Side};
+    use super::tests::{press, table};
+
+    /// Every marker on screen, with the text its child carries.
+    fn markers(app: &mut App) -> Vec<(Side, String)> {
+        let found: Vec<(Side, Vec<Entity>)> = app
+            .world_mut()
+            .query::<(&HitMarker, &Children)>()
+            .iter(app.world())
+            .map(|(m, c)| (m.side, c.iter().collect()))
+            .collect();
+        found
+            .into_iter()
+            .map(|(side, children)| {
+                let text = children
+                    .into_iter()
+                    .find_map(|e| app.world().get::<Text>(e).map(|t| t.0.clone()))
+                    .unwrap_or_default();
+                (side, text)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_whiff_floats_the_loss_at_the_players_stack() {
+        // Nothing played, Edge 30: Whiff 30.
+        let mut app = table(50, 999, 30);
+
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(markers(&mut app), vec![(Side::Player, "-30".to_string())]);
+    }
+
+    #[test]
+    fn a_payout_floats_the_hit_at_the_enemys_stack() {
+        // Edge 1: whatever the shuffle dealt, one card clears it.
+        let mut app = table(50, 999, 1);
+        press(&mut app, KeyCode::Digit1);
+        if app
+            .world()
+            .resource::<super::ActiveDuel>()
+            .awaiting_sacrifice
+            .is_some()
+        {
+            press(&mut app, KeyCode::Digit2);
+        }
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::KeyH);
+
+        let found = markers(&mut app);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0, Side::Enemy);
+        assert!(found[0].1.starts_with('-'));
+    }
+
+    #[test]
+    fn the_marker_is_gone_once_its_time_is_up() {
+        let mut app = table(50, 999, 30);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(markers(&mut app).len(), 1);
+
+        // Run its clock out by hand: the test harness has no real frame time.
+        let entity = app
+            .world_mut()
+            .query_filtered::<Entity, With<HitMarker>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut().get_mut::<HitMarker>(entity).unwrap().age = 10.0;
+        app.update();
+
+        assert!(markers(&mut app).is_empty());
+    }
+
+    #[test]
+    fn one_marker_per_turn_even_when_the_screen_redraws() {
+        let mut app = table(50, 999, 30);
+        press(&mut app, KeyCode::Enter);
+        // Any input redraws the table; the marker must not multiply.
+        press(&mut app, KeyCode::Digit9);
+        press(&mut app, KeyCode::KeyH);
+
+        assert_eq!(markers(&mut app).len(), 1);
     }
 }
