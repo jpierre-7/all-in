@@ -72,6 +72,11 @@ Upstairs, nobody rigs the coin.";
 pub const TUTORIAL_LEFT: &str = "\
 You walk away from the cabinet mid-hand. It doesn't seem to mind.";
 
+/// After the Arcade's perk pick, which applied nothing (#73).
+pub const TUTORIAL_PERK_TAKEN: &str = "\
+Noted. The cabinet doesn't hand out perks; it only shows you the kind of
+choice the bosses upstairs make you live with.";
+
 pub const FLOOR_INTRO: &str = "\
 The main floor, where rows of slots blink like a migraine and the cocktail
 waitresses stopped smiling sometime in the nineties. This is where the

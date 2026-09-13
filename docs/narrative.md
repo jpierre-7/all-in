@@ -149,6 +149,20 @@ Payout 24 leaves the dealer on 6.
 
 > You walk away from the cabinet mid-hand. It doesn't seem to mind.
 
+### TUTORIAL_PERK
+
+After the Demo Dealer folds, the real Slotz pick screen, byte-identical to
+the one after Slotz (title "A perk", `PERK_PICK`, the two `Reward` labels,
+"Press 1 or 2. There is no going back."). It applies nothing. Esc walks
+away unpicked. Decided in #65.
+
+### TUTORIAL_PERK_TAKEN
+
+> Noted. The cabinet doesn't hand out perks; it only shows you the kind of
+> choice the bosses upstairs make you live with.
+
+Shown with `TUTORIAL_DONE` beneath it, any key to the Lobby.
+
 ### TUTORIAL_DONE
 
 > The cabinet spits out a paper ticket that says WINNER and nothing else.
