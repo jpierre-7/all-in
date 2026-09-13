@@ -1,7 +1,8 @@
 # All In: pitch and demo script
 
-Judges get minutes. This is what to say and what to press. The demo is
-the Arcade: the tutorial deals a fixed hand, so every judge sees the
+Judges get minutes. This is what to say and what to press. The build is
+at **https://voraciousjp.itch.io/all-in** (Linux zip; unzip, run
+`all-in.sh`). The demo is the Arcade: the tutorial deals a fixed hand, so every judge sees the
 same turn and every mechanic fires once. Have the game open at the Lobby
 before they arrive (`cargo run`).
 
