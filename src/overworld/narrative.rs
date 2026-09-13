@@ -50,12 +50,12 @@ tells you, then play what you like.";
 
 /// The gated first turn, one prompt per keypress (#40).
 pub const TUTORIAL_STEPS: [&str; 8] = [
-    "Every card is worth its Stack. Press 1 to play Pawned Ring for 8.",
-    "Last Dollar is All In: it burns another card and takes its chips. Press 1 to play it.",
-    "Now press 2 to burn Two of Clubs. Its 2 chips join Last Dollar's.",
-    "Hot Streak is a Streak: it doubles if the card before it had a Tell. It did. Press 1.",
-    "Dealer Blinks is a Streak too, and the card before it had a Tell. Press 1 for 10.",
-    "Last Play. Press 1 to add Four of Hearts. That's 32 against a House Edge of 20.",
+    "Every card is worth its Stack. Press 1 to play the 8.",
+    "Card 1 is an All In: it burns another card and takes its chips. Press 1 to play it.",
+    "Now press 2 to burn the 2 beside it. Its chips join the All In's.",
+    "Card 1 is a Streak: it doubles if the card before it had a Tell. It did. Press 1 for 6.",
+    "Card 1 is a Streak too, and the card before it had a Tell. Press 1 for 10.",
+    "Last Play. Press 1 to add the 4. That's 32 against a House Edge of 20.",
     "Press Enter to show your Hand.",
     "You cleared the Edge by 12: your Payout. Or Push Your Luck: press P and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way. The real one is 45/55.",
 ];
