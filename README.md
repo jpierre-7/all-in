@@ -14,6 +14,11 @@ Then there is The House itself, which reads your Hand after your fourth card and
 sets its Edge just above it, leaving your fifth card — the Hole Card — as the
 only one it cannot see.
 
+## Playing it
+
+A Linux build is on itch.io: **https://voraciousjp.itch.io/all-in**. Unzip and
+run `all-in.sh`.
+
 ## Running it
 
 ```sh
