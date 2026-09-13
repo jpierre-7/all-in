@@ -121,16 +121,16 @@ any point goes back to the Lobby; the run is never touched.
 
 ### Turn 1: gated. The prompt names the key; any other key repeats it.
 
-The deal, in Draw order: Pawned Ring 8 · Last Dollar (All In 2) · Two of
+Card names no longer show on the face (#34), so the prompts point at slots and values. The deal, in Draw order: Pawned Ring 8 · Last Dollar (All In 2) · Two of
 Clubs 2 · Hot Streak 3 · Dealer Blinks 5 · Four of Hearts 4 · Cheap Seat 3.
 
 | Step | Constant | Prompt | Key |
 | --- | --- | --- | --- |
-| 1 | `TUTORIAL_STEPS[0]` | Every card is worth its Stack. Press **1** to play Pawned Ring for 8. | 1 |
-| 2 | `TUTORIAL_STEPS[1..=2]` | Last Dollar is **All In**: it burns another card and takes its chips. Press **1** to play it, then **2** to burn Two of Clubs (the All In stays in slot 1 until the burn is named). | 1, 2 |
-| 3 | `TUTORIAL_STEPS[3]` | Hot Streak is a **Streak**: it doubles if the card before it had a Tell. It did. Press **1**. | 1 |
-| 4 | `TUTORIAL_STEPS[4]` | Dealer Blinks is a Streak too, and the card before it had a Tell. Press **1** for 10. | 1 |
-| 5 | `TUTORIAL_STEPS[5]` | Last Play. Press **1** to add Four of Hearts. Your Hand is 32 against a House Edge of 20. | 1 |
+| 1 | `TUTORIAL_STEPS[0]` | Every card is worth its Stack. Press **1** to play the 8. | 1 |
+| 2 | `TUTORIAL_STEPS[1..=2]` | Card 1 is **All In**: it burns another card and takes its chips. Press **1** to play it, then **2** to burn the 2 beside it (the All In stays in slot 1 until the burn is named). | 1, 2 |
+| 3 | `TUTORIAL_STEPS[3]` | Card 1 is a **Streak**: it doubles if the card before it had a Tell. It did. Press **1** for 6. | 1 |
+| 4 | `TUTORIAL_STEPS[4]` | Card 1 is a Streak too, and the card before it had a Tell. Press **1** for 10. | 1 |
+| 5 | `TUTORIAL_STEPS[5]` | Last Play. Press **1** to add the 4. That's 32 against a House Edge of 20. | 1 |
 | 6 | `TUTORIAL_STEPS[6]` | Press **Enter** to show your Hand. | Enter |
 | 7 | `TUTORIAL_STEPS[7]` | You cleared the Edge by 12: that's your **Payout**. Or **Push Your Luck**: press **P** and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way; the real one is 45/55. | P |
 
