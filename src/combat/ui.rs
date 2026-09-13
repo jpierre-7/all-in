@@ -15,7 +15,6 @@ const FELT: Color = Color::srgb(0.05, 0.07, 0.06);
 const NEON: Color = Color::srgb(0.85, 0.20, 0.30);
 const DIM: Color = Color::srgb(0.55, 0.53, 0.48);
 const GOLD: Color = Color::srgb(0.85, 0.70, 0.35);
-const STREAK_BLUE: Color = Color::srgb(0.50, 0.72, 0.84);
 const CARD_FACE: Color = Color::srgb(0.04, 0.08, 0.06);
 /// Multiplied over the card frame to mark a pending All In sacrifice. Kept
 /// light, because tinting green felt with a saturated red crushes it to black.
@@ -35,6 +34,9 @@ pub struct Art {
     pub slotz: Option<Handle<Image>>,
     pub pit_boss: Option<Handle<Image>>,
     pub the_house: Option<Handle<Image>>,
+    /// Per-card face art under `assets/cards/faces/`, keyed by the card's
+    /// name as a file stem (`bus_ticket_home.png`). Whatever is there.
+    pub faces: std::collections::HashMap<String, Handle<Image>>,
 }
 
 impl Art {
@@ -49,6 +51,29 @@ impl Art {
             EncounterId::FloorMinion | EncounterId::PitMinion | EncounterId::Tutorial => None,
         }
     }
+
+    /// The art in the middle of a card, if the artist drew one for it.
+    pub fn face(&self, card_name: &str) -> Option<&Handle<Image>> {
+        self.faces.get(&face_stem(card_name))
+    }
+}
+
+/// "Bus Ticket Home" -> "bus_ticket_home".
+fn face_stem(card_name: &str) -> String {
+    card_name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .split('_')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("_")
 }
 
 /// Checks `assets/` once at startup so a missing file is a fallback, not a
@@ -61,7 +86,22 @@ pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
             .exists()
             .then(|| assets.load(rel))
     };
+    let faces = std::fs::read_dir("assets/cards/faces")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let stem = path.file_stem()?.to_str()?.to_string();
+            if path.extension()?.to_str()? != "png" {
+                return None;
+            }
+            let handle = assets.as_ref()?.load(format!("cards/faces/{stem}.png"));
+            Some((stem, handle))
+        })
+        .collect();
     commands.insert_resource(Art {
+        faces,
         frame: load("cards/frame.png"),
         streak: load("tells/streak.png"),
         all_in: load("tells/all_in.png"),
@@ -80,13 +120,17 @@ pub struct CombatScreen;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CardSlot(pub usize);
 
+/// The frame art layer inside a card node; hover tints it.
+#[derive(Component)]
+pub struct CardFrame;
+
 const HOVER: Color = Color::srgb(1.0, 0.92, 0.70);
 
 /// What `hover_cards` needs from a card node.
 pub type HoveredCard = (
     &'static Interaction,
+    &'static Children,
     &'static mut BorderColor,
-    Option<&'static mut ImageNode>,
 );
 
 /// Rebuilds the whole screen whenever the duel changes. Cheap enough at seven
@@ -108,7 +152,9 @@ pub fn redraw(
             height: percent(100),
             flex_direction: FlexDirection::Column,
             justify_content: JustifyContent::SpaceBetween,
-            padding: UiRect::all(px(40)),
+            // Enough that the corner rows read as sitting on the table, not
+            // pinned to the window edge.
+            padding: UiRect::axes(px(88), px(60)),
             ..default()
         },
         BackgroundColor(FELT),
@@ -116,11 +162,25 @@ pub fn redraw(
         DespawnOnExit(AppState::Combat),
     ));
 
-    if let Some(backdrop) = &art.backdrop {
-        root.insert(ImageNode::new(backdrop.clone()));
-    }
-
     root.with_children(|root| {
+        // The backdrop is its own layer behind everything, filling the root
+        // regardless of padding. An ImageNode on the root itself would be
+        // drawn inside the padding, pushing the art in instead of the text.
+        if let Some(backdrop) = &art.backdrop {
+            root.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(0),
+                    top: px(0),
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+                ImageNode::new(backdrop.clone()).with_mode(NodeImageMode::Stretch),
+                ZIndex(-1),
+            ));
+        }
+
         // Top: the enemy.
         row(root, JustifyContent::SpaceBetween, |r| {
             // Portrait and name are one thing on the left of the row, so
@@ -195,55 +255,77 @@ pub fn redraw(
             }
         });
 
-        // The Draw.
+        // The Draw. Each slot is a column: the card, then its key underneath.
         row(root, JustifyContent::Center, |r| {
             for (i, card) in duel.draw().iter().enumerate() {
                 let sacrifice_pending = active.awaiting_sacrifice == Some(i);
-                let mut node = r.spawn((
-                    Node {
-                        width: px(120),
-                        height: px(170),
-                        flex_direction: FlexDirection::Column,
-                        justify_content: JustifyContent::SpaceBetween,
-                        align_items: AlignItems::Center,
-                        padding: UiRect::all(px(8)),
-                        margin: UiRect::all(px(6)),
-                        border: UiRect::all(px(2)),
-                        ..default()
-                    },
-                    BackgroundColor(CARD_FACE),
-                    Button,
-                    CardSlot(i),
-                    // The frame art draws its own rounded bezel, so a square
-                    // border on the same node leaves a gold notch at each
-                    // corner. With art present the edge is the art's job and
-                    // the pending state is a tint; without it, the border is
-                    // the only edge there is.
-                    BorderColor::all(match (&art.frame, sacrifice_pending) {
-                        (Some(_), _) => Color::NONE,
-                        (None, true) => NEON,
-                        (None, false) => GOLD,
-                    }),
-                ));
-                if let Some(frame) = &art.frame {
-                    node.insert(ImageNode {
-                        color: if sacrifice_pending {
-                            SACRIFICE_TINT
-                        } else {
-                            Color::WHITE
+                r.spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: px(6),
+                    margin: UiRect::horizontal(px(6)),
+                    ..default()
+                })
+                .with_children(|slot| {
+                    slot.spawn((
+                        Node {
+                            width: px(150),
+                            height: px(210),
+                            flex_direction: FlexDirection::Column,
+                            justify_content: JustifyContent::SpaceBetween,
+                            align_items: AlignItems::Center,
+                            // Inside the frame art's bezel, which is about
+                            // 20px deep on every side at this size.
+                            padding: UiRect::axes(px(26), px(22)),
+                            border: UiRect::all(px(2)),
+                            ..default()
                         },
-                        ..ImageNode::new(frame.clone())
+                        // With the frame art in, the art is the whole face:
+                        // no felt showing around its rounded corners and no
+                        // square border notching them. Without it, the plain
+                        // face and border are all the edge there is.
+                        BackgroundColor(if art.frame.is_some() { Color::NONE } else { CARD_FACE }),
+                        Button,
+                        CardSlot(i),
+                        BorderColor::all(match (&art.frame, sacrifice_pending) {
+                            (Some(_), _) => Color::NONE,
+                            (None, true) => NEON,
+                            (None, false) => GOLD,
+                        }),
+                    ))
+                    .with_children(|c| {
+                        // The frame is its own layer filling the card, so the
+                        // padding insets the face content and not the art
+                        // (an ImageNode on the padded node is drawn inside
+                        // the padding).
+                        if let Some(frame) = &art.frame {
+                            c.spawn((
+                                Node {
+                                    position_type: PositionType::Absolute,
+                                    left: px(0),
+                                    top: px(0),
+                                    width: percent(100),
+                                    height: percent(100),
+                                    ..default()
+                                },
+                                ImageNode {
+                                    color: if sacrifice_pending { SACRIFICE_TINT } else { Color::WHITE },
+                                    ..ImageNode::new(frame.clone()).with_mode(NodeImageMode::Stretch)
+                                },
+                                ZIndex(-1),
+                                CardFrame,
+                            ));
+                        }
+                        // Playing-card layout: the value in two corners and
+                        // the art (or the Tell, large) in the middle. No name
+                        // on the face; it doesn't fit, and the prompts say it
+                        // when it matters.
+                        let value = card.stack.to_string();
+                        corner_row(c, JustifyContent::FlexStart, &value);
+                        centre(c, card, &art);
+                        corner_row(c, JustifyContent::FlexEnd, &value);
                     });
-                }
-                node.with_children(|c| {
-                    text(c, format!("[{}]", i + 1), 16.0, DIM);
-                    text(c, card.name, 16.0, INK);
-                    text(c, card.stack.to_string(), 34.0, GOLD);
-                    match card.tell {
-                        Some(Tell::Streak) => tell(c, "Streak", STREAK_BLUE, art.streak.clone()),
-                        Some(Tell::AllIn) => tell(c, "All In", NEON, art.all_in.clone()),
-                        None => text(c, " ", 14.0, DIM),
-                    }
+                    text(slot, (i + 1).to_string(), 16.0, DIM);
                 });
             }
         });
@@ -288,15 +370,20 @@ fn turn_line(turn: &TurnResult) -> String {
 }
 
 /// Brightens the card under the mouse so the click target is obvious: the
-/// border when the card is drawn plain, the frame's tint when the art is in.
+/// frame's tint when the art is in, the border when the card is drawn plain.
 /// A pending sacrifice keeps its own colour. The redraw rebuilds the nodes
 /// on every change and the focus system re-reports hover on the new node
 /// the next frame, so there is nothing to carry over.
-pub fn hover_cards(mut cards: Query<HoveredCard, (With<CardSlot>, Changed<Interaction>)>) {
-    for (interaction, mut border, image) in &mut cards {
+pub fn hover_cards(
+    mut cards: Query<HoveredCard, (With<CardSlot>, Changed<Interaction>)>,
+    mut frames: Query<&mut ImageNode, With<CardFrame>>,
+) {
+    for (interaction, children, mut border) in &mut cards {
         let hovered = matches!(interaction, Interaction::Hovered | Interaction::Pressed);
-        match image {
-            Some(mut image) => {
+        let frame = children.iter().find(|child| frames.contains(*child));
+        match frame {
+            Some(frame) => {
+                let mut image = frames.get_mut(frame).expect("found above");
                 if image.color != SACRIFICE_TINT {
                     image.color = if hovered { HOVER } else { Color::WHITE };
                 }
@@ -335,20 +422,33 @@ fn text(parent: &mut ChildSpawnerCommands, s: impl Into<String>, size: f32, colo
     ));
 }
 
-/// A Tell label, or the artist's icon for it when the file exists.
-fn tell(parent: &mut ChildSpawnerCommands, label: &str, color: Color, icon: Option<Handle<Image>>) {
-    match icon {
-        Some(icon) => {
-            parent.spawn((
-                Node {
-                    width: px(28),
-                    height: px(28),
-                    ..default()
-                },
-                ImageNode::new(icon),
-            ));
-        }
-        None => text(parent, label, 14.0, color),
+/// A corner of the card face: the value, top-left or bottom-right.
+fn corner_row(parent: &mut ChildSpawnerCommands, justify: JustifyContent, value: &str) {
+    parent
+        .spawn(Node {
+            width: percent(100),
+            flex_direction: FlexDirection::Row,
+            justify_content: justify,
+            ..default()
+        })
+        .with_children(|row| text(row, value, 20.0, GOLD));
+}
+
+/// The middle of a card: the artist's face art for this card, else the
+/// Tell's icon drawn large, else nothing.
+fn centre(parent: &mut ChildSpawnerCommands, card: &crate::run::Card, art: &Art) {
+    let image = art.face(card.name).cloned().or_else(|| match card.tell {
+        Some(Tell::Streak) => art.streak.clone(),
+        Some(Tell::AllIn) => art.all_in.clone(),
+        None => None,
+    });
+    let mut node = parent.spawn(Node {
+        width: px(72),
+        height: px(72),
+        ..default()
+    });
+    if let Some(image) = image {
+        node.insert(ImageNode::new(image));
     }
 }
 

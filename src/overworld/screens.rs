@@ -69,7 +69,23 @@ pub fn apply_backdrop(
         };
         let mut screen = commands.entity(entity);
         if let Some(image) = image {
-            screen.insert(ImageNode::new(image.clone()));
+            // Its own layer behind the text, filling the root regardless of
+            // padding; an ImageNode on the root would be drawn inside the
+            // padding and shrink the art instead of insetting the words.
+            screen.with_children(|root| {
+                root.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: px(0),
+                        top: px(0),
+                        width: percent(100),
+                        height: percent(100),
+                        ..default()
+                    },
+                    ImageNode::new(image.clone()).with_mode(NodeImageMode::Stretch),
+                    ZIndex(-1),
+                ));
+            });
         }
         screen.remove::<WantsBackdrop>();
     }
