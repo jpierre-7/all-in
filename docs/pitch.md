@@ -88,6 +88,19 @@ When the son walks in:
 > "After twenty-five years, I thought you'd have learned by now. The
 > House always wins, Pops."
 
+## While they play: the concept-art deck
+
+Have `docs/concept-art.pdf` open full-screen on the second screen, or on
+the laptop if there's only one and nobody's holding the keyboard. Ten
+slides, 16:9. One line when you point at it:
+
+> "Everything on screen is drawn in code — no stock art, no generators.
+> That deck is the design work behind it, including what we cut."
+
+The three-tries and what-it-replaced slides are the interesting ones if a
+judge asks a follow-up; they show the card face and the Opening frames
+being rejected and redrawn.
+
 ## If something goes wrong
 
 - Stale build after a pull: `cargo clean -p all-in && cargo run`.
