@@ -1,3 +1,6 @@
 /target
 __pycache__/
 /.direnv
+/dist
+/tools/butler
+/tools/butler.zip
