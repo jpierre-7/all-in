@@ -17,7 +17,7 @@ use screens::{
     Backdrop, Screen, any_key, apply_backdrop, confirm, digit_pressed, load_overworld_art, space,
 };
 
-use crate::run::{CombatOutcome, Encounter, EncounterId, Enemy, RewardOffer, RunState};
+use crate::run::{CombatOutcome, Encounter, EncounterId, Enemy, Reward, RewardOffer, RunState};
 use crate::state::AppState;
 
 pub struct OverworldPlugin;
@@ -257,11 +257,24 @@ fn show_outcome(
     outcome: Res<CombatOutcome>,
     tutorial: Option<Res<InTutorial>>,
 ) {
+    // The Arcade (#73): on the tutorial path PostCombat and Reward swap
+    // roles. Combat owns `Combat -> PostCombat`, so PostCombat is the first
+    // screen after the duel; a win renders the real Slotz pick here, and
+    // `Reward` then carries the sign-off. Both states do the opposite of
+    // their `state.rs` doc comments for this one path, which costs a
+    // comment and nothing in the frozen shared file.
+    if tutorial.is_some() && *outcome == CombatOutcome::Won {
+        Screen::new()
+            .title("A perk")
+            .prose(narrative::PERK_PICK)
+            .option(1, Reward::SlotzPylBestTwoOfThree.label())
+            .option(2, Reward::SlotzStreakCards.label())
+            .footer("Press 1 or 2. There is no going back.")
+            .spawn(&mut commands, AppState::PostCombat);
+        return;
+    }
     let body = if tutorial.is_some() {
-        match *outcome {
-            CombatOutcome::Won => narrative::TUTORIAL_DONE,
-            CombatOutcome::Lost => narrative::TUTORIAL_LEFT,
-        }
+        narrative::TUTORIAL_LEFT
     } else {
         // The run only advances on the reward screen, so the encounter just
         // played is still the current one.
@@ -288,6 +301,19 @@ fn leave_outcome(
     tutorial: Option<Res<InTutorial>>,
     mut next: ResMut<NextState<AppState>>,
 ) {
+    if tutorial.is_some() && *outcome == CombatOutcome::Won {
+        // The Arcade's pick (#73): 1 or 2 takes it (to the sign-off), Esc
+        // walks away unpicked. Nothing is applied either way.
+        if keys.just_pressed(KeyCode::Escape) {
+            commands.remove_resource::<InTutorial>();
+            commands.remove_resource::<CombatOutcome>();
+            next.set(AppState::Lobby);
+        } else if matches!(digit_pressed(&keys), Some(1 | 2)) {
+            commands.remove_resource::<CombatOutcome>();
+            next.set(AppState::Reward);
+        }
+        return;
+    }
     if any_key(&keys) {
         if tutorial.is_some() {
             commands.remove_resource::<InTutorial>();
@@ -303,7 +329,18 @@ fn leave_outcome(
 // Reward
 // ---------------------------------------------------------------------------
 
-fn show_reward(mut commands: Commands, progress: Res<Progress>) {
+fn show_reward(mut commands: Commands, progress: Res<Progress>, tutorial: Option<Res<InTutorial>>) {
+    // The Arcade's sign-off (#73). This gate is load-bearing: during the
+    // Arcade, Progress still sits at the first encounter, so falling through
+    // would render its Loaded Dice drop.
+    if tutorial.is_some() {
+        Screen::new()
+            .prose(narrative::TUTORIAL_PERK_TAKEN)
+            .prose(narrative::TUTORIAL_DONE)
+            .footer(narrative::ANY_KEY)
+            .spawn(&mut commands, AppState::Reward);
+        return;
+    }
     let Some(offer) = progress.reward_offer() else {
         return;
     };
@@ -328,12 +365,23 @@ fn show_reward(mut commands: Commands, progress: Res<Progress>) {
 /// The reward is granted here rather than on the way in, so there is one place
 /// the run changes and it is the same place for a drop and a pick.
 fn take_reward(
+    mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
+    tutorial: Option<Res<InTutorial>>,
     mut run: ResMut<RunState>,
     mut progress: ResMut<Progress>,
     mut next: ResMut<NextState<AppState>>,
 ) {
+    // The Arcade's sign-off (#73): any key, home, nothing applied and the
+    // run not advanced. Load-bearing for the same reason as `show_reward`.
+    if tutorial.is_some() {
+        if any_key(&keys) {
+            commands.remove_resource::<InTutorial>();
+            next.set(AppState::Lobby);
+        }
+        return;
+    }
     let Some(offer) = progress.reward_offer() else {
         return;
     };
@@ -525,6 +573,76 @@ mod tests {
         assert_eq!(state(&app), AppState::Lobby);
         assert_eq!(progress(&app), before);
         assert!(app.world().get_resource::<CombatOutcome>().is_none());
+    }
+
+    /// Into the Arcade and through the stubbed duel to its outcome screen.
+    /// `win` picks the stub's key: 1 wins, 2 loses (what Esc sends).
+    fn arcade_outcome(app: &mut App, win: bool) {
+        press(app, KeyCode::Digit2);
+        app.update(); // Lobby -> Tutorial -> Combat, one frame each
+        assert_eq!(state(app), AppState::Combat);
+        press(
+            app,
+            if win {
+                KeyCode::Digit1
+            } else {
+                KeyCode::Digit2
+            },
+        );
+        assert_eq!(state(app), AppState::PostCombat);
+    }
+
+    /// Winning the Arcade shows the real Slotz pick (#73); 1 or 2 goes to
+    /// the sign-off, then the Lobby.
+    #[test]
+    fn winning_the_arcade_offers_the_slotz_perk_then_signs_off() {
+        let mut app = opened();
+        press(&mut app, KeyCode::Enter);
+        arcade_outcome(&mut app, true);
+
+        // Any key is not enough on the pick: it wants 1 or 2.
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::PostCombat);
+
+        press(&mut app, KeyCode::Digit1);
+        assert_eq!(state(&app), AppState::Reward);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Lobby);
+        assert!(app.world().get_resource::<CombatOutcome>().is_none());
+    }
+
+    #[test]
+    fn escape_on_the_arcade_perk_goes_home_unpicked() {
+        let mut app = opened();
+        press(&mut app, KeyCode::Enter);
+        arcade_outcome(&mut app, true);
+
+        press(&mut app, KeyCode::Escape);
+
+        assert_eq!(state(&app), AppState::Lobby);
+    }
+
+    /// The one that matters: the Arcade's perk applies nothing. After a full
+    /// visit, Begin Run still starts at the first encounter with the starter
+    /// deck and an empty pocket.
+    #[test]
+    fn the_arcade_perk_leaves_the_run_untouched() {
+        let mut app = opened();
+        press(&mut app, KeyCode::Enter);
+        let before = progress(&app);
+        let deck_before = app.world().resource::<RunState>().deck.len();
+
+        arcade_outcome(&mut app, true);
+        press(&mut app, KeyCode::Digit2); // "three more Streak cards"
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Lobby);
+
+        let run = app.world().resource::<RunState>();
+        assert_eq!(run.deck.len(), deck_before);
+        assert!(run.perks.is_empty());
+        assert!(run.items.is_empty());
+        assert_eq!(progress(&app), before);
+        assert_eq!(progress(&app).encounter(), Some(EncounterId::FloorMinion));
     }
 
     #[test]
