@@ -17,9 +17,10 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `tells/all_in.png` | 128×128 | 28×28 node | `ui.rs` — `Art::all_in` |
 | `backdrops/combat.png` | 1920×1080 | full screen | `ui.rs` — `Art::backdrop` |
 | `backdrops/lobby.png` | 1920×1080 | every prose screen | `screens.rs` — `OverworldArt::lobby` |
-| `portraits/slotz.png` | 256×256 | 96×96 node | `ui.rs` — `Art::slotz` |
-| `portraits/pit_boss.png` | 256×256 | 96×96 node | `ui.rs` — `Art::pit_boss` |
-| `portraits/the_house.png` | 256×256 | 96×96 node | `ui.rs` — `Art::the_house` |
+| `backdrops/title.png` | 1920×1080 | the title screen | `screens.rs` — `OverworldArt::title` — **not drawn yet** |
+| `portraits/slotz.png` | 256×256 | — | **not wired yet** |
+| `portraits/pit_boss.png` | 256×256 | — | **not wired yet** |
+| `portraits/the_house.png` | 256×256 | — | **not wired yet** |
 | `fonts/BarlowCondensed-Regular.ttf` | — | all text | `theme.rs` — the default font |
 | `fonts/Limelight-Regular.ttf` | — | screen titles | `theme.rs` — `Fonts::display` |
 | `icon.png` | 256×256 | — | **not wired** — see below |
@@ -81,7 +82,17 @@ The **text band** is the outer ~150px top and bottom, where the Stack and House
 Edge lines are drawn. Keep its p99 luminance under ~0.25 and gold text stays
 legible; the middle can be brighter.
 
-## Boss portraits
+## The title backdrop — not drawn
+
+The title screen asks for `backdrops/title.png` and falls back to
+`backdrops/lobby.png` when it is missing, so the marquee is never bare felt.
+Drop a file at that path and it is picked up with no code change.
+
+The whole screen is the word **ALL IN** at 128px in Limelight, centred, with one
+dim line under it. So the art wants a dark centre even more than the lobby's
+does — treat the middle third as the text band.
+
+## Boss portraits — not wired
 
 Drawn to Dev 1's designs: Slotz is a chrome-and-neon slot machine on a rolling
 base, the Pit Boss a brass balance scale with one pan already loaded, The House

@@ -1,6 +1,9 @@
 //! Every string the overworld renders, lifted from `docs/narrative.md`.
 //! Prose only — which screen shows what is `mod.rs`'s business.
 
+/// The marquee.
+pub const TITLE: &str = "ALL IN";
+
 pub const OPENING: &str = "\
 Twenty-five years ago you sat down at the Big Shots Table with everything
 you owned, and it took the House about an hour to take it off you.
@@ -176,7 +179,10 @@ pub const PERK_PICK: &str = "\
 Something about how you play changes from here. You only get to change one
 thing, and you don't get to change it back.";
 
-pub const GAME_OVER: &str = "ALL IN";
+/// The same two words as the marquee, which is the joke: the game is named
+/// after the way you lose it.
+pub const GAME_OVER: &str = TITLE;
 
+pub const PRESS_SPACE: &str = "Press Space to play.";
 pub const ANY_KEY: &str = "Press any key.";
 pub const ANY_KEY_BACK: &str = "Press any key to go back.";

@@ -9,6 +9,20 @@ Lucky Jack is "you" and the House is always capitalised.
 
 ---
 
+## TITLE
+
+The first screen, before the Opening. The game's name at marquee size and
+nothing else on the felt with it.
+
+> **ALL IN**
+
+## PRESS_SPACE
+
+The footer under the marquee. Space, and only Space, gets you in — every other
+screen in the shell takes any key, so this one names its key.
+
+> *Press Space to play.*
+
 ## OPENING
 
 Five frames, one scene each, any key advances, Esc skips to the Lobby.
@@ -270,6 +284,9 @@ Payout 24 leaves the dealer on 6.
 > **BANG.**
 
 ## GAME_OVER
+
+The same two words as the marquee, which is the joke: the game is named after
+the way you lose it. `GAME_OVER` is `TITLE` in code.
 
 > **ALL IN**
 >
