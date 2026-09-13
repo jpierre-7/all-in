@@ -14,7 +14,8 @@ use bevy::prelude::*;
 
 use progression::{Progress, encounter_intro, win_line};
 use screens::{
-    Backdrop, Screen, any_key, apply_backdrop, confirm, digit_pressed, load_overworld_art, space,
+    Anchor, Backdrop, Screen, any_key, apply_backdrop, confirm, digit_pressed, load_overworld_art,
+    space,
 };
 
 use crate::run::{CombatOutcome, Encounter, EncounterId, Enemy, RewardOffer, RunState};
@@ -53,11 +54,16 @@ impl Plugin for OverworldPlugin {
                     // Every screen that only needs dismissing goes the same
                     // place: back to the Lobby.
                     back_to_lobby.run_if(
-                        in_state(AppState::Opening)
-                            .or_else(in_state(AppState::InfoRoom))
+                        in_state(AppState::InfoRoom)
                             .or_else(in_state(AppState::Ending))
                             .or_else(in_state(AppState::GameOver)),
                     ),
+                    // Paging redraws the screen mid-state, so it has to land
+                    // before the backdrop is hung or the new frame would spend
+                    // a tick on bare felt.
+                    page_opening
+                        .before(apply_backdrop)
+                        .run_if(in_state(AppState::Opening)),
                     pick_from_lobby.run_if(in_state(AppState::Lobby)),
                     leave_floor_intro.run_if(in_state(AppState::FloorIntro)),
                     fight_or_fold.run_if(in_state(AppState::FightOrFold)),
@@ -97,15 +103,60 @@ fn leave_title(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<AppSt
 // Opening
 // ---------------------------------------------------------------------------
 
+/// Which frame of the Opening is on the felt. Lives on the screen root, so it
+/// is cleared with the screen and there is no way to be between frames.
+#[derive(Component)]
+struct OpeningFrame(usize);
+
 fn show_opening(mut commands: Commands) {
-    Screen::new()
-        .title(narrative::TITLE)
-        .prose(narrative::OPENING)
-        .footer(narrative::ANY_KEY)
-        .spawn(&mut commands, AppState::Opening);
+    draw_opening_frame(&mut commands, 0);
 }
 
-/// Dismisses the Opening, the two side rooms, and both endings.
+/// One backstory frame: its art behind it, its prose in the dark band the art
+/// leaves along the bottom.
+fn draw_opening_frame(commands: &mut Commands, index: usize) {
+    let screen = Screen::new()
+        .backdrop(Backdrop::Opening(index))
+        .anchor(Anchor::LowerThird)
+        .prose(narrative::OPENING[index])
+        .footer(narrative::ANY_KEY_OR_SKIP)
+        .spawn(commands, AppState::Opening);
+    commands.entity(screen).insert(OpeningFrame(index));
+}
+
+/// Any key turns to the next frame; the last one opens the Lobby door. Esc is
+/// the skip, so a player who has read it once is two keys from the table.
+fn page_opening(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    frames: Query<(Entity, &OpeningFrame)>,
+    mut next: ResMut<NextState<AppState>>,
+) {
+    // Esc is answered before the screen is looked up, so the skip still works
+    // if there is somehow no frame on the felt to page.
+    if keys.just_pressed(KeyCode::Escape) {
+        next.set(AppState::Lobby);
+        return;
+    }
+
+    let Ok((screen, &OpeningFrame(index))) = frames.single() else {
+        return;
+    };
+    if !any_key(&keys) {
+        return;
+    }
+
+    let onward = index + 1;
+    if onward == narrative::OPENING.len() {
+        next.set(AppState::Lobby);
+        return;
+    }
+
+    commands.entity(screen).despawn();
+    draw_opening_frame(&mut commands, onward);
+}
+
+/// Dismisses the two side rooms and both endings.
 fn back_to_lobby(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<AppState>>) {
     if any_key(&keys) {
         next.set(AppState::Lobby);
@@ -372,9 +423,9 @@ mod tests {
     use bevy::prelude::*;
     use bevy::state::app::StatesPlugin;
 
-    use super::OverworldPlugin;
     use super::combat_stub::CombatStubPlugin;
     use super::progression::Progress;
+    use super::{OverworldPlugin, narrative};
     use crate::run::{CombatOutcome, Encounter, EncounterId, Perk, RunState, Tell};
     use crate::state::AppState;
 
@@ -398,6 +449,24 @@ mod tests {
         press(&mut app, KeyCode::Space);
         assert_eq!(state(&app), AppState::Opening);
         app
+    }
+
+    /// The shell in the Lobby, with the Opening skipped — where every test
+    /// below that is not about the Opening wants to start.
+    fn in_the_lobby() -> App {
+        let mut app = opened();
+        press(&mut app, KeyCode::Escape);
+        assert_eq!(state(&app), AppState::Lobby);
+        app
+    }
+
+    /// Which Opening frame is on screen, by its index in `narrative::OPENING`.
+    fn frame(app: &mut App) -> usize {
+        app.world_mut()
+            .query::<&super::OpeningFrame>()
+            .single(app.world())
+            .expect("the Opening always has exactly one frame up")
+            .0
     }
 
     fn press(app: &mut App, key: KeyCode) {
@@ -469,20 +538,89 @@ mod tests {
         assert_eq!(state(&app), AppState::Opening);
     }
 
+    /// The Opening is five frames, not one screen: it takes as many keypresses
+    /// as there are frames to reach the Lobby, and the last one is what opens
+    /// the door.
     #[test]
-    fn the_opening_leads_into_the_lobby() {
+    fn the_opening_pages_one_frame_at_a_time_into_the_lobby() {
         let mut app = opened();
-        assert_eq!(state(&app), AppState::Opening);
 
+        for expected in 0..narrative::OPENING.len() {
+            assert_eq!(state(&app), AppState::Opening, "frame {expected}");
+            assert_eq!(frame(&mut app), expected);
+            press(&mut app, KeyCode::Enter);
+        }
+
+        assert_eq!(state(&app), AppState::Lobby);
+    }
+
+    /// Any key advances, the same as every other prose screen in the shell.
+    #[test]
+    fn any_key_turns_an_opening_frame() {
+        let mut app = opened();
+
+        for key in [KeyCode::KeyA, KeyCode::Space, KeyCode::Digit1] {
+            let before = frame(&mut app);
+            press(&mut app, key);
+            assert_eq!(frame(&mut app), before + 1, "{key:?} turns the frame");
+        }
+    }
+
+    #[test]
+    fn esc_skips_the_opening_straight_to_the_lobby() {
+        let mut app = opened();
+
+        press(&mut app, KeyCode::Escape);
+
+        assert_eq!(state(&app), AppState::Lobby);
+    }
+
+    /// Esc is a skip from wherever you have got to, not only from the first
+    /// frame.
+    #[test]
+    fn esc_skips_from_halfway_through_too() {
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(frame(&mut app), 2);
+
+        press(&mut app, KeyCode::Escape);
+
+        assert_eq!(state(&app), AppState::Lobby);
+    }
+
+    /// One frame on the felt at a time: the old one is cleared before the next
+    /// is drawn, or the prose would stack up on the backdrop.
+    #[test]
+    fn only_one_frame_is_on_screen_at_a_time() {
+        let mut app = opened();
+
+        for _ in 1..narrative::OPENING.len() {
+            press(&mut app, KeyCode::Enter);
+            let frames = app
+                .world_mut()
+                .query::<&super::OpeningFrame>()
+                .iter(app.world())
+                .count();
+            assert_eq!(frames, 1);
+        }
+    }
+
+    /// The Opening runs once, on the way in from the Title. Every later trip
+    /// through the Lobby — Fold, death, the Arcade — skips it.
+    #[test]
+    fn the_opening_does_not_replay_on_the_way_back_to_the_lobby() {
+        let mut app = in_the_lobby();
+        begin_run(&mut app);
+
+        press(&mut app, KeyCode::Digit2); // Fold
 
         assert_eq!(state(&app), AppState::Lobby);
     }
 
     #[test]
     fn the_lobby_side_rooms_come_back_to_the_lobby() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
 
         press(&mut app, KeyCode::Digit1);
         assert_eq!(state(&app), AppState::InfoRoom);
@@ -495,8 +633,7 @@ mod tests {
     /// touching the run.
     #[test]
     fn the_arcade_is_a_duel_that_comes_back_to_the_lobby() {
-        let mut app = shell();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
         app.world_mut().resource_mut::<RunState>().stack = 7;
         let before = progress(&app);
 
@@ -521,8 +658,7 @@ mod tests {
 
     #[test]
     fn enter_takes_the_option_each_menu_leads_with() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
 
         // The Lobby leads with Walk the Floor...
         press(&mut app, KeyCode::Enter);
@@ -537,8 +673,7 @@ mod tests {
 
     #[test]
     fn the_lobby_is_where_a_run_ends() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
         begin_run(&mut app);
         duel(&mut app, true);
         press(&mut app, KeyCode::Enter);
@@ -555,8 +690,7 @@ mod tests {
 
     #[test]
     fn winning_every_encounter_walks_three_floors_and_reaches_the_ending() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
         begin_run(&mut app);
 
         // The Floor: a minion, then Slotz. A drop is dismissed with any key;
@@ -589,8 +723,7 @@ mod tests {
 
     #[test]
     fn folding_walks_back_to_the_lobby_and_the_next_run_starts_over() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
         begin_run(&mut app);
 
         // Get one encounter deep, then Fold.
@@ -606,8 +739,7 @@ mod tests {
 
     #[test]
     fn losing_ends_the_night_and_sends_you_back_to_the_lobby() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
         begin_run(&mut app);
 
         duel(&mut app, false);
@@ -621,8 +753,7 @@ mod tests {
 
     #[test]
     fn beating_a_minion_drops_the_loaded_dice() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
         begin_run(&mut app);
 
         duel(&mut app, true);
@@ -636,8 +767,7 @@ mod tests {
 
     /// Walk to the Slotz reward screen and take the option `key` picks.
     fn slotz_reward(key: KeyCode) -> App {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
         begin_run(&mut app);
         duel(&mut app, true); // the Floor minion
         press(&mut app, KeyCode::Enter); // pocket the drop
@@ -665,8 +795,7 @@ mod tests {
 
     #[test]
     fn enter_does_not_pick_a_perk_for_you() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
         begin_run(&mut app);
         duel(&mut app, true);
         press(&mut app, KeyCode::Enter); // pocket the drop
@@ -711,8 +840,7 @@ mod tests {
 
     #[test]
     fn the_fight_key_hands_combat_an_encounter_and_nothing_else() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
+        let mut app = in_the_lobby();
         begin_run(&mut app);
 
         press(&mut app, KeyCode::Digit1);

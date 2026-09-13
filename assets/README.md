@@ -24,7 +24,7 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `fonts/BarlowCondensed-Regular.ttf` | — | all text | `theme.rs` — the default font |
 | `fonts/Limelight-Regular.ttf` | — | screen titles | `theme.rs` — `Fonts::display` |
 | `icon.png` | 256×256 | — | **not wired** — see below |
-| `backstory/opening_1…5.png` | 1920×1080 | one per Opening frame | **awaiting #38** |
+| `backstory/opening_1…5.png` | 1920×1080 | one per Opening frame | `screens.rs` — `OverworldArt::opening` |
 | `backdrops/title.png` | 1920×1080 | title screen | **awaiting #36** |
 
 ## Card frame
@@ -159,9 +159,9 @@ gone with a boy beside the chair, then cards turned over and the chair empty.
 Holding the camera still is what makes those three beats land, so if one is
 redrawn all three should be.
 
-Neither these nor `title.png` are loaded yet: #38 builds the Opening paging and
-#36 the title screen. Any frame whose image is missing pages as text only, so
-they can land before the code does.
+These are loaded as `OverworldArt::opening` and hung one per frame as the
+Opening pages (#38); `title.png` still awaits #36. Any frame whose image is
+missing pages as text only, so they can land before the code does.
 
 **Everyone is a silhouette.** Geometry cannot draw a face, so nobody has one:
 Jack is a back-lit shape in the foreground, the boy is child proportions beside
