@@ -80,6 +80,7 @@ fn show_title(mut commands: Commands) {
     Screen::new()
         .marquee(narrative::TITLE)
         .backdrop(Backdrop::Title)
+        .note(narrative::MUSIC_HINT)
         .footer(narrative::PRESS_SPACE)
         .spawn(&mut commands, AppState::Title);
 }
@@ -416,26 +417,17 @@ fn show_ending(mut commands: Commands) {
 }
 
 fn show_game_over(mut commands: Commands) {
-    let mut screen = Screen::new()
+    // #69 showed the music credit only when a track was found on disk,
+    // because #70 was first to cut and a credit for music nobody hears is
+    // worse than none. #70 landed: the track is committed, so the attribution
+    // is unconditional, and the test that the ogg is still there is what
+    // keeps the two honest.
+    Screen::new()
         .title(narrative::GAME_OVER)
-        .note(narrative::CREDITS);
-    // The music credit is a licence term, so it tracks the file, not the
-    // plan: present when a track ships under assets/music/, absent otherwise.
-    if music_is_shipping() {
-        screen = screen.note(narrative::MUSIC_CREDIT);
-    }
-    screen
+        .note(narrative::CREDITS)
+        .note(narrative::MUSIC_CREDIT)
         .footer(narrative::ANY_KEY)
         .spawn(&mut commands, AppState::GameOver);
-}
-
-fn music_is_shipping() -> bool {
-    std::fs::read_dir("assets/music")
-        .map(|d| {
-            d.flatten()
-                .any(|e| e.path().extension().is_some_and(|x| x == "ogg"))
-        })
-        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -514,6 +506,17 @@ mod tests {
         );
         assert_eq!(state(app), AppState::PostCombat);
         press(app, KeyCode::Enter);
+    }
+
+    /// M is the mute (#70). Every prose screen pages on any key, so the one
+    /// key that is not a game input has to be kept out of that.
+    #[test]
+    fn muting_does_not_page_a_prose_screen() {
+        let mut app = opened();
+
+        press(&mut app, KeyCode::KeyM);
+
+        assert_eq!(state(&app), AppState::Opening);
     }
 
     #[test]

@@ -1,0 +1,18 @@
+deadly_roulette.ogg
+
+"Deadly Roulette" Kevin MacLeod (incompetech.com)
+Licensed under Creative Commons: By Attribution 4.0 License
+http://creativecommons.org/licenses/by/4.0/
+
+Source: https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1600033
+ISRC:   USUAN1600033
+
+Changes made, as CC BY 4.0 asks be indicated: the 256 kbps MP3 published by
+incompetech was transcoded to Ogg Vorbis with
+
+    ffmpeg -i "Deadly Roulette.mp3" -c:a libvorbis -q:a 3 deadly_roulette.ogg
+
+and nothing else. The audio is unedited: same 2:39, same 44.1 kHz stereo.
+Ogg Vorbis is the only format Bevy decodes without a Cargo feature flag.
+
+The full licence text is at https://creativecommons.org/licenses/by/4.0/legalcode
