@@ -75,6 +75,20 @@ pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
 #[derive(Component)]
 pub struct CombatScreen;
 
+/// A card node in the Draw, by 0-based slot. Clickable (#58); the plugin
+/// reads its `Interaction`.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CardSlot(pub usize);
+
+const HOVER: Color = Color::srgb(1.0, 0.92, 0.70);
+
+/// What `hover_cards` needs from a card node.
+pub type HoveredCard = (
+    &'static Interaction,
+    &'static mut BorderColor,
+    Option<&'static mut ImageNode>,
+);
+
 /// Rebuilds the whole screen whenever the duel changes. Cheap enough at seven
 /// cards, and it keeps every node derived from one source of truth.
 pub fn redraw(
@@ -198,6 +212,8 @@ pub fn redraw(
                         ..default()
                     },
                     BackgroundColor(CARD_FACE),
+                    Button,
+                    CardSlot(i),
                     // The frame art draws its own rounded bezel, so a square
                     // border on the same node leaves a gold notch at each
                     // corner. With art present the edge is the art's job and
@@ -267,6 +283,29 @@ fn turn_line(turn: &TurnResult) -> String {
         (_, Outcome::Payout(n)) => format!("{} vs House Edge {edge}: Payout {n}.", turn.hand),
         (_, Outcome::Whiff(n)) => {
             format!("{} vs House Edge {edge}: Whiff. You lose {n}.", turn.hand)
+        }
+    }
+}
+
+/// Brightens the card under the mouse so the click target is obvious: the
+/// border when the card is drawn plain, the frame's tint when the art is in.
+/// A pending sacrifice keeps its own colour. The redraw rebuilds the nodes
+/// on every change and the focus system re-reports hover on the new node
+/// the next frame, so there is nothing to carry over.
+pub fn hover_cards(mut cards: Query<HoveredCard, (With<CardSlot>, Changed<Interaction>)>) {
+    for (interaction, mut border, image) in &mut cards {
+        let hovered = matches!(interaction, Interaction::Hovered | Interaction::Pressed);
+        match image {
+            Some(mut image) => {
+                if image.color != SACRIFICE_TINT {
+                    image.color = if hovered { HOVER } else { Color::WHITE };
+                }
+            }
+            None => {
+                if *border != BorderColor::all(NEON) {
+                    *border = BorderColor::all(if hovered { HOVER } else { GOLD });
+                }
+            }
         }
     }
 }
