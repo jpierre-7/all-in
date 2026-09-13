@@ -114,6 +114,9 @@ fn start_opening(mut commands: Commands, mut frame: ResMut<OpeningFrame>) {
 fn show_opening_frame(commands: &mut Commands, frame: usize) {
     let last = frame + 1 == narrative::OPENING_FRAMES.len();
     let mut screen = Screen::new()
+        // The scenes put their subject low and keep their top clear, so the
+        // prose sits above the art rather than across it.
+        .from_the_top()
         .backdrop(Backdrop::Backstory(frame))
         .prose(narrative::OPENING_FRAMES[frame]);
     if frame == 0 {

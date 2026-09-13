@@ -112,6 +112,11 @@ pub fn apply_backdrop(
     }
 }
 
+/// The usual gutter around a screen.
+const GUTTER: f32 = 64.0;
+/// Enough headroom to clear the lamp the Opening scenes hang in frame.
+const OPENING_HEADROOM: f32 = 176.0;
+
 /// Ordinary screen titles.
 const TITLE_SIZE: f32 = 38.0;
 /// The marquee: the game's own name, and the only text on its screen.
@@ -123,6 +128,12 @@ pub struct Screen {
     blocks: Vec<(String, Color)>,
     footer: Option<String>,
     backdrop: Backdrop,
+    /// Where the body sits vertically. Centred everywhere except the Opening,
+    /// whose scenes are composed with their subject low and their top clear.
+    justify: JustifyContent,
+    /// Headroom above the body. The Opening needs more than the usual gutter:
+    /// its scenes hang a lamp in the top of frame.
+    pad_top: f32,
 }
 
 impl Screen {
@@ -132,6 +143,8 @@ impl Screen {
             blocks: Vec::new(),
             footer: None,
             backdrop: Backdrop::default(),
+            justify: JustifyContent::Center,
+            pad_top: GUTTER,
         }
     }
 
@@ -143,6 +156,14 @@ impl Screen {
     /// A title at marquee size, for the one screen that is nothing else.
     pub fn marquee(mut self, title: &'static str) -> Self {
         self.title = Some((title, MARQUEE_SIZE));
+        self
+    }
+
+    /// Sit the body against the top of the screen instead of its middle, so
+    /// a backdrop can own the space below it.
+    pub fn from_the_top(mut self) -> Self {
+        self.justify = JustifyContent::FlexStart;
+        self.pad_top = OPENING_HEADROOM;
         self
     }
 
@@ -185,10 +206,10 @@ impl Screen {
                     width: percent(100),
                     height: percent(100),
                     flex_direction: FlexDirection::Column,
-                    justify_content: JustifyContent::Center,
+                    justify_content: self.justify,
                     align_items: AlignItems::Center,
                     row_gap: px(16),
-                    padding: UiRect::all(px(64)),
+                    padding: UiRect::px(GUTTER, GUTTER, self.pad_top, GUTTER),
                     ..default()
                 },
                 BackgroundColor(FELT),

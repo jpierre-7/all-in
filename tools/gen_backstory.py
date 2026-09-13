@@ -51,7 +51,7 @@ def finish(base, art_layer, vig=0.88, scrim=0.5):
 
     arr = np.asarray(img.convert("RGB"), dtype=np.float32) / 255
     y = coords()[1]
-    arr = arr * (1.0 - scrim * np.exp(-(((y - H * 0.84) / (H * 0.22)) ** 2)))[..., None]
+    arr = arr * (1.0 - scrim * np.exp(-(((y - H * 0.22) / (H * 0.20)) ** 2)))[..., None]
     return to_image(grain(arr, amount=0.008)).convert("RGBA")
 
 
@@ -193,7 +193,8 @@ def frame_3():
 def frame_4():
     """Twenty-five years later, across the street, under the sign."""
     base = canvas(NOIR)
-    base = add_glow(base, radial(W * 0.5, H * 0.22, W * 0.6, 2.2), (30, 14, 44), 1.5)
+    # Everything sits low: the prose now runs along the top of the frame.
+    base = add_glow(base, radial(W * 0.5, H * 0.56, W * 0.6, 2.2), (30, 14, 44), 1.5)
 
     word, dead = "LUCKY JACK", {1, 7}
     font = ImageFont.truetype(str(FONT), 132)
@@ -202,37 +203,36 @@ def frame_4():
     def draw_word(d, lit, dim):
         x = (W - total) / 2
         for i, ch in enumerate(word):
-            d.text((x, 150), ch, font=font, fill=dim if i in dead else lit)
+            d.text((x, 470), ch, font=font, fill=dim if i in dead else lit)
             x += font.getlength(ch) + 5
 
     base = screen(base, blurred_layer(lambda d: draw_word(d, MAGENTA, (22, 7, 14)), 20))
-    base = add_glow(base, radial(W * 0.5, H * 0.62, W * 0.34, 2.4), MAGENTA, 0.30)
+    base = add_glow(base, radial(W * 0.5, H * 0.84, W * 0.34, 2.4), MAGENTA, 0.30)
 
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw_word(ImageDraw.Draw(layer), MAGENTA + (255,), (44, 16, 28, 255))
     d = ImageDraw.Draw(layer)
     # The facade the sign is bolted to: dark, with lit windows above the street.
-    d.rectangle((0, 300, W, 620), fill=(11, 10, 15, 255))
+    d.rectangle((0, 636, W, 900), fill=(11, 10, 15, 255))
     for i in range(14):
         x = 40 + i * 140
-        d.rectangle((x, 340, x + 62, 404), fill=(196, 158, 92, 26))
-    d.rectangle((0, 612, W, 626), fill=(150, 118, 60, 60))
+        d.rectangle((x, 672, x + 62, 730), fill=(196, 158, 92, 26))
+    d.rectangle((0, 892, W, 906), fill=(150, 118, 60, 60))
     # Pavement under the sign, so he has something to stand against.
-    d.polygon([(560, 626), (1360, 626), (1520, 930), (400, 930)],
+    d.polygon([(560, 906), (1360, 906), (1560, H), (360, H)],
               fill=(188, 120, 150, 22))
     # Him, on the far kerb, in a coat that has seen better decades.
-    d.ellipse((918, 560, 1002, 644), fill=(7, 8, 10, 255))
-    d.rounded_rectangle((900, 548, 1020, 576), radius=12, fill=(7, 8, 10, 255))
-    d.rounded_rectangle((866, 634, 1054, 800), radius=40, fill=(7, 8, 10, 255))
-    d.polygon([(870, 760), (1050, 760), (1078, 936), (842, 936)], fill=(7, 8, 10, 255))
-    d.ellipse((826, 920, 1094, 962), fill=(0, 0, 0, 110))
+    d.ellipse((922, 706, 998, 782), fill=(7, 8, 10, 255))
+    d.rounded_rectangle((906, 696, 1014, 722), radius=12, fill=(7, 8, 10, 255))
+    d.rounded_rectangle((874, 772, 1046, 920), radius=38, fill=(7, 8, 10, 255))
+    d.polygon([(878, 886), (1042, 886), (1066, H), (854, H)], fill=(7, 8, 10, 255))
     return finish(base, layer, vig=0.74)
 
 
 def frame_5():
     """Inside now, with the doors swinging shut behind him."""
     base = canvas(NOIR)
-    base = add_glow(base, radial(W * 0.5, H * 0.34, W * 0.40, 2.1), (236, 202, 132), 0.85)
+    base = add_glow(base, radial(W * 0.5, H * 0.56, W * 0.40, 2.1), (236, 202, 132), 0.85)
     base = add_glow(base, radial(W * 0.5, H * 0.86, W * 0.7, 2.1), BLOOD, 0.34)
 
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -241,35 +241,35 @@ def frame_5():
     d.rectangle((0, 0, W, H), fill=(11, 10, 14, 255))
 
     # The aperture in the wall, and the frame around it.
-    d.rectangle((700, 150, 1220, 900), fill=(6, 6, 8, 255))
-    d.rectangle((686, 136, 1234, 914), outline=(150, 118, 60, 130), width=7)
+    d.rectangle((700, 346, 1220, 936), fill=(6, 6, 8, 255))
+    d.rectangle((686, 332, 1234, 950), outline=(150, 118, 60, 130), width=7)
 
     # Two leaves, nearly shut. What is left between them is the street.
-    d.polygon([(952, 168), (968, 168), (968, 892), (952, 892)], fill=(246, 222, 164, 210))
+    d.polygon([(952, 360), (968, 360), (968, 928), (952, 928)], fill=(246, 222, 164, 210))
     for sign, hinge in ((-1, 706), (1, 1214)):
         lead = 960 + sign * 34
-        d.polygon([(hinge, 158), (lead, 196), (lead, 876), (hinge, 906)],
+        d.polygon([(hinge, 352), (lead, 384), (lead, 906), (hinge, 934)],
                   fill=(38, 32, 28, 255))
-        d.polygon([(hinge, 158), (lead, 196), (lead, 876), (hinge, 906)],
+        d.polygon([(hinge, 352), (lead, 384), (lead, 906), (hinge, 934)],
                   outline=(150, 118, 60, 150), width=5)
         inset = sign * 36
-        d.polygon([(hinge + inset, 236), (lead - inset, 268),
-                   (lead - inset, 596), (hinge + inset, 620)],
+        d.polygon([(hinge + inset, 420), (lead - inset, 448),
+                   (lead - inset, 722), (hinge + inset, 742)],
                   outline=(150, 118, 60, 90), width=4)
-        d.rounded_rectangle((lead - sign * 30 - 8, 520, lead - sign * 30 + 8, 604),
+        d.rounded_rectangle((lead - sign * 30 - 8, 664, lead - sign * 30 + 8, 738),
                             radius=8, fill=(198, 160, 84, 235))
 
     # The lobby carpet, running away from the doors towards the reader.
     for i in range(11):
         x = i * (W / 10)
-        d.polygon([(x - 60, H), (x + 60, H), (960 + (x - 960) * 0.12, 880)],
+        d.polygon([(x - 60, H), (x + 60, H), (960 + (x - 960) * 0.12, 936)],
                   fill=(84, 18, 26, 70) if i % 2 else (56, 12, 18, 70))
-    d.polygon([(0, 880), (W, 880), (W, 930), (0, 930)], fill=(0, 0, 0, 110))
+    d.polygon([(0, 936), (W, 936), (W, 980), (0, 980)], fill=(0, 0, 0, 110))
 
     # Him, just through them.
-    d.ellipse((922, 470, 998, 546), fill=(6, 7, 9, 255))
-    d.rounded_rectangle((876, 540, 1044, 880), radius=48, fill=(6, 7, 9, 255))
-    d.polygon([(876, 700), (1044, 700), (1076, 900), (844, 900)], fill=(6, 7, 9, 255))
+    d.ellipse((926, 566, 994, 634), fill=(6, 7, 9, 255))
+    d.rounded_rectangle((884, 626, 1036, 890), radius=44, fill=(6, 7, 9, 255))
+    d.polygon([(884, 770), (1036, 770), (1066, 946), (854, 946)], fill=(6, 7, 9, 255))
     return finish(base, layer, vig=0.72)
 
 
@@ -316,9 +316,9 @@ def main():
         arr = np.asarray(Image.open(path).convert("RGB"), dtype=np.float32) / 255
         lum = 0.2126 * arr[..., 0] + 0.7152 * arr[..., 1] + 0.0722 * arr[..., 2]
         # Opening prose is centred over these, same as the lobby.
-        zone = np.percentile(lum[760:1040], 99)
+        zone = np.percentile(lum[170:420], 99)
         print(f"{path.name:16s} {path.stat().st_size / 1024:6.0f} KB  "
-              f"lower-third p99 {zone:.3f}  contrast {(0.871 + 0.05) / (zone + 0.05):.2f}:1")
+              f"prose-band p99 {zone:.3f}  contrast {(0.871 + 0.05) / (zone + 0.05):.2f}:1")
 
 
 if __name__ == "__main__":
