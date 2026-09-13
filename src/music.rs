@@ -5,8 +5,6 @@
 //! **M**, and it goes through the sink: `GlobalVolume` does not touch audio
 //! that is already playing.
 
-use std::path::Path;
-
 use bevy::audio::Volume;
 use bevy::prelude::*;
 
@@ -16,7 +14,7 @@ const TRACK: &str = "music/deadly_roulette.ogg";
 
 /// Under the prose rather than over it. Nothing else in the game makes a sound
 /// yet, so there is nothing to balance against — this is a listening call.
-const LEVEL: f32 = 0.6;
+const VOLUME: f32 = 0.6;
 
 pub struct MusicPlugin;
 
@@ -31,23 +29,25 @@ impl Plugin for MusicPlugin {
 #[derive(Component)]
 pub struct Music;
 
-/// Whether the track is on disk. The Game Over screen asks, because the
-/// attribution is a licence term on *this file* — it belongs on the screen
-/// exactly when the file it credits is shipping.
-pub fn is_shipping() -> bool {
-    Path::new("assets").join(TRACK).exists()
-}
-
 /// `AssetServer` is an `Option` because the headless test harnesses build
 /// `MinimalPlugins` with no `AssetPlugin`, and asking for a missing resource
-/// is a panic. No server, or no file: the game runs silent.
+/// is a panic. No server: the game runs silent.
+///
+/// The track is *not* checked for on disk first. `AssetServer` resolves its
+/// root from `BEVY_ASSET_ROOT`, then `CARGO_MANIFEST_DIR`, then the
+/// executable's own directory — so a `Path::new("assets")` probe agrees with
+/// it under `cargo run` and disagrees with it in a shipped build launched from
+/// anywhere else, which would silence a game whose ogg is sitting right beside
+/// the binary. `assets.load` on a genuinely missing file logs and plays
+/// nothing, which is the same outcome without the false negative.
+/// `the_track_is_committed_and_is_really_vorbis` is what guards the file.
 fn start_music(mut commands: Commands, assets: Option<Res<AssetServer>>) {
-    let Some(assets) = assets.filter(|_| is_shipping()) else {
+    let Some(assets) = assets else {
         return;
     };
     commands.spawn((
         AudioPlayer::new(assets.load(TRACK)),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(LEVEL)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(VOLUME)),
         Music,
     ));
 }
@@ -55,8 +55,14 @@ fn start_music(mut commands: Commands, assets: Option<Res<AssetServer>>) {
 /// M. The sink appears only once playback has actually started, so an empty
 /// query is the ordinary state for the first frames and for a machine with no
 /// audio device — not an error.
+///
+/// Untested, and not for want of trying: `AudioSink` wraps a live rodio sink
+/// and cannot be constructed without opening the machine's audio device, which
+/// is not a thing a test suite should do. What *is* tested is the half that
+/// has been wrong before — that M reaches this system at all, rather than
+/// being eaten by `screens::any_key` (see `screens::tests::but_not_on_the_mute`).
 fn toggle_mute(keys: Res<ButtonInput<KeyCode>>, mut music: Query<&mut AudioSink, With<Music>>) {
-    if !mute_pressed(&keys) {
+    if !keys.just_pressed(MUTE) {
         return;
     }
     for mut sink in &mut music {
@@ -68,10 +74,6 @@ fn toggle_mute(keys: Res<ButtonInput<KeyCode>>, mut music: Query<&mut AudioSink,
 /// reads it from here to filter it out, so muting mid-story does not also page
 /// the story.
 pub const MUTE: KeyCode = KeyCode::KeyM;
-
-fn mute_pressed(keys: &ButtonInput<KeyCode>) -> bool {
-    keys.just_pressed(MUTE)
-}
 
 #[cfg(test)]
 mod tests {
@@ -121,11 +123,16 @@ mod tests {
     /// `.ogg` would load as nothing.
     #[test]
     fn the_track_is_committed_and_is_really_vorbis() {
-        assert!(super::is_shipping(), "assets/{} is missing", super::TRACK);
+        let path = std::path::Path::new("assets").join(super::TRACK);
 
-        let bytes = std::fs::read(std::path::Path::new("assets").join(super::TRACK)).unwrap();
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} is the whole feature, and it is gone: {e}",
+                path.display()
+            )
+        });
 
-        assert_eq!(&bytes[..4], b"OggS");
+        assert!(bytes.starts_with(b"OggS"), "not an Ogg container");
     }
 
     #[test]

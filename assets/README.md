@@ -163,10 +163,18 @@ for it. `PlaybackSettings` carries `start_position` and `duration` if someone
 wants to pick a cleaner loop point.
 
 Replacing it means replacing three things together: the file, the licence text
-beside it, and `MUSIC_CREDIT` in `src/overworld/narrative.rs`. The Game Over
-screen shows the credit only when `music::is_shipping()` finds the file, so
-deleting the track takes the attribution with it rather than leaving the game
-crediting music it does not play.
+beside it, and `MUSIC_CREDIT` in `src/overworld/narrative.rs`. The credit is
+shown unconditionally, so those three going out of step would have the game
+crediting music it does not play — a licence problem, not a cosmetic one. What
+holds them together is a test: `music::tests::the_track_is_committed_and_is_
+really_vorbis` reads this exact path and checks the `OggS` magic, so losing the
+file to a bad merge is a red suite rather than a silent game.
+
+Nothing checks at *runtime* whether the file is on disk, deliberately.
+`AssetServer` resolves its root from `BEVY_ASSET_ROOT`, then
+`CARGO_MANIFEST_DIR`, then the executable's own directory, so a
+`Path::new("assets")` probe agrees with it under `cargo run` and disagrees in a
+shipped build launched from another working directory.
 
 ## The app icon is not the window icon
 

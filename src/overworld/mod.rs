@@ -77,15 +77,10 @@ fn spawn_camera(mut commands: Commands) {
 // ---------------------------------------------------------------------------
 
 fn show_title(mut commands: Commands) {
-    let mut screen = Screen::new()
+    Screen::new()
         .marquee(narrative::TITLE)
-        .backdrop(Backdrop::Title);
-    // Same rule as the credit on the Game Over screen: the hint tracks the
-    // file, so no track means no promise of a key that does nothing.
-    if crate::music::is_shipping() {
-        screen = screen.note(narrative::MUSIC_HINT);
-    }
-    screen
+        .backdrop(Backdrop::Title)
+        .note(narrative::MUSIC_HINT)
         .footer(narrative::PRESS_SPACE)
         .spawn(&mut commands, AppState::Title);
 }
@@ -422,15 +417,15 @@ fn show_ending(mut commands: Commands) {
 }
 
 fn show_game_over(mut commands: Commands) {
-    let mut screen = Screen::new()
+    // #69 showed the music credit only when a track was found on disk,
+    // because #70 was first to cut and a credit for music nobody hears is
+    // worse than none. #70 landed: the track is committed, so the attribution
+    // is unconditional, and the test that the ogg is still there is what
+    // keeps the two honest.
+    Screen::new()
         .title(narrative::GAME_OVER)
-        .note(narrative::CREDITS);
-    // The music credit is a licence term, so it tracks the file, not the
-    // plan: present when the track it credits is on disk, absent otherwise.
-    if crate::music::is_shipping() {
-        screen = screen.note(narrative::MUSIC_CREDIT);
-    }
-    screen
+        .note(narrative::CREDITS)
+        .note(narrative::MUSIC_CREDIT)
         .footer(narrative::ANY_KEY)
         .spawn(&mut commands, AppState::GameOver);
 }
