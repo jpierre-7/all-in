@@ -22,6 +22,7 @@ impl Plugin for CombatPlugin {
                 (
                     take_input,
                     ui::redraw.run_if(resource_exists_and_changed::<ActiveDuel>),
+                    ui::hover_cards,
                 )
                     .chain()
                     .run_if(in_state(AppState::Combat)),
@@ -77,24 +78,26 @@ impl Guide {
             .unwrap_or(narrative::TUTORIAL_HINT)
     }
 
-    /// Whether this keypress is the one the script is waiting for; if so the
-    /// script advances. Free play accepts everything.
-    fn accepts(&mut self, keys: &ButtonInput<KeyCode>) -> bool {
+    /// Whether this input is the one the script is waiting for; if so the
+    /// script advances. A card arrives as `digit` whether it came from a
+    /// number key or a click on the card; everything else as a key. Free
+    /// play accepts everything.
+    fn accepts(&mut self, keys: &ButtonInput<KeyCode>, digit: Option<u8>) -> bool {
         let Some(expected) = Self::SCRIPT.get(self.step) else {
             return true;
         };
-        let numpad = match expected {
-            KeyCode::Digit1 => KeyCode::Numpad1,
-            KeyCode::Digit2 => KeyCode::Numpad2,
-            KeyCode::Enter => KeyCode::NumpadEnter,
-            other => *other,
+        let matched = match expected {
+            KeyCode::Digit1 => digit == Some(1),
+            KeyCode::Digit2 => digit == Some(2),
+            KeyCode::Enter => {
+                keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)
+            }
+            other => keys.just_pressed(*other),
         };
-        if keys.just_pressed(*expected) || keys.just_pressed(numpad) {
+        if matched {
             self.step += 1;
-            true
-        } else {
-            false
         }
+        matched
     }
 }
 
@@ -200,6 +203,7 @@ fn take_input(
     keys: Res<ButtonInput<KeyCode>>,
     active: Option<ResMut<ActiveDuel>>,
     info: Option<Res<super::info::InfoOpen>>,
+    clicked: Query<(&Interaction, &ui::CardSlot), Changed<Interaction>>,
     mut run: ResMut<RunState>,
     mut next: ResMut<NextState<AppState>>,
 ) {
@@ -208,6 +212,9 @@ fn take_input(
     if info.is_some() || super::info::toggled(&keys) {
         return;
     }
+    // A card, from either the number keys or a click on it (#58). From here
+    // on the two are the same thing.
+    let digit = card_key(&keys).or_else(|| card_click(&clicked));
 
     if active.guide.is_some() {
         // Esc leaves the Arcade from anywhere; the overworld routes it home.
@@ -217,15 +224,18 @@ fn take_input(
         }
         // While the script runs, only the key it names does anything; every
         // other key just leaves the prompt up.
-        let pressed_something = keys.get_just_pressed().next().is_some();
-        let accepted = active.guide.as_mut().is_none_or(|g| g.accepts(&keys));
+        let pressed_something = keys.get_just_pressed().next().is_some() || digit.is_some();
+        let accepted = active
+            .guide
+            .as_mut()
+            .is_none_or(|g| g.accepts(&keys, digit));
         if pressed_something && !accepted {
             active.notice = None;
             return;
         }
     }
 
-    if let Some(digit) = card_key(&keys) {
+    if let Some(digit) = digit {
         let index = usize::from(digit - 1);
         let result = match active.awaiting_sacrifice.take() {
             Some(all_in) => active.duel.play(all_in, Some(index)),
@@ -316,6 +326,14 @@ fn hand_over(commands: &mut Commands, outcome: CombatOutcome, next: &mut NextSta
     commands.remove_resource::<Encounter>();
     commands.insert_resource(outcome);
     next.set(AppState::PostCombat);
+}
+
+/// A card just clicked, as its 1-based slot.
+fn card_click(clicked: &Query<(&Interaction, &ui::CardSlot), Changed<Interaction>>) -> Option<u8> {
+    clicked
+        .iter()
+        .find(|(interaction, _)| **interaction == Interaction::Pressed)
+        .map(|(_, slot)| slot.0 as u8 + 1)
 }
 
 /// 1-7, top row or numpad: the Draw slot to play or to sacrifice.
@@ -818,7 +836,7 @@ mod tutorial_tests {
 
     /// The Arcade: the overworld inserts the Tutorial encounter and enters
     /// Combat, same as any floor would.
-    fn arcade() -> App {
+    pub(super) fn arcade() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_plugins(StatesPlugin)
@@ -1021,5 +1039,131 @@ mod info_tests {
         assert!(!open(&app));
         assert_eq!(state(&app), AppState::Combat);
         assert!(app.world().get_resource::<ActiveDuel>().is_some());
+    }
+}
+
+#[cfg(test)]
+mod mouse_tests {
+    use bevy::prelude::*;
+
+    use super::super::info::InfoOpen;
+    use super::super::ui::CardSlot;
+    use super::ActiveDuel;
+    use super::tests::{press, table};
+
+    /// A mouse click on the card in `slot`, as the UI focus system would
+    /// report it: the node's Interaction goes to Pressed for a frame.
+    fn click(app: &mut App, slot: usize) {
+        let entity = app
+            .world_mut()
+            .query::<(Entity, &CardSlot)>()
+            .iter(app.world())
+            .find(|(_, s)| s.0 == slot)
+            .map(|(e, _)| e)
+            .expect("a card node for that slot");
+        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Pressed;
+        app.update();
+        if let Some(mut i) = app.world_mut().get_mut::<Interaction>(entity) {
+            *i = Interaction::None;
+        }
+        app.update();
+    }
+
+    fn active(app: &App) -> &ActiveDuel {
+        app.world().resource::<ActiveDuel>()
+    }
+
+    #[test]
+    fn clicking_a_card_plays_it_like_its_number_key() {
+        let mut app = table(40, 30, 20);
+        // Any card but an All In, which would wait for its burn instead.
+        let slot = active(&app)
+            .duel
+            .draw()
+            .iter()
+            .position(|c| c.tell != Some(crate::run::Tell::AllIn))
+            .expect("a deal with a playable card");
+        let stack = active(&app).duel.draw()[slot].stack;
+
+        click(&mut app, slot);
+
+        assert_eq!(active(&app).duel.hand(), stack);
+        assert_eq!(active(&app).duel.draw().len(), 6);
+    }
+
+    #[test]
+    fn a_click_names_the_burn_when_an_all_in_is_waiting() {
+        let mut app = table(40, 30, 20);
+        // Find an All In in the Draw, play it by key, then click the burn.
+        let all_in = active(&app)
+            .duel
+            .draw()
+            .iter()
+            .position(|c| c.tell == Some(crate::run::Tell::AllIn));
+        let Some(all_in) = all_in else { return }; // this seed dealt none; nothing to check
+        let key = [
+            KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
+            KeyCode::Digit5,
+            KeyCode::Digit6,
+            KeyCode::Digit7,
+        ][all_in];
+        press(&mut app, key);
+        assert_eq!(active(&app).awaiting_sacrifice, Some(all_in));
+        let burn = if all_in == 0 { 1 } else { 0 };
+
+        click(&mut app, burn);
+
+        assert_eq!(active(&app).awaiting_sacrifice, None);
+        assert_eq!(active(&app).duel.draw().len(), 5);
+    }
+
+    #[test]
+    fn clicks_go_nowhere_while_the_glossary_is_up() {
+        let mut app = table(40, 30, 20);
+        press(&mut app, KeyCode::KeyI);
+        assert!(app.world().get_resource::<InfoOpen>().is_some());
+
+        click(&mut app, 0);
+
+        assert_eq!(active(&app).duel.hand(), 0);
+    }
+}
+
+#[cfg(test)]
+mod mouse_tutorial_tests {
+    use bevy::prelude::*;
+
+    use super::super::ui::CardSlot;
+    use super::ActiveDuel;
+    use super::tutorial_tests::arcade;
+
+    fn click(app: &mut App, slot: usize) {
+        let entity = app
+            .world_mut()
+            .query::<(Entity, &CardSlot)>()
+            .iter(app.world())
+            .find(|(_, s)| s.0 == slot)
+            .map(|(e, _)| e)
+            .expect("a card node for that slot");
+        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Pressed;
+        app.update();
+        if let Some(mut i) = app.world_mut().get_mut::<Interaction>(entity) {
+            *i = Interaction::None;
+        }
+        app.update();
+    }
+
+    #[test]
+    fn the_script_treats_a_click_on_card_one_as_pressing_one() {
+        let mut app = arcade();
+
+        click(&mut app, 3); // wrong card: the script wants card 1
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 0);
+
+        click(&mut app, 0); // Pawned Ring
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 8);
     }
 }
