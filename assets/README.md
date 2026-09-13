@@ -131,17 +131,24 @@ The window title *is* set, in `main.rs`: **ALL-IN**.
 
 One image per frame of `OPENING` in `docs/narrative.md`. The split into
 `OPENING_1`…`OPENING_5` is #37's, and each frame there carries a *Scene* line
-written for the artist. **Those scene lines are the brief; this art does not yet
-match them** — see the note on #48.
+written for the artist. Those scene lines are the brief and this art follows
+them.
+
+**Frames 1–3 are one staging.** Same table, same lamp, same pair of House hands
+on the far side — only what is on the felt changes: chips stacked high, then
+gone with a boy beside the chair, then cards turned over and the chair empty.
+Holding the camera still is what makes those three beats land, so if one is
+redrawn all three should be.
 
 Neither these nor `title.png` are loaded yet: #38 builds the Opening paging and
 #36 the title screen. Any frame whose image is missing pages as text only, so
 they can land before the code does.
 
-**They are symbolic, not illustrative** — an object under a lamp rather than a
-drawn figure. That is an honest limit of geometry: code can put a photograph on
-felt convincingly and cannot draw a man's face. It also suits prose that is
-about what Lucky Jack lost rather than what he looks like.
+**Everyone is a silhouette.** Geometry cannot draw a face, so nobody has one:
+Jack is a back-lit shape in the foreground, the boy is child proportions beside
+a chair, and the House is a pair of hands that never move. Casino-noir carries
+that happily, and the prose is about what Lucky Jack lost rather than what
+anyone looked like.
 
 **Every frame keeps its lower third dark**, because that is where the prose
 goes. The subject lives in the upper two thirds. `gen_backstory.py` reports it:

@@ -38,178 +38,239 @@ BLOOD = (142, 27, 35)
 INK = (10, 10, 12)
 
 
-def chip(d, cx, cy, r, face, rim=BONE, alpha=255):
-    """A chip seen from above: disc, rim, and six edge ticks."""
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=face + (alpha,))
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=rim + (alpha,), width=max(r // 7, 2))
-    for k in range(6):
-        a = math.radians(k * 60)
-        x0, y0 = cx + math.cos(a) * r * 0.80, cy + math.sin(a) * r * 0.80
-        x1, y1 = cx + math.cos(a) * r * 1.0, cy + math.sin(a) * r * 1.0
-        d.line((x0, y0, x1, y1), fill=rim + (alpha,), width=max(r // 8, 2))
-    d.ellipse((cx - r * 0.45, cy - r * 0.45, cx + r * 0.45, cy + r * 0.45),
-              outline=rim + (alpha // 2,), width=max(r // 12, 1))
-
-
-def suit(d, cx, cy, r, kind, colour):
-    """One suit mark. Small vocabulary, but enough to read as a card."""
-    if kind == "diamond":
-        d.polygon([(cx, cy - r), (cx + r * 0.7, cy), (cx, cy + r), (cx - r * 0.7, cy)], fill=colour)
-    elif kind == "heart":
-        d.ellipse((cx - r, cy - r * 0.9, cx - r * 0.05, cy + r * 0.3), fill=colour)
-        d.ellipse((cx + r * 0.05, cy - r * 0.9, cx + r, cy + r * 0.3), fill=colour)
-        d.polygon([(cx - r * 0.96, cy + r * 0.05), (cx + r * 0.96, cy + r * 0.05), (cx, cy + r)], fill=colour)
-    elif kind == "spade":
-        d.polygon([(cx, cy - r), (cx + r * 0.95, cy + r * 0.3), (cx - r * 0.95, cy + r * 0.3)], fill=colour)
-        d.ellipse((cx - r, cy - r * 0.1, cx - r * 0.05, cy + r * 0.85), fill=colour)
-        d.ellipse((cx + r * 0.05, cy - r * 0.1, cx + r, cy + r * 0.85), fill=colour)
-        d.polygon([(cx - r * 0.3, cy + r), (cx + r * 0.3, cy + r), (cx, cy + r * 0.3)], fill=colour)
-    else:  # club
-        q = r * 0.52
-        for ox, oy in ((0, -q * 1.15), (-q, q * 0.4), (q, q * 0.4)):
-            d.ellipse((cx + ox - q, cy + oy - q, cx + ox + q, cy + oy + q), fill=colour)
-        d.polygon([(cx - r * 0.3, cy + r), (cx + r * 0.3, cy + r), (cx, cy + r * 0.3)], fill=colour)
-
-
-def playing_card(w, h, lean, rank, kind, red=False):
-    """A face-up card: corner index, matching suit, one big pip."""
-    card = Image.new("RGBA", (w + 60, h + 60), (0, 0, 0, 0))
-    cd = ImageDraw.Draw(card)
-    cd.rounded_rectangle((30, 30, 30 + w, 30 + h), radius=w // 9,
-                         fill=BONE + (255,), outline=(150, 142, 124, 255), width=2)
-    colour = (BLOOD if red else INK) + (255,)
-    index = ImageFont.truetype(str(BODY_FONT), int(w * 0.30))
-    cd.text((30 + w * 0.10, 30 + h * 0.05), rank, font=index, fill=colour)
-    suit(cd, 30 + w * 0.17, 30 + h * 0.29, w * 0.07, kind, colour)
-    suit(cd, 30 + w * 0.52, 30 + h * 0.60, w * 0.22, kind, colour)
-    return card.rotate(lean, resample=Image.BICUBIC, expand=False)
-
-
-def felt_table(lamp_x=0.5, lamp_y=0.45, warmth=1.0):
-    """The common ground: felt under a low lamp, everything else falling off."""
-    base = canvas(NOIR)
-    base = add_glow(base, radial(W * lamp_x, H * lamp_y, W * 0.78, 2.1), FELT, 1.25 * warmth)
-    base = add_glow(base, radial(W * lamp_x, H * lamp_y, W * 0.32, 2.6), TEAL, 0.80 * warmth)
-    return base
-
-
-def finish(base, art_layer, vig=0.88, scrim=0.66):
+def finish(base, art_layer, vig=0.88, scrim=0.5):
     """Ground, then subject, then a scrim across the band the prose occupies.
 
-    The scrim has to come *after* the subject: the chips, the photograph and
-    the cards are the bright things in these frames, and they land exactly
-    where the text does. Dimming only the background would not have helped.
+    The scrim comes *after* the subject: the bright things in these frames are
+    the chips and the cards, and they sit where the text does, so dimming only
+    the background would not have helped. Jack himself is a silhouette, so the
+    foreground he occupies is already the darkest part of the frame.
     """
     img = to_image(vignette(base, strength=vig) * 0.95).convert("RGBA")
     img.alpha_composite(art_layer)
 
     arr = np.asarray(img.convert("RGB"), dtype=np.float32) / 255
     y = coords()[1]
-    arr = arr * (1.0 - scrim * np.exp(-(((y - H * 0.82) / (H * 0.24)) ** 2)))[..., None]
+    arr = arr * (1.0 - scrim * np.exp(-(((y - H * 0.84) / (H * 0.22)) ** 2)))[..., None]
     return to_image(grain(arr, amount=0.008)).convert("RGBA")
 
 
-def frame_1():
-    """Everything he owned, going the other way across the felt."""
-    base = felt_table(0.38, 0.50)
+def chip(d, cx, cy, r, face, rim=BONE, alpha=255):
+    """A chip seen edge-on, for stacking."""
+    d.ellipse((cx - r, cy - r * 0.34, cx + r, cy + r * 0.34), fill=face + (alpha,),
+              outline=rim + (alpha,), width=max(r // 9, 2))
+
+
+def stack(d, cx, base_y, height, face):
+    """A column of chips, tallest first."""
+    for i in range(height):
+        chip(d, cx, base_y - i * 15, 44, face if i % 2 == 0 else GOLD)
+
+
+def suit(d, cx, cy, r, kind, colour):
+    if kind == "diamond":
+        d.polygon([(cx, cy - r), (cx + r * 0.7, cy), (cx, cy + r), (cx - r * 0.7, cy)], fill=colour)
+    elif kind == "spade":
+        d.polygon([(cx, cy - r), (cx + r * 0.95, cy + r * 0.3), (cx - r * 0.95, cy + r * 0.3)], fill=colour)
+        d.ellipse((cx - r, cy - r * 0.1, cx - r * 0.05, cy + r * 0.85), fill=colour)
+        d.ellipse((cx + r * 0.05, cy - r * 0.1, cx + r, cy + r * 0.85), fill=colour)
+    else:
+        q = r * 0.52
+        for ox, oy in ((0, -q * 1.15), (-q, q * 0.4), (q, q * 0.4)):
+            d.ellipse((cx + ox - q, cy + oy - q, cx + ox + q, cy + oy + q), fill=colour)
+
+
+def playing_card(w, h, lean, rank, kind, red=False):
+    card = Image.new("RGBA", (w + 60, h + 60), (0, 0, 0, 0))
+    cd = ImageDraw.Draw(card)
+    cd.rounded_rectangle((30, 30, 30 + w, 30 + h), radius=w // 9,
+                         fill=BONE + (255,), outline=(150, 142, 124, 255), width=2)
+    colour = (BLOOD if red else INK) + (255,)
+    cd.text((30 + w * 0.11, 30 + h * 0.05), rank,
+            font=ImageFont.truetype(str(BODY_FONT), int(w * 0.32)), fill=colour)
+    suit(cd, 30 + w * 0.52, 30 + h * 0.62, w * 0.21, kind, colour)
+    return card.rotate(lean, resample=Image.BICUBIC, expand=False)
+
+
+def hands_across_the_felt(d):
+    """The House. Palms down on the far side, and they never move."""
+    for cx in (770, 1150):
+        d.rounded_rectangle((cx - 66, 470, cx + 66, 560), radius=30, fill=(9, 10, 12, 255))
+        for i in range(4):
+            x = cx - 48 + i * 32
+            d.rounded_rectangle((x - 13, 404, x + 13, 492), radius=13, fill=(9, 10, 12, 255))
+        d.rounded_rectangle((cx + 52, 500, cx + 112, 532), radius=16, fill=(9, 10, 12, 255))
+
+
+def jack(d, hat=False):
+    """Lucky Jack from behind, close to camera: the dark the prose sits on."""
+    d.ellipse((855, 760, 1065, 970), fill=(7, 8, 10, 255))
+    d.chord((640, 900, 1280, 1420), 180, 360, fill=(7, 8, 10, 255))
+    d.rectangle((640, 1050, 1280, H), fill=(7, 8, 10, 255))
+    if hat:
+        d.rounded_rectangle((836, 726, 1084, 782), radius=22, fill=(7, 8, 10, 255))
+        d.rounded_rectangle((790, 770, 1130, 800), radius=14, fill=(7, 8, 10, 255))
+
+
+def chair(d, x):
+    """The chair beside him. Frame 2 fills it; frame 3 does not."""
+    d.rounded_rectangle((x - 78, 700, x + 78, 940), radius=22, fill=(13, 15, 17, 255))
+    for i in range(3):
+        d.rounded_rectangle((x - 52 + i * 44, 730, x - 34 + i * 44, 910),
+                            radius=8, fill=(24, 28, 30, 255))
+    d.rectangle((x - 70, 940, x - 50, H), fill=(13, 15, 17, 255))
+    d.rectangle((x + 50, 940, x + 70, H), fill=(13, 15, 17, 255))
+
+
+def the_table(lamp=1.0):
+    """One table, one lamp. Frames 1-3 are the same room at three moments."""
+    base = canvas(NOIR)
+    base = add_glow(base, radial(W * 0.5, H * 0.42, W * 0.52, 2.0), FELT, 1.45 * lamp)
+    base = add_glow(base, radial(W * 0.5, H * 0.30, W * 0.24, 2.5), TEAL, 0.85 * lamp)
+    base = add_glow(base, radial(W * 0.5, H * 0.02, W * 0.16, 2.2), (236, 206, 138), 0.70 * lamp)
+
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
 
-    # An empty ring where his stake used to sit.
-    d.ellipse((300, 700, 620, 860), outline=(90, 110, 96, 150), width=4)
+    # The cone, and the shade it falls from.
+    cone = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(cone).polygon([(890, 120), (1030, 120), (1500, H), (420, H)],
+                                 fill=(246, 216, 150, 30))
+    cone = cone.filter(ImageFilter.GaussianBlur(40))
+    layer.alpha_composite(cone)
+    d.polygon([(892, 0), (1028, 0), (1092, 128), (828, 128)], fill=(10, 10, 12, 255))
+    d.ellipse((828, 106, 1092, 150), fill=(246, 216, 150, 190))
 
-    # The pile, already most of the way to the House.
-    rng = np.random.default_rng(5)
-    for i in range(120):
-        t = rng.random() ** 0.6
-        cx = 620 + t * 1150 + rng.normal(0, 40)
-        cy = 620 - t * 300 + rng.normal(0, 70)
-        r = int(30 - 8 * t + rng.normal(0, 3))
-        face = [GOLD, BLOOD, (36, 40, 52)][int(rng.integers(0, 3))]
-        chip(d, cx, cy, max(r, 12), face, alpha=int(200 + 55 * t))
+    # The felt, seen across.
+    d.ellipse((250, 360, 1670, 1120), fill=(11, 34, 26, 255))
+    d.ellipse((250, 360, 1670, 1120), outline=(58, 44, 24, 220), width=9)
+    d.ellipse((286, 388, 1634, 1092), outline=(20, 58, 44, 160), width=3)
+    return base, layer, d
+
+
+def frame_1():
+    """Chips stacked high, and the hands already waiting."""
+    base, layer, d = the_table()
+    hands_across_the_felt(d)
+    for x, face, n in ((690, BLOOD, 7), (800, GOLD, 9), (905, BLOOD, 6),
+                       (1015, (36, 40, 52), 8), (1120, BLOOD, 5)):
+        stack(d, x, 726, n, face)
+    jack(d)
     return finish(base, layer)
 
 
 def frame_2():
-    """The boy: a photograph face-up on the felt, which is the whole scene."""
-    base = felt_table(0.5, 0.46, warmth=0.8)
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-
-    for cx, cy, r in ((600, 600, 26), (656, 632, 26), (1330, 540, 26), (1386, 506, 26)):
-        chip(d, cx, cy, r, BLOOD if cx < 1000 else GOLD, alpha=210)
-
-    photo = Image.new("RGBA", (420, 500), (0, 0, 0, 0))
-    pd = ImageDraw.Draw(photo)
-    pd.rectangle((0, 0, 419, 499), fill=BONE + (255,))
-    pd.rectangle((22, 22, 397, 420), fill=(46, 52, 58, 255))
-    # A boy, at the only fidelity geometry can honestly claim: a silhouette.
-    pd.ellipse((168, 120, 252, 204), fill=(24, 27, 31, 255))
-    pd.chord((120, 210, 300, 430), 180, 360, fill=(24, 27, 31, 255))
-    photo = photo.rotate(-7, resample=Image.BICUBIC, expand=True)
-    layer.alpha_composite(photo, (760, 150))
-    return finish(base, layer, vig=0.9)
+    """The chips are gone. There is a boy beside the chair instead."""
+    base, layer, d = the_table(lamp=0.92)
+    hands_across_the_felt(d)
+    chair(d, 1330)
+    # The boy: child proportions — big head, narrow shoulders — and short
+    # enough that the tabletop crosses him above the waist.
+    bx = 1448
+    d.ellipse((bx - 46, 690, bx + 46, 786), fill=(7, 8, 10, 255))
+    d.rounded_rectangle((bx - 42, 778, bx + 42, 972), radius=30, fill=(7, 8, 10, 255))
+    d.rounded_rectangle((bx - 58, 800, bx - 30, 916), radius=14, fill=(7, 8, 10, 255))
+    d.rounded_rectangle((bx + 30, 800, bx + 58, 916), radius=14, fill=(7, 8, 10, 255))
+    for ox in (-22, 8):
+        d.rounded_rectangle((bx + ox, 950, bx + ox + 16, H), radius=8, fill=(7, 8, 10, 255))
+    jack(d)
+    return finish(base, layer)
 
 
 def frame_3():
-    """It wasn't. Nothing on the felt but the hand that did it."""
-    base = felt_table(0.5, 0.52, warmth=0.55)
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-
-    # Nothing that could have won: low, off-suit, no pair.
-    hand = [("2", "club", False), ("7", "diamond", True), ("4", "spade", False)]
-    for i, (rank, kind, red) in enumerate(hand):
-        card = playing_card(230, 320, lean=(i - 1) * 8, rank=rank, kind=kind, red=red)
-        layer.alpha_composite(card, (620 + i * 250, 250))
-    return finish(base, layer, vig=0.94)
+    """Cards turned over, and the chair beside him empty."""
+    base, layer, d = the_table(lamp=0.72)
+    hands_across_the_felt(d)
+    chair(d, 1395)
+    for i, (rank, kind, red) in enumerate((("2", "club", False), ("7", "diamond", True),
+                                           ("4", "spade", False))):
+        layer.alpha_composite(playing_card(150, 210, (i - 1) * 9, rank, kind, red),
+                              (740 + i * 170, 470))
+    jack(d)
+    return finish(base, layer)
 
 
 def frame_4():
-    """The name that stuck, in neon, with the luck burned out of it."""
+    """Twenty-five years later, across the street, under the sign."""
     base = canvas(NOIR)
-    base = add_glow(base, radial(W * 0.5, H * 0.42, W * 0.75, 2.3), (28, 20, 42), 1.5)
+    base = add_glow(base, radial(W * 0.5, H * 0.22, W * 0.6, 2.2), (30, 14, 44), 1.5)
 
     word, dead = "LUCKY JACK", {1, 7}
-    font = ImageFont.truetype(str(FONT), 190)
+    font = ImageFont.truetype(str(FONT), 132)
+    total = sum(font.getlength(c) + 5 for c in word)
 
-    def draw_word(d, lit_colour, dim_colour):
-        x = 250
+    def draw_word(d, lit, dim):
+        x = (W - total) / 2
         for i, ch in enumerate(word):
-            colour = dim_colour if i in dead else lit_colour
-            d.text((x, 430), ch, font=font, fill=colour)
-            x += font.getlength(ch) + 6
+            d.text((x, 150), ch, font=font, fill=dim if i in dead else lit)
+            x += font.getlength(ch) + 5
 
-    base = screen(base, blurred_layer(lambda d: draw_word(d, MAGENTA, (26, 8, 16)), 22))
-    base = add_glow(base, radial(W * 0.5, H * 0.72, W * 0.5, 2.6), MAGENTA, 0.22)
+    base = screen(base, blurred_layer(lambda d: draw_word(d, MAGENTA, (22, 7, 14)), 20))
+    base = add_glow(base, radial(W * 0.5, H * 0.62, W * 0.34, 2.4), MAGENTA, 0.30)
 
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    draw_word(ImageDraw.Draw(layer), MAGENTA + (255,), (48, 18, 30, 255))
-    return finish(base, layer, vig=0.8)
+    draw_word(ImageDraw.Draw(layer), MAGENTA + (255,), (44, 16, 28, 255))
+    d = ImageDraw.Draw(layer)
+    # The facade the sign is bolted to: dark, with lit windows above the street.
+    d.rectangle((0, 300, W, 620), fill=(11, 10, 15, 255))
+    for i in range(14):
+        x = 40 + i * 140
+        d.rectangle((x, 340, x + 62, 404), fill=(196, 158, 92, 26))
+    d.rectangle((0, 612, W, 626), fill=(150, 118, 60, 60))
+    # Pavement under the sign, so he has something to stand against.
+    d.polygon([(560, 626), (1360, 626), (1520, 930), (400, 930)],
+              fill=(188, 120, 150, 22))
+    # Him, on the far kerb, in a coat that has seen better decades.
+    d.ellipse((918, 560, 1002, 644), fill=(7, 8, 10, 255))
+    d.rounded_rectangle((900, 548, 1020, 576), radius=12, fill=(7, 8, 10, 255))
+    d.rounded_rectangle((866, 634, 1054, 800), radius=40, fill=(7, 8, 10, 255))
+    d.polygon([(870, 760), (1050, 760), (1078, 936), (842, 936)], fill=(7, 8, 10, 255))
+    d.ellipse((826, 920, 1094, 962), fill=(0, 0, 0, 110))
+    return finish(base, layer, vig=0.74)
 
 
 def frame_5():
-    """Back through the doors, with the light behind him."""
+    """Inside now, with the doors swinging shut behind him."""
     base = canvas(NOIR)
-    base = add_glow(base, radial(W * 0.5, H * 0.30, W * 0.42, 2.2), GOLD, 0.55)
-    base = add_glow(base, radial(W * 0.12, H * 0.2, W * 0.3, 2.4), MAGENTA, 0.30)
-    base = add_glow(base, radial(W * 0.88, H * 0.2, W * 0.3, 2.4), CYAN, 0.26)
+    base = add_glow(base, radial(W * 0.5, H * 0.34, W * 0.40, 2.1), (236, 202, 132), 0.85)
+    base = add_glow(base, radial(W * 0.5, H * 0.86, W * 0.7, 2.1), BLOOD, 0.34)
 
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
 
-    # The facade, with one lit doorway punched out of it.
-    d.rectangle((0, 0, W, 300), fill=(8, 8, 11, 255))
-    d.rectangle((0, 300, 700, H), fill=(8, 8, 11, 255))
-    d.rectangle((1220, 300, W, H), fill=(8, 8, 11, 255))
-    d.rounded_rectangle((700, 300, 1220, H), radius=180, fill=(255, 214, 140, 40))
-    d.rounded_rectangle((740, 340, 1180, H), radius=150, fill=(255, 222, 158, 70))
+    d.rectangle((0, 0, W, H), fill=(11, 10, 14, 255))
 
-    # Him, in it. And the shadow it throws at the viewer.
-    d.polygon([(880, 620), (1040, 620), (1180, H), (740, H)], fill=(6, 6, 8, 150))
-    d.ellipse((922, 470, 998, 548), fill=(9, 9, 12, 255))
-    d.chord((856, 556, 1064, 900), 180, 360, fill=(9, 9, 12, 255))
-    d.rectangle((856, 720, 1064, H), fill=(9, 9, 12, 255))
-    return finish(base, layer, vig=0.7)
+    # The aperture in the wall, and the frame around it.
+    d.rectangle((700, 150, 1220, 900), fill=(6, 6, 8, 255))
+    d.rectangle((686, 136, 1234, 914), outline=(150, 118, 60, 130), width=7)
+
+    # Two leaves, nearly shut. What is left between them is the street.
+    d.polygon([(952, 168), (968, 168), (968, 892), (952, 892)], fill=(246, 222, 164, 210))
+    for sign, hinge in ((-1, 706), (1, 1214)):
+        lead = 960 + sign * 34
+        d.polygon([(hinge, 158), (lead, 196), (lead, 876), (hinge, 906)],
+                  fill=(38, 32, 28, 255))
+        d.polygon([(hinge, 158), (lead, 196), (lead, 876), (hinge, 906)],
+                  outline=(150, 118, 60, 150), width=5)
+        inset = sign * 36
+        d.polygon([(hinge + inset, 236), (lead - inset, 268),
+                   (lead - inset, 596), (hinge + inset, 620)],
+                  outline=(150, 118, 60, 90), width=4)
+        d.rounded_rectangle((lead - sign * 30 - 8, 520, lead - sign * 30 + 8, 604),
+                            radius=8, fill=(198, 160, 84, 235))
+
+    # The lobby carpet, running away from the doors towards the reader.
+    for i in range(11):
+        x = i * (W / 10)
+        d.polygon([(x - 60, H), (x + 60, H), (960 + (x - 960) * 0.12, 880)],
+                  fill=(84, 18, 26, 70) if i % 2 else (56, 12, 18, 70))
+    d.polygon([(0, 880), (W, 880), (W, 930), (0, 930)], fill=(0, 0, 0, 110))
+
+    # Him, just through them.
+    d.ellipse((922, 470, 998, 546), fill=(6, 7, 9, 255))
+    d.rounded_rectangle((876, 540, 1044, 880), radius=48, fill=(6, 7, 9, 255))
+    d.polygon([(876, 700), (1044, 700), (1076, 900), (844, 900)], fill=(6, 7, 9, 255))
+    return finish(base, layer, vig=0.72)
 
 
 def title():
