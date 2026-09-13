@@ -7,3 +7,6 @@ pub mod plugin;
 pub mod ui;
 
 pub use plugin::CombatPlugin;
+/// Only the dev entry point names this; `start_duel` reads it either way.
+#[cfg(debug_assertions)]
+pub use plugin::DuelSeed;

@@ -13,6 +13,7 @@ Run: python3 tools/gen_placeholders.py
 
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -69,57 +70,112 @@ def _vertical_gradient(w, h, top, bottom):
     return grad.resize((w, h), Image.BICUBIC)
 
 
-def card_frame(path):
-    """The card face: a double-rule gold bezel with deco corners.
+def _guilloche(w, h, mask):
+    """Engine-turned line work, the kind on a banknote or a casino plaque.
 
-    The node draws no border of its own once this art is present (see
-    `src/combat/ui.rs`), so everything the card's edge does has to happen here.
-    A single heavy rule read as a slab at 120x170, so it is two rules with air
-    between them, and the corners carry a small diamond to break the sameness.
+    Two rosettes beaten against each other: concentric rings whose radius is
+    modulated by angle, plus a rotating second harmonic. The result is a fine
+    lattice that reads as texture rather than pattern once the card is drawn at
+    half size — which is the point. It is what makes the face look worked
+    rather than filled.
+    """
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    nx = (xx - w / 2) / (w / 2)
+    ny = (yy - h / 2) / (h / 2)
+    r = np.sqrt(nx**2 + ny**2)
+    th = np.arctan2(ny, nx)
+
+    # Frequencies are kept low on purpose: the card is drawn at half the size
+    # it is authored, and a denser lattice dissolves into noise on the way down.
+    rings = np.sin(19.0 * r + 2.6 * np.sin(6.0 * th))
+    weave = np.sin(12.0 * th + 14.0 * r)
+    field = 0.62 * rings + 0.38 * weave
+
+    # Keep only the crests, so we get lines instead of a wash.
+    lines = np.clip(1.0 - np.abs(field) * 3.2, 0.0, 1.0) ** 1.2
+    # Fade it out towards the edge, where the bezel takes over.
+    lines *= np.clip(1.25 - r, 0.0, 1.0)
+
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    alpha = Image.fromarray((lines * 104).astype(np.uint8), "L")
+    layer.paste(Image.new("RGBA", (w, h), GOLD_LIT + (255,)), (0, 0), alpha)
+    layer.putalpha(Image.composite(layer.getchannel("A"),
+                                   Image.new("L", (w, h), 0), mask))
+    return layer
+
+
+def _deco_corner(d, x, y, sx, sy, scale):
+    """A stepped deco fan. Three rules turning the corner, longest outermost."""
+    for i, (off, run) in enumerate(((0, 34), (7, 24), (14, 15))):
+        o = off * scale
+        length = run * scale
+        width = max(int((3 - i * 0.6) * scale), 2)
+        d.line((x + sx * o, y + sy * (o + length), x + sx * o, y + sy * o,
+                x + sx * (o + length), y + sy * o),
+               fill=GOLD + (255 - i * 45,), width=width, joint="curve")
+
+
+def card_frame(path):
+    """The card face: engine-turned felt inside a deco bezel.
+
+    The node draws no border of its own while this art exists, so every edge the
+    card has is drawn here.
     """
     body = _vertical_gradient(CARD_W, CARD_H, FELT, FELT_DEEP).convert("RGBA")
-    body.putalpha(_rounded_mask(CARD_W, CARD_H, RADIUS))
+    shape = _rounded_mask(CARD_W, CARD_H, RADIUS)
+    body.putalpha(shape)
 
-    # Darken the body towards its edge so the Stack number sits on flat felt.
-    inner = Image.new("RGBA", (CARD_W * SS, CARD_H * SS), (0, 0, 0, 0))
-    vd = ImageDraw.Draw(inner)
-    for i in range(18):
-        t = i / 17
-        vd.rounded_rectangle(
-            (i * SS, i * SS, (CARD_W - 1 - i) * SS, (CARD_H - 1 - i) * SS),
-            radius=max((RADIUS - i), 2) * SS,
-            outline=FELT_DEEP + (int(26 * (1 - t)),),
-            width=2 * SS,
+    big = (CARD_W * SS, CARD_H * SS)
+    inner_mask = Image.new("L", big, 0)
+    ImageDraw.Draw(inner_mask).rounded_rectangle(
+        (13 * SS, 13 * SS, big[0] - 13 * SS, big[1] - 13 * SS),
+        radius=(RADIUS - 7) * SS, fill=255,
+    )
+    body.alpha_composite(
+        _guilloche(*big, inner_mask).resize((CARD_W, CARD_H), Image.LANCZOS)
+    )
+
+    # Sink the body towards its edge so name and Stack sit on flat felt.
+    shade = Image.new("RGBA", big, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shade)
+    for i in range(20):
+        sd.rounded_rectangle(
+            (i * SS, i * SS, big[0] - 1 - i * SS, big[1] - 1 - i * SS),
+            radius=max(RADIUS - i, 2) * SS,
+            outline=(0, 0, 0, int(30 * (1 - i / 19))), width=2 * SS,
         )
-    body.alpha_composite(inner.resize((CARD_W, CARD_H), Image.LANCZOS))
+    body.alpha_composite(shade.resize((CARD_W, CARD_H), Image.LANCZOS))
 
-    stroke = Image.new("RGBA", (CARD_W * SS, CARD_H * SS), (0, 0, 0, 0))
+    stroke = Image.new("RGBA", big, (0, 0, 0, 0))
     d = ImageDraw.Draw(stroke)
+    # Outer rule, a dark channel, then a fine inner rule: three edges, not one.
+    d.rounded_rectangle((0, 0, big[0] - 1, big[1] - 1), radius=RADIUS * SS,
+                        outline=GOLD + (255,), width=BORDER * SS)
+    d.rounded_rectangle((BORDER * SS, BORDER * SS,
+                         big[0] - 1 - BORDER * SS, big[1] - 1 - BORDER * SS),
+                        radius=(RADIUS - BORDER) * SS,
+                        outline=FELT_DEEP + (190,), width=2 * SS)
+    d.rounded_rectangle((11 * SS, 11 * SS, big[0] - 1 - 11 * SS, big[1] - 1 - 11 * SS),
+                        radius=(RADIUS - 8) * SS, outline=GOLD_LIT + (165,), width=SS)
 
-    # Outer rule, then a hairline set in from it: a classic playing-card edge.
-    d.rounded_rectangle(
-        (0, 0, CARD_W * SS - 1, CARD_H * SS - 1),
-        radius=RADIUS * SS, outline=GOLD + (255,), width=BORDER * SS,
-    )
-    gap = 9 * SS
-    d.rounded_rectangle(
-        (gap, gap, CARD_W * SS - 1 - gap, CARD_H * SS - 1 - gap),
-        radius=(RADIUS - 6) * SS, outline=GOLD_LIT + (150,), width=max(SS, 1),
-    )
-
-    # A diamond tucked into each corner of the inner rule.
-    m = 21 * SS
-    r = 5 * SS
-    for cx, cy in (
-        (m, m), (CARD_W * SS - m, m),
-        (m, CARD_H * SS - m), (CARD_W * SS - m, CARD_H * SS - m),
-    ):
-        d.polygon(
-            [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)],
-            fill=GOLD + (235,),
-        )
+    for x, sx in ((20 * SS, 1), (big[0] - 20 * SS, -1)):
+        for y, sy in ((20 * SS, 1), (big[1] - 20 * SS, -1)):
+            _deco_corner(d, x, y, sx, sy, SS)
 
     body.alpha_composite(stroke.resize((CARD_W, CARD_H), Image.LANCZOS))
+
+    # A raking highlight down the top-left of the bezel, so it reads as metal.
+    sheen = Image.new("RGBA", big, (0, 0, 0, 0))
+    ImageDraw.Draw(sheen).rounded_rectangle(
+        (0, 0, big[0] - 1, big[1] - 1), radius=RADIUS * SS,
+        outline=(255, 255, 255, 70), width=BORDER * SS,
+    )
+    grad = Image.linear_gradient("L").rotate(-35, resample=Image.BICUBIC).resize(big)
+    sheen.putalpha(Image.composite(
+        Image.new("L", big, 0), sheen.getchannel("A"), grad))
+    body.alpha_composite(sheen.resize((CARD_W, CARD_H), Image.LANCZOS))
+
+    body.putalpha(shape)
     body.save(path)
 
 

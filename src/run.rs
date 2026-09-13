@@ -295,9 +295,9 @@ impl Enemy {
 /// Combat removes it on exit.
 #[derive(Resource, Debug, Clone)]
 pub struct Encounter {
-    /// Which encounter this is. The Hole Card rule (#14) is the first thing
-    /// in combat that has to tell The House from everyone else.
-    #[allow(dead_code)]
+    /// Which encounter this is. Combat reads it twice: the Hole Card rule
+    /// (#14) needs to tell The House from everyone else, and the screen picks
+    /// the enemy's portrait off it.
     pub id: EncounterId,
     pub enemy: Enemy,
 }

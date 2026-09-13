@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use super::duel::{Coin, Outcome, Phase, Push, TurnResult};
 use super::plugin::ActiveDuel;
-use crate::run::{LOADED_DICE_BONUS, Tell};
+use crate::run::{EncounterId, LOADED_DICE_BONUS, Tell};
 use crate::state::AppState;
 
 const INK: Color = Color::srgb(0.90, 0.87, 0.80);
@@ -21,6 +21,10 @@ const CARD_FACE: Color = Color::srgb(0.04, 0.08, 0.06);
 /// light, because tinting green felt with a saturated red crushes it to black.
 const SACRIFICE_TINT: Color = Color::srgb(1.0, 0.52, 0.56);
 
+/// Portrait side, in pixels. The node is square; `assets/README.md` holds the
+/// authoring contract that goes with it.
+const PORTRAIT: f32 = 96.0;
+
 /// Art that exists on disk. Anything `None` renders as text.
 #[derive(Resource, Default)]
 pub struct Art {
@@ -28,6 +32,23 @@ pub struct Art {
     pub streak: Option<Handle<Image>>,
     pub all_in: Option<Handle<Image>>,
     pub backdrop: Option<Handle<Image>>,
+    pub slotz: Option<Handle<Image>>,
+    pub pit_boss: Option<Handle<Image>>,
+    pub the_house: Option<Handle<Image>>,
+}
+
+impl Art {
+    /// The face at the other side of the table. Only the three bosses sat for
+    /// a portrait; the minions are a name and a Stack, and that is the whole
+    /// of them.
+    pub fn portrait(&self, id: EncounterId) -> Option<&Handle<Image>> {
+        match id {
+            EncounterId::Slotz => self.slotz.as_ref(),
+            EncounterId::PitBoss => self.pit_boss.as_ref(),
+            EncounterId::TheHouse => self.the_house.as_ref(),
+            EncounterId::FloorMinion | EncounterId::PitMinion => None,
+        }
+    }
 }
 
 /// Checks `assets/` once at startup so a missing file is a fallback, not a
@@ -45,6 +66,9 @@ pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
         streak: load("tells/streak.png"),
         all_in: load("tells/all_in.png"),
         backdrop: load("backdrops/combat.png"),
+        slotz: load("portraits/slotz.png"),
+        pit_boss: load("portraits/pit_boss.png"),
+        the_house: load("portraits/the_house.png"),
     });
 }
 
@@ -85,7 +109,28 @@ pub fn redraw(
     root.with_children(|root| {
         // Top: the enemy.
         row(root, JustifyContent::SpaceBetween, |r| {
-            text(r, active.enemy_name, 30.0, NEON);
+            // Portrait and name are one thing on the left of the row, so
+            // SpaceBetween pushes the Stack and the Edge away from the pair
+            // rather than through the middle of it.
+            r.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: px(16),
+                ..default()
+            })
+            .with_children(|who| {
+                if let Some(portrait) = art.portrait(active.id) {
+                    who.spawn((
+                        Node {
+                            width: px(PORTRAIT),
+                            height: px(PORTRAIT),
+                            ..default()
+                        },
+                        ImageNode::new(portrait.clone()),
+                    ));
+                }
+                text(who, active.enemy_name, 30.0, NEON);
+            });
             text(r, format!("Stack {}", duel.enemy_stack()), 26.0, GOLD);
             match (duel.margin(), duel.locked_edge()) {
                 (None, _) => text(r, format!("House Edge {}", duel.house_edge()), 26.0, INK),
@@ -259,5 +304,58 @@ fn tell(parent: &mut ChildSpawnerCommands, label: &str, color: Color, icon: Opti
             ));
         }
         None => text(parent, label, 14.0, color),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::asset::uuid_handle;
+    use bevy::prelude::*;
+
+    use super::Art;
+    use crate::run::EncounterId;
+
+    const SLOTZ: Handle<Image> = uuid_handle!("2f9d4f2e-0e5f-4a23-9a1a-0b0c1d2e3f40");
+    const PIT_BOSS: Handle<Image> = uuid_handle!("2f9d4f2e-0e5f-4a23-9a1a-0b0c1d2e3f41");
+    const THE_HOUSE: Handle<Image> = uuid_handle!("2f9d4f2e-0e5f-4a23-9a1a-0b0c1d2e3f42");
+
+    /// Every portrait on disk, so the only thing under test is the match.
+    fn hung() -> Art {
+        Art {
+            slotz: Some(SLOTZ),
+            pit_boss: Some(PIT_BOSS),
+            the_house: Some(THE_HOUSE),
+            ..Art::default()
+        }
+    }
+
+    #[test]
+    fn each_boss_gets_its_own_face() {
+        let art = hung();
+
+        assert_eq!(art.portrait(EncounterId::Slotz), Some(&SLOTZ));
+        assert_eq!(art.portrait(EncounterId::PitBoss), Some(&PIT_BOSS));
+        assert_eq!(art.portrait(EncounterId::TheHouse), Some(&THE_HOUSE));
+    }
+
+    #[test]
+    fn the_minions_never_sat_for_one() {
+        let art = hung();
+
+        assert_eq!(art.portrait(EncounterId::FloorMinion), None);
+        assert_eq!(art.portrait(EncounterId::PitMinion), None);
+    }
+
+    #[test]
+    fn a_missing_file_is_no_portrait_rather_than_a_broken_one() {
+        let art = Art::default();
+
+        for id in [
+            EncounterId::Slotz,
+            EncounterId::PitBoss,
+            EncounterId::TheHouse,
+        ] {
+            assert_eq!(art.portrait(id), None, "{id:?} falls back to no portrait");
+        }
     }
 }

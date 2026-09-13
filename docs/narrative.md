@@ -25,23 +25,56 @@ screen in the shell takes any key, so this one names its key.
 
 ## OPENING
 
+Five frames, one scene each, any key advances, Esc skips to the Lobby.
+`narrative.rs` lifts them as `OPENING_1` … `OPENING_5`; the art slots are
+`assets/backstory/opening_N.png`. The *scene* line under each frame is for
+the artist, not the screen.
+
+### OPENING_1
+
 > Twenty-five years ago you sat down at the Big Shots Table with everything
 > you owned, and it took the House about an hour to take it off you.
->
+
+*Scene: a younger Jack at the one table under the one lamp, chips stacked
+high in front of him, a pair of hands across the felt.*
+
+### OPENING_2
+
 > That should've been the end of it. Instead you did the thing this whole
 > building still whispers about when the shift changes: you put your boy on
-> the felt, your firstborn, because you were sure the next hand was yours.
+> the felt.
+
+*Scene: the same table, the chips gone, a small boy standing beside the
+chair. The hands haven't moved.*
+
+### OPENING_3
+
+> Your firstborn, because you were sure the next hand was yours.
 >
-> It wasn't.
->
-> They still call you Lucky Jack. Nobody remembers why, and you've stopped
-> correcting them.
->
+> It wasn't. The House took him the way it takes everything: without
+> looking up.
+
+*Scene: the cards turned over on the felt, the chair beside Jack empty, the
+lamp the only light left.*
+
+### OPENING_4
+
+> That was twenty-five years ago. They still call you Lucky Jack. Nobody
+> remembers why, and you've stopped correcting them.
+
+*Scene: Jack now, older, in a coat that's seen better decades, under the
+casino sign at night from across the street.*
+
+### OPENING_5
+
 > Tonight you walk back through the doors with a deck in your coat pocket
 > and nothing else worth taking. Twenty-five years is a long time to owe
 > someone, and you've come to collect.
 
-*(~120 words)*
+*Scene: the casino doors from inside, swinging shut behind him, the lobby
+carpet ahead.*
+
+*(~130 words across five frames)*
 
 ## LOBBY
 
@@ -73,20 +106,51 @@ screen in the shell takes any key, so this one names its key.
 
 ## TUTORIAL
 
-> An arcade cabinet, sticky with spilled rum, with a cracked screen that
-> explains the only game in this building that matters.
+The Arcade is a scripted encounter (#40), not a text screen. It enters
+combat as `EncounterId::Tutorial` against **THE DEMO DEALER** (Stack 30,
+House Edge 20, no Blinds), with a fixed deal and a rigged coin. Esc at
+any point goes back to the Lobby; the run is never touched.
+
+### TUTORIAL_INTRO
+
+> An arcade cabinet, sticky with spilled rum. The screen flickers on and
+> deals you a hand. Somebody's scratched into the bezel: *play what it
+> tells you, then play what you like.*
 >
-> Draw 7 and play up to 5; the cards you play stack into your **Hand**.
-> Clear the **House Edge** and whatever's left over comes out of *their*
-> Stack. Fall short, and the difference comes out of yours.
+> *Esc leaves at any time.*
+
+### Turn 1: gated. The prompt names the key; any other key repeats it.
+
+The deal, in Draw order: Pawned Ring 8 · Last Dollar (All In 2) · Two of
+Clubs 2 · Hot Streak 3 · Dealer Blinks 5 · Cheap Seat 3 · Four of Hearts 4.
+
+| Step | Constant | Prompt | Key |
+| --- | --- | --- | --- |
+| 1 | `TUTORIAL_STEP_1` | Every card is worth its Stack. Press **1** to play Pawned Ring for 8. | 1 |
+| 2 | `TUTORIAL_STEP_2` | Last Dollar is **All In**: it burns another card and takes its chips. Press **1**, then **1** again to burn Two of Clubs. | 1, 1 |
+| 3 | `TUTORIAL_STEP_3` | Hot Streak is a **Streak**: it doubles if the card before it had a Tell. It did. Press **1**. | 1 |
+| 4 | `TUTORIAL_STEP_4` | Dealer Blinks is a Streak too, and the card before it had a Tell. Press **1** for 10. | 1 |
+| 5 | `TUTORIAL_STEP_5` | Last Play. Press **1** to add Four of Hearts. Your Hand is 32 against a House Edge of 20. | 1 |
+| 6 | `TUTORIAL_STEP_6` | Press **Enter** to show your Hand. | Enter |
+| 7 | `TUTORIAL_STEP_7` | You cleared the Edge by 12: that's your **Payout**. Or **Push Your Luck**: press **Y** and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way; the real one is 45/55. | Y |
+
+Expected: 8 → +4 → +6 → +10 → +4 = 32. Push wins on the rigged coin.
+Payout 24 leaves the dealer on 6.
+
+### Turn 2: free play, one hint, until the dealer is done (a Hand of 26 finishes it).
+
+`TUTORIAL_HINT`
+
+> Lead with a Tell so your Streaks double, and burn your smallest card to an
+> All In. In a real duel the **Blinds rise** every few turns, so don't sit
+> here all night.
+
+### TUTORIAL_DONE
+
+> The cabinet spits out a paper ticket that says WINNER and nothing else.
+> Upstairs, nobody rigs the coin.
 >
-> **Streak** cards double if the card before them had a Tell. **All In**
-> cards burn a card from your Draw and add its chips to the pile.
->
-> Every couple of turns the **Blinds rise**, because nobody gets to sit at
-> this table forever.
->
-> *Press any key to go back.*
+> *Press any key.*
 
 ---
 
