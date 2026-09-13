@@ -237,8 +237,8 @@ pub fn redraw(
             text(r, "Lucky Jack", 26.0, INK);
             text(r, format!("Stack {}", duel.player_stack()), 26.0, GOLD);
             let keys = match duel.phase() {
-                Phase::PushYourLuck => "P push   H hold",
-                Phase::Playing => "1-7 play a card   Enter show your Hand",
+                Phase::PushYourLuck => "P push   H hold   I what the words mean",
+                Phase::Playing => "1-7 play a card   Enter show your Hand   I what the words mean",
             };
             text(r, keys, 16.0, DIM);
         });

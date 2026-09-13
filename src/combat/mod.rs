@@ -3,6 +3,7 @@
 //! `ui` draws it.
 
 pub mod duel;
+pub mod info;
 pub mod plugin;
 pub mod ui;
 

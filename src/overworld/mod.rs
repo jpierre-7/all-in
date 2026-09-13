@@ -207,7 +207,10 @@ fn show_fight_or_fold(mut commands: Commands, progress: Res<Progress>, run: Res<
         .prose(narrative::FIGHT_OR_FOLD)
         .option(1, "Fight")
         .option(2, "Fold")
-        .footer(format!("Your Stack: {} — Enter sits down.", run.stack))
+        .footer(format!(
+            "Your Stack: {} — Enter sits down. I: what the words mean.",
+            run.stack
+        ))
         .spawn(&mut commands, AppState::FightOrFold);
 }
 
@@ -215,11 +218,16 @@ fn fight_or_fold(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     progress: Res<Progress>,
+    info: Option<Res<crate::combat::info::InfoOpen>>,
     mut next: ResMut<NextState<AppState>>,
 ) {
     let Some(id) = progress.encounter() else {
         return;
     };
+    // The Info overlay (#43) is up, or about to be: the prompt hears nothing.
+    if info.is_some() || crate::combat::info::toggled(&keys) {
+        return;
+    }
 
     match digit_pressed(&keys).or(confirm(&keys).then_some(1)) {
         Some(1) => {
@@ -495,7 +503,7 @@ mod tests {
     /// touching the run.
     #[test]
     fn the_arcade_is_a_duel_that_comes_back_to_the_lobby() {
-        let mut app = shell();
+        let mut app = opened();
         press(&mut app, KeyCode::Enter);
         app.world_mut().resource_mut::<RunState>().stack = 7;
         let before = progress(&app);
