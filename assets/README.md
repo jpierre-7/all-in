@@ -23,6 +23,8 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `fonts/BarlowCondensed-Regular.ttf` | — | all text | `theme.rs` — the default font |
 | `fonts/Limelight-Regular.ttf` | — | screen titles | `theme.rs` — `Fonts::display` |
 | `icon.png` | 256×256 | — | **not wired** — see below |
+| `backstory/opening_1…5.png` | 1920×1080 | one per Opening frame | **awaiting #38** |
+| `backdrops/title.png` | 1920×1080 | title screen | **awaiting #36** |
 
 ## Card frame
 
@@ -124,6 +126,49 @@ the machine we demo from was not worth it. On Windows and Linux it would work,
 if someone wants it later.
 
 The window title *is* set, in `main.rs`: **ALL-IN**.
+
+## The Opening frames
+
+One image per frame of `OPENING` in `docs/narrative.md`. The split into
+`OPENING_1`…`OPENING_5` is #37's, and each frame there carries a *Scene* line
+written for the artist. Those scene lines are the brief and this art follows
+them.
+
+**Frames 1–3 are one staging.** Same table, same lamp, same pair of House hands
+on the far side — only what is on the felt changes: chips stacked high, then
+gone with a boy beside the chair, then cards turned over and the chair empty.
+Holding the camera still is what makes those three beats land, so if one is
+redrawn all three should be.
+
+Neither these nor `title.png` are loaded yet: #38 builds the Opening paging and
+#36 the title screen. Any frame whose image is missing pages as text only, so
+they can land before the code does.
+
+**Everyone is a silhouette.** Geometry cannot draw a face, so nobody has one:
+Jack is a back-lit shape in the foreground, the boy is child proportions beside
+a chair, and the House is a pair of hands that never move. Casino-noir carries
+that happily, and the prose is about what Lucky Jack lost rather than what
+anyone looked like.
+
+**Every frame keeps its lower third dark**, because that is where the prose
+goes. The subject lives in the upper two thirds. `gen_backstory.py` reports it:
+
+```
+opening_1  lower-third p99 0.081  contrast 7.01:1
+opening_2  lower-third p99 0.064  contrast 8.06:1
+opening_3  lower-third p99 0.054  contrast 8.82:1
+opening_4  lower-third p99 0.061  contrast 8.28:1
+opening_5  lower-third p99 0.112  contrast 5.68:1
+title      lower-third p99 0.206  contrast 3.60:1
+```
+
+An earlier pass scrimmed the *middle* and measured 1.04:1, because the chips,
+the photograph and the cards are the bright things in these frames and they sat
+exactly where the text did. Dimming only the background would not have helped.
+
+These are the heaviest files in the repo, ~1.6MB each. 64-colour quantising
+takes them to ~1.1MB but risks banding on long dark gradients, which is a bad
+trade on the most cinematic screens in the game.
 
 ## Palette
 
