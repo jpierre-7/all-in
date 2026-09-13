@@ -5,14 +5,14 @@
 A card-combat roguelike set in a casino. Twenty-five years ago Lucky Jack bet
 everything at the Big Shots Table, lost it, and then bet his son; tonight he
 walks back in to collect. Every encounter is a duel against the House. You draw
-seven cards, play up to five, and the cards you play stack into The Hand. Clear
-the enemy's House Edge and the excess comes off their chips — fall short and the
-shortfall comes off yours. Two card types bend that: a **Streak** doubles if the
-card before it had a Tell, and an **All In** burns another card from your Draw
-and takes its chips. So the order you play in is the skill. Then there is The
-House itself, which reads your Hand after your fourth card and sets its Edge
-just above it, leaving your fifth card — the Hole Card — as the only one it
-cannot see.
+seven cards, play up to five, and the cards you play build up The Hand. Clear
+the enemy's House Edge and the excess comes off their chips — fall short and
+the shortfall comes off yours. Two **Tells** bend that: **Streak** doubles a
+card's Stack if the card before it had any Tell, and **All In** burns another
+card from your Draw and takes its Stack. So the order you play in is the skill.
+Then there is The House itself, which reads your Hand after your fourth card and
+sets its Edge just above it, leaving your fifth card — the Hole Card — as the
+only one it cannot see.
 
 ## Running it
 
@@ -31,7 +31,8 @@ runs with every image silently missing. If you want to hand someone the binary
 out of `target/release/`, copy `assets/` next to it and launch from there.
 
 The toolchain is pinned at **Rust 1.97.1** (`rust-toolchain.toml`, and
-`flake.nix` for the Nix devshell — CI checks the two agree). On NixOS or with
+`flake.lock` for the Nix devshell, which is where the version actually lands —
+`flake.nix` just names a bare `rustc`. CI checks the two agree). On NixOS or with
 Nix installed:
 
 ```sh
@@ -103,8 +104,8 @@ Keyboard throughout. Number keys work on the top row or the numpad.
 
 Two screens deliberately do *not* take Enter. The Title answers only to Space,
 so a stray keypress on the way to the table cannot skip the game's own name. And
-a perk choice takes only **1** or **2**, because Enter advances every other
-screen in the shell and a perk is picked once and never given back.
+a Perk choice takes only **1** or **2**, because Enter advances every other
+screen in the shell and a Perk is picked once and never given back.
 
 There is no Esc-to-quit in a fight. Once you sit down, the only ways off the
 table are winning and losing — which is the point.
