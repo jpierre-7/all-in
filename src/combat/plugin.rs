@@ -31,6 +31,8 @@ impl Plugin for CombatPlugin {
 #[derive(Resource)]
 pub struct ActiveDuel {
     pub duel: Duel,
+    /// Who is across the table, for the art the screen picks by encounter.
+    pub id: EncounterId,
     pub enemy_name: &'static str,
     /// Set after playing an All In: the next digit names the sacrifice.
     pub awaiting_sacrifice: Option<usize>,
@@ -67,6 +69,7 @@ fn start_duel(
 
     commands.insert_resource(ActiveDuel {
         duel,
+        id: encounter.id,
         enemy_name: encounter.enemy.name,
         awaiting_sacrifice: None,
         last_turn: None,
@@ -290,6 +293,32 @@ mod tests {
         let active = app.world().resource::<ActiveDuel>();
         assert_eq!(active.duel.margin(), Some(1));
         assert_eq!(active.duel.locked_edge(), None);
+    }
+
+    #[test]
+    fn the_duel_remembers_which_encounter_it_is() {
+        // The screen picks the portrait off this, so it has to survive the
+        // handoff from the overworld.
+        let mut app = table(50, 35, 1);
+        assert_eq!(
+            app.world().resource::<ActiveDuel>().id,
+            EncounterId::FloorMinion
+        );
+
+        app.world_mut().resource_mut::<Encounter>().id = EncounterId::PitBoss;
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Lobby);
+        app.update();
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Combat);
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<ActiveDuel>().id,
+            EncounterId::PitBoss
+        );
     }
 
     #[test]

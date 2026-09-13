@@ -17,9 +17,9 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `tells/all_in.png` | 128×128 | 28×28 node | `ui.rs` — `Art::all_in` |
 | `backdrops/combat.png` | 1920×1080 | full screen | `ui.rs` — `Art::backdrop` |
 | `backdrops/lobby.png` | 1920×1080 | every prose screen | `screens.rs` — `OverworldArt::lobby` |
-| `portraits/slotz.png` | 256×256 | — | **not wired yet** |
-| `portraits/pit_boss.png` | 256×256 | — | **not wired yet** |
-| `portraits/the_house.png` | 256×256 | — | **not wired yet** |
+| `portraits/slotz.png` | 256×256 | 96×96 node | `ui.rs` — `Art::slotz` |
+| `portraits/pit_boss.png` | 256×256 | 96×96 node | `ui.rs` — `Art::pit_boss` |
+| `portraits/the_house.png` | 256×256 | 96×96 node | `ui.rs` — `Art::the_house` |
 | `fonts/BarlowCondensed-Regular.ttf` | — | all text | `theme.rs` — the default font |
 | `fonts/Limelight-Regular.ttf` | — | screen titles | `theme.rs` — `Fonts::display` |
 | `icon.png` | 256×256 | — | **not wired** — see below |
@@ -71,21 +71,21 @@ The **text band** is the outer ~150px top and bottom, where the Stack and House
 Edge lines are drawn. Keep its p99 luminance under ~0.25 and gold text stays
 legible; the middle can be brighter.
 
-## Boss portraits — not wired
+## Boss portraits
 
-Stretch item 4 on the art ticket, drawn to Dev 1's designs: Slotz is a
-chrome-and-neon slot machine on a rolling base, the Pit Boss a brass balance
-scale with one pan already loaded, The House a pair of hands on the felt.
-Transparent ground, and they hold up down to ~90px.
+Drawn to Dev 1's designs: Slotz is a chrome-and-neon slot machine on a rolling
+base, the Pit Boss a brass balance scale with one pan already loaded, The House
+a pair of hands on the felt. Transparent ground.
 
-Nothing displays them yet, and wiring them means editing `src/combat/ui.rs`,
-which Dev 1 owns. For whoever picks it up: `ActiveDuel` carries `enemy_name`
-but **not** `EncounterId`, so the portrait cannot be chosen in `redraw` as it
-stands. `start_duel` in `plugin.rs` does have `encounter.id` — either add
-`id: encounter.id` to `ActiveDuel` and match in `redraw`, or pick the handle in
-`start_duel`. Loading follows the existing `load_art` pattern; the three files
-map to `EncounterId::Slotz`, `PitBoss`, and `TheHouse`. Minions have no
-portrait.
+Rendered into a **96×96** node at the left of the enemy row, beside the name,
+so they have to hold up down to ~90px — check any redraw at that size. The
+node is square and the image is stretched to fill it, so a non-square source
+will distort; keep new files at 256×256.
+
+Only the three bosses have one. `Art::portrait` maps `EncounterId::Slotz`,
+`PitBoss` and `TheHouse` to their handles and `FloorMinion` and `PitMinion` to
+`None` — the same state a missing file gets, which is why a minion's row is
+just a name and a Stack.
 
 ## Fonts
 
