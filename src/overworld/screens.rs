@@ -214,9 +214,12 @@ impl Default for Screen {
     }
 }
 
-/// Any key at all, for prose screens that just need dismissing.
+/// Any key at all, for prose screens that just need dismissing — except the
+/// mute. M is the one key in the game that is not a game input, and a player
+/// reaching for it mid-story should not lose a page of the story to it.
 pub fn any_key(keys: &ButtonInput<KeyCode>) -> bool {
-    keys.get_just_pressed().next().is_some()
+    keys.get_just_pressed()
+        .any(|key| *key != crate::music::MUTE)
 }
 
 /// Enter, for taking the option a menu leads with.
@@ -237,4 +240,35 @@ pub fn digit_pressed(keys: &ButtonInput<KeyCode>) -> Option<u8> {
         KeyCode::Digit3 | KeyCode::Numpad3 => Some(3),
         _ => None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::prelude::*;
+
+    use super::any_key;
+
+    fn pressing(key: KeyCode) -> ButtonInput<KeyCode> {
+        let mut keys = ButtonInput::default();
+        keys.press(key);
+        keys
+    }
+
+    #[test]
+    fn a_prose_screen_pages_on_anything() {
+        for key in [
+            KeyCode::Space,
+            KeyCode::Enter,
+            KeyCode::KeyQ,
+            KeyCode::Digit1,
+        ] {
+            assert!(any_key(&pressing(key)), "{key:?} should page the screen");
+        }
+    }
+
+    /// M is the mute, and muting mid-story should not also skip the story.
+    #[test]
+    fn but_not_on_the_mute() {
+        assert!(!any_key(&pressing(KeyCode::KeyM)));
+    }
 }

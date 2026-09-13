@@ -77,9 +77,15 @@ fn spawn_camera(mut commands: Commands) {
 // ---------------------------------------------------------------------------
 
 fn show_title(mut commands: Commands) {
-    Screen::new()
+    let mut screen = Screen::new()
         .marquee(narrative::TITLE)
-        .backdrop(Backdrop::Title)
+        .backdrop(Backdrop::Title);
+    // Same rule as the credit on the Game Over screen: the hint tracks the
+    // file, so no track means no promise of a key that does nothing.
+    if crate::music::is_shipping() {
+        screen = screen.note(narrative::MUSIC_HINT);
+    }
+    screen
         .footer(narrative::PRESS_SPACE)
         .spawn(&mut commands, AppState::Title);
 }
@@ -420,22 +426,13 @@ fn show_game_over(mut commands: Commands) {
         .title(narrative::GAME_OVER)
         .note(narrative::CREDITS);
     // The music credit is a licence term, so it tracks the file, not the
-    // plan: present when a track ships under assets/music/, absent otherwise.
-    if music_is_shipping() {
+    // plan: present when the track it credits is on disk, absent otherwise.
+    if crate::music::is_shipping() {
         screen = screen.note(narrative::MUSIC_CREDIT);
     }
     screen
         .footer(narrative::ANY_KEY)
         .spawn(&mut commands, AppState::GameOver);
-}
-
-fn music_is_shipping() -> bool {
-    std::fs::read_dir("assets/music")
-        .map(|d| {
-            d.flatten()
-                .any(|e| e.path().extension().is_some_and(|x| x == "ogg"))
-        })
-        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -514,6 +511,17 @@ mod tests {
         );
         assert_eq!(state(app), AppState::PostCombat);
         press(app, KeyCode::Enter);
+    }
+
+    /// M is the mute (#70). Every prose screen pages on any key, so the one
+    /// key that is not a game input has to be kept out of that.
+    #[test]
+    fn muting_does_not_page_a_prose_screen() {
+        let mut app = opened();
+
+        press(&mut app, KeyCode::KeyM);
+
+        assert_eq!(state(&app), AppState::Opening);
     }
 
     #[test]

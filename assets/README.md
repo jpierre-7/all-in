@@ -24,6 +24,7 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `fonts/BarlowCondensed-Regular.ttf` | — | all text | `theme.rs` — the default font |
 | `fonts/Limelight-Regular.ttf` | — | screen titles | `theme.rs` — `Fonts::display` |
 | `icon.png` | 256×256 | — | **not wired** — see below |
+| `music/deadly_roulette.ogg` | 2:39, Ogg Vorbis | the whole game | `music.rs` — `TRACK` |
 | `backstory/opening_1…5.png` | 1920×1080 | one per Opening frame | **awaiting #38** |
 | `backdrops/title.png` | 1920×1080 | title screen | **awaiting #36** |
 
@@ -129,6 +130,43 @@ The display face is opt-in: tag a text entity with `DisplayText` and a system
 swaps it over on the next frame, then drops the tag. Screen titles use it. The
 combat UI does not yet — the enemy name and the Stack numbers are the obvious
 candidates, and the tag is all it takes.
+
+## Music
+
+One track, looping from the Title screen to the end of the night, spawned once
+at `Startup` on an entity with no `DespawnOnExit` so no state change can reach
+it. **M mutes** — and `screens::any_key` filters M out for exactly that reason,
+so reaching for the mute mid-story does not also page the story.
+
+`assets/music/deadly_roulette.ogg` is Kevin MacLeod's "Deadly Roulette" under
+CC BY 4.0. The credit incompetech asks for is on the **Game Over** screen, and
+the licence and the note of what was changed are in
+`music/CC-BY-4.0-deadly_roulette.txt` beside the file, the way the fonts carry
+their OFL text:
+
+```
+"Deadly Roulette" Kevin MacLeod (incompetech.com)
+Licensed under Creative Commons: By Attribution 4.0 License
+http://creativecommons.org/licenses/by/4.0/
+```
+
+**Ogg Vorbis, not MP3.** `bevy`'s default `audio` feature is
+`["bevy_audio", "vorbis"]`; MP3, WAV and FLAC each need a Cargo feature, so a
+`.mp3` dropped at this path would not load. Transcode with
+`ffmpeg -i in.mp3 -c:a libvorbis -q:a 3 out.ogg` — about 0.75 MB per minute,
+which put this 2:39 track at 1.9 MB. That is over the ~1.5 MB rule below, and
+deliberately so: it is one file, the size of one backstory frame, and q2 is
+there (1.65 MB) if the line is ever felt to be binding.
+
+The track ends on a sustained chord, so the loop seam is audible if you listen
+for it. `PlaybackSettings` carries `start_position` and `duration` if someone
+wants to pick a cleaner loop point.
+
+Replacing it means replacing three things together: the file, the licence text
+beside it, and `MUSIC_CREDIT` in `src/overworld/narrative.rs`. The Game Over
+screen shows the credit only when `music::is_shipping()` finds the file, so
+deleting the track takes the attribution with it rather than leaving the game
+crediting music it does not play.
 
 ## The app icon is not the window icon
 

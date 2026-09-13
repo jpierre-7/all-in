@@ -3,6 +3,7 @@
 mod combat;
 #[cfg(debug_assertions)]
 mod devstart;
+mod music;
 mod overworld;
 mod run;
 mod state;
@@ -29,6 +30,7 @@ fn main() {
         ..default()
     }))
     .add_plugins(theme::ThemePlugin)
+    .add_plugins(music::MusicPlugin)
     .add_plugins(overworld::OverworldPlugin)
     .add_plugins(combat::CombatPlugin);
 

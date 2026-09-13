@@ -195,6 +195,11 @@ pub const PRESS_SPACE: &str = "Press Space to play.";
 pub const CREDITS: &str = "\
 jpierre-7, HefKer, MEmshousen  ·  HackRice 16, Rice University, September 2026";
 
+/// Under the marquee, shown only when the track is shipping (#70). A mute
+/// nobody is told about is not a mute; the Title screen is where everyone
+/// looks once.
+pub const MUSIC_HINT: &str = "M mutes the music.";
+
 /// incompetech's required form, shown only when the track is shipping (#70).
 pub const MUSIC_CREDIT: &str = "\
 \"Deadly Roulette\" Kevin MacLeod (incompetech.com)
