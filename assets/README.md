@@ -190,7 +190,12 @@ app bundle, not the running process. A new pinned dependency for no effect on
 the machine we demo from was not worth it. On Windows and Linux it would work,
 if someone wants it later.
 
-The window title *is* set, in `main.rs`: **ALL-IN**.
+Confirmed again against Bevy 0.19.1 for #68: `bevy_window` carries only cursor
+icons, and `bevy_winit` re-exports `EventLoopProxy` and the cursor types and
+nothing else from `winit::window`. The reasoning above still holds; the README
+carries the short version.
+
+The window title *is* set, in `main.rs`: **All In**.
 
 ## The Opening frames
 
