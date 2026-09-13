@@ -11,23 +11,56 @@ Lucky Jack is "you" and the House is always capitalised.
 
 ## OPENING
 
+Five frames, one scene each, any key advances, Esc skips to the Lobby.
+`narrative.rs` lifts them as `OPENING_1` … `OPENING_5`; the art slots are
+`assets/backstory/opening_N.png`. The *scene* line under each frame is for
+the artist, not the screen.
+
+### OPENING_1
+
 > Twenty-five years ago you sat down at the Big Shots Table with everything
 > you owned, and it took the House about an hour to take it off you.
->
+
+*Scene: a younger Jack at the one table under the one lamp, chips stacked
+high in front of him, a pair of hands across the felt.*
+
+### OPENING_2
+
 > That should've been the end of it. Instead you did the thing this whole
 > building still whispers about when the shift changes: you put your boy on
-> the felt, your firstborn, because you were sure the next hand was yours.
+> the felt.
+
+*Scene: the same table, the chips gone, a small boy standing beside the
+chair. The hands haven't moved.*
+
+### OPENING_3
+
+> Your firstborn, because you were sure the next hand was yours.
 >
-> It wasn't.
->
-> They still call you Lucky Jack. Nobody remembers why, and you've stopped
-> correcting them.
->
+> It wasn't. The House took him the way it takes everything: without
+> looking up.
+
+*Scene: the cards turned over on the felt, the chair beside Jack empty, the
+lamp the only light left.*
+
+### OPENING_4
+
+> That was twenty-five years ago. They still call you Lucky Jack. Nobody
+> remembers why, and you've stopped correcting them.
+
+*Scene: Jack now, older, in a coat that's seen better decades, under the
+casino sign at night from across the street.*
+
+### OPENING_5
+
 > Tonight you walk back through the doors with a deck in your coat pocket
 > and nothing else worth taking. Twenty-five years is a long time to owe
 > someone, and you've come to collect.
 
-*(~120 words)*
+*Scene: the casino doors from inside, swinging shut behind him, the lobby
+carpet ahead.*
+
+*(~130 words across five frames)*
 
 ## LOBBY
 
