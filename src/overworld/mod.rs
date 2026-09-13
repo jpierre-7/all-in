@@ -13,11 +13,9 @@ pub mod screens;
 use bevy::prelude::*;
 
 use progression::{Progress, encounter_intro, win_line};
-use screens::{
-    Screen, any_key, apply_backdrop, confirm, digit_pressed, load_overworld_art,
-};
+use screens::{Screen, any_key, apply_backdrop, confirm, digit_pressed, load_overworld_art};
 
-use crate::run::{CombatOutcome, Encounter, Enemy, RewardOffer, RunState};
+use crate::run::{CombatOutcome, Encounter, EncounterId, Enemy, RewardOffer, RunState};
 use crate::state::AppState;
 
 pub struct OverworldPlugin;
@@ -53,7 +51,6 @@ impl Plugin for OverworldPlugin {
                     back_to_lobby.run_if(
                         in_state(AppState::Opening)
                             .or_else(in_state(AppState::InfoRoom))
-                            .or_else(in_state(AppState::Tutorial))
                             .or_else(in_state(AppState::Ending))
                             .or_else(in_state(AppState::GameOver)),
                     ),
@@ -140,13 +137,21 @@ fn show_info_room(mut commands: Commands) {
         .spawn(&mut commands, AppState::InfoRoom);
 }
 
-fn show_tutorial(mut commands: Commands) {
-    Screen::new()
-        .title("The Arcade")
-        .prose(narrative::TUTORIAL)
-        .footer(narrative::ANY_KEY_BACK)
-        .spawn(&mut commands, AppState::Tutorial);
+/// The Arcade is a scripted duel (#40): hand combat a Tutorial encounter the
+/// same way a floor would, and remember to route it home afterwards.
+fn show_tutorial(mut commands: Commands, mut next: ResMut<NextState<AppState>>) {
+    commands.insert_resource(InTutorial);
+    commands.insert_resource(Encounter {
+        id: EncounterId::Tutorial,
+        enemy: Enemy::for_encounter(EncounterId::Tutorial),
+    });
+    next.set(AppState::Combat);
 }
+
+/// Set while the Arcade's duel runs, so PostCombat knows to go back to the
+/// Lobby instead of routing the run. Cleared on the way out.
+#[derive(Resource)]
+struct InTutorial;
 
 // ---------------------------------------------------------------------------
 // Walking the floors
@@ -213,16 +218,27 @@ fn fight_or_fold(
 // Coming back out of combat
 // ---------------------------------------------------------------------------
 
-fn show_outcome(mut commands: Commands, progress: Res<Progress>, outcome: Res<CombatOutcome>) {
-    // The run only advances on the reward screen, so the encounter just
-    // played is still the current one.
-    let Some(id) = progress.encounter() else {
-        return;
-    };
-
-    let body = match *outcome {
-        CombatOutcome::Lost => narrative::LOSE,
-        CombatOutcome::Won => win_line(id),
+fn show_outcome(
+    mut commands: Commands,
+    progress: Res<Progress>,
+    outcome: Res<CombatOutcome>,
+    tutorial: Option<Res<InTutorial>>,
+) {
+    let body = if tutorial.is_some() {
+        match *outcome {
+            CombatOutcome::Won => narrative::TUTORIAL_DONE,
+            CombatOutcome::Lost => narrative::TUTORIAL_LEFT,
+        }
+    } else {
+        // The run only advances on the reward screen, so the encounter just
+        // played is still the current one.
+        let Some(id) = progress.encounter() else {
+            return;
+        };
+        match *outcome {
+            CombatOutcome::Lost => narrative::LOSE,
+            CombatOutcome::Won => win_line(id),
+        }
     };
 
     Screen::new()
@@ -236,10 +252,16 @@ fn leave_outcome(
     keys: Res<ButtonInput<KeyCode>>,
     progress: Res<Progress>,
     outcome: Res<CombatOutcome>,
+    tutorial: Option<Res<InTutorial>>,
     mut next: ResMut<NextState<AppState>>,
 ) {
     if any_key(&keys) {
-        next.set(progress.route(*outcome));
+        if tutorial.is_some() {
+            commands.remove_resource::<InTutorial>();
+            next.set(AppState::Lobby);
+        } else {
+            next.set(progress.route(*outcome));
+        }
         commands.remove_resource::<CombatOutcome>();
     }
 }
@@ -399,19 +421,43 @@ mod tests {
     }
 
     #[test]
-    fn the_lobby_side_rooms_come_back_to_the_lobby() {
+    fn the_info_room_comes_back_to_the_lobby() {
         let mut app = shell();
         press(&mut app, KeyCode::Enter);
 
-        for (key, room) in [
-            (KeyCode::Digit1, AppState::InfoRoom),
-            (KeyCode::Digit2, AppState::Tutorial),
-        ] {
-            press(&mut app, key);
-            assert_eq!(state(&app), room);
-            press(&mut app, KeyCode::Enter);
-            assert_eq!(state(&app), AppState::Lobby);
-        }
+        press(&mut app, KeyCode::Digit1);
+        assert_eq!(state(&app), AppState::InfoRoom);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Lobby);
+    }
+
+    /// The Arcade is a duel (#40): it hands combat a Tutorial encounter and,
+    /// whatever happens at the table, comes back to the Lobby without
+    /// touching the run.
+    #[test]
+    fn the_arcade_is_a_duel_that_comes_back_to_the_lobby() {
+        let mut app = shell();
+        press(&mut app, KeyCode::Enter);
+        app.world_mut().resource_mut::<RunState>().stack = 7;
+        let before = progress(&app);
+
+        press(&mut app, KeyCode::Digit2);
+        // Lobby -> Tutorial -> Combat is two transitions, one per frame.
+        app.update();
+        assert_eq!(state(&app), AppState::Combat);
+        assert_eq!(
+            app.world().resource::<Encounter>().id,
+            EncounterId::Tutorial
+        );
+
+        // The stub stands in for the duel: "lose" here is what Esc sends.
+        press(&mut app, KeyCode::Digit2);
+        assert_eq!(state(&app), AppState::PostCombat);
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(state(&app), AppState::Lobby);
+        assert_eq!(progress(&app), before);
+        assert!(app.world().get_resource::<CombatOutcome>().is_none());
     }
 
     #[test]

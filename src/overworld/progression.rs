@@ -45,6 +45,7 @@ pub fn encounter_intro(id: EncounterId) -> &'static str {
         EncounterId::PitMinion => narrative::ENC_PIT_MINION,
         EncounterId::PitBoss => narrative::ENC_PIT_BOSS,
         EncounterId::TheHouse => narrative::ENC_THE_HOUSE,
+        EncounterId::Tutorial => narrative::TUTORIAL_INTRO,
     }
 }
 
@@ -55,6 +56,7 @@ pub fn win_line(id: EncounterId) -> &'static str {
         EncounterId::Slotz => narrative::WIN_SLOTZ,
         EncounterId::PitBoss => narrative::WIN_PIT_BOSS,
         EncounterId::TheHouse => narrative::WIN_THE_HOUSE,
+        EncounterId::Tutorial => narrative::TUTORIAL_DONE,
     }
 }
 

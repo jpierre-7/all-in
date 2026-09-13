@@ -102,7 +102,7 @@ impl RewardOffer {
                 Reward::PitBossSixPlays,
                 Reward::PitBossRandomCards,
             )),
-            EncounterId::TheHouse => None,
+            EncounterId::TheHouse | EncounterId::Tutorial => None,
         }
     }
 }
@@ -221,6 +221,8 @@ pub enum EncounterId {
     PitMinion,
     PitBoss,
     TheHouse,
+    /// The Arcade's practice duel (#40). Never part of a run.
+    Tutorial,
 }
 
 /// How House Edge escalates as combat goes on.
@@ -277,6 +279,16 @@ impl Enemy {
                 stack: 40,
                 house_edge: 24,
                 blinds,
+            },
+            // Blinds off: a practice hand, not a clock.
+            EncounterId::Tutorial => Enemy {
+                name: "THE DEMO DEALER",
+                stack: 30,
+                house_edge: 20,
+                blinds: RisingBlinds {
+                    every_turns: u8::MAX,
+                    increase: 0,
+                },
             },
             EncounterId::TheHouse => Enemy {
                 name: "THE HOUSE",
@@ -447,6 +459,36 @@ pub fn starter_deck() -> Vec<Card> {
             tell: Some(Tell::AllIn),
         }))
         .collect()
+}
+
+/// The Arcade's fixed deal (#40), in Draw order: every mechanic fires once
+/// in the scripted first turn. Never shuffled.
+pub fn tutorial_deal() -> Vec<Card> {
+    let deck = starter_deck();
+    let pick = |name: &str| {
+        deck.iter()
+            .find(|c| c.name == name)
+            .expect("tutorial card is in the starter deck")
+            .clone()
+    };
+    let draw = [
+        "Pawned Ring",
+        "Last Dollar",
+        "Two of Clubs",
+        "Hot Streak",
+        "Dealer Blinks",
+        "Four of Hearts",
+        "Cheap Seat",
+    ];
+    // `Duel` draws from the end, so the first card dealt goes last; the rest
+    // of the deck follows in starter order for the free-play turn.
+    let mut rest: Vec<Card> = deck
+        .iter()
+        .filter(|c| !draw.contains(&c.name))
+        .cloned()
+        .collect();
+    rest.extend(draw.iter().rev().map(|n| pick(n)));
+    rest
 }
 
 #[cfg(test)]
