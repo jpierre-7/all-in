@@ -40,13 +40,49 @@ pub struct ActiveDuel {
     pub notice: Option<String>,
 }
 
+/// A pinned seed for every duel this session, set by the dev entry point
+/// (`--seed`, #33). Absent in a normal game, where the clock shuffles.
+///
+/// It advances per duel rather than handing out the same number each time, so
+/// a pinned session replays as a whole run — the same cards in the same fights
+/// in the same order — instead of dealing every fight identically.
+#[derive(Resource, Debug)]
+pub struct DuelSeed(u64);
+
+impl DuelSeed {
+    /// Zero is the one number xorshift64 cannot start from - it is a fixed
+    /// point - and `--seed 0` is the first thing anyone types. Anything else
+    /// is taken as given: rounding seeds off (an `| 1`, say) would quietly
+    /// hand two different numbers the same deal.
+    const INSTEAD_OF_ZERO: u64 = 0x9e37_79b9_7f4a_7c15;
+
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
+    pub fn new(seed: u64) -> Self {
+        Self(if seed == 0 {
+            Self::INSTEAD_OF_ZERO
+        } else {
+            seed
+        })
+    }
+
+    /// xorshift64 never returns zero from a non-zero state, so the stream
+    /// keeps itself alive.
+    fn next(&mut self) -> u64 {
+        xorshift64(&mut self.0)
+    }
+}
+
 fn start_duel(
     mut commands: Commands,
     encounter: Res<Encounter>,
     run: Res<RunState>,
     time: Res<Time>,
+    pinned: Option<ResMut<DuelSeed>>,
 ) {
-    let seed = time.elapsed_secs_f64().to_bits() | 1;
+    let seed = match pinned {
+        Some(mut pinned) => pinned.next(),
+        None => time.elapsed_secs_f64().to_bits() | 1,
+    };
     // Everything the run has picked up lands here, in one place: the deck the
     // rewards built, the Plays and Blinds the perks bought, the coin Slotz
     // rigged, and whatever is left of the Loaded Dice.
@@ -199,7 +235,7 @@ mod tests {
     use bevy::state::app::StatesPlugin;
 
     use super::super::duel::Coin;
-    use super::{ActiveDuel, CombatPlugin};
+    use super::{ActiveDuel, CombatPlugin, DuelSeed};
     use crate::run::{CombatOutcome, Encounter, EncounterId, Enemy, Perk, RisingBlinds, RunState};
     use crate::state::AppState;
 
@@ -275,6 +311,63 @@ mod tests {
             .resource_mut::<ActiveDuel>()
             .duel
             .set_coin(coin);
+    }
+
+    /// A table whose duels roll off a pinned seed, the way `--seed` sets them.
+    fn seeded_table(seed: u64) -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(StatesPlugin)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_state::<AppState>()
+            .insert_resource(RunState::new())
+            .insert_resource(DuelSeed::new(seed))
+            .insert_resource(Encounter {
+                id: EncounterId::PitBoss,
+                enemy: Enemy::for_encounter(EncounterId::PitBoss),
+            })
+            .add_plugins(CombatPlugin);
+        app.update();
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Combat);
+        app.update();
+        app
+    }
+
+    fn draw(app: &App) -> Vec<crate::run::Card> {
+        app.world().resource::<ActiveDuel>().duel.draw().to_vec()
+    }
+
+    #[test]
+    fn a_pinned_seed_deals_the_same_draw_twice_running() {
+        assert_eq!(draw(&seeded_table(42)), draw(&seeded_table(42)));
+    }
+
+    #[test]
+    fn a_different_seed_deals_a_different_draw() {
+        assert_ne!(draw(&seeded_table(42)), draw(&seeded_table(43)));
+        // Zero is special-cased; it still has to deal like a seed.
+        assert_ne!(draw(&seeded_table(0)), draw(&seeded_table(1)));
+    }
+
+    #[test]
+    fn a_pinned_session_deals_each_fight_differently() {
+        let mut app = seeded_table(42);
+        let first = draw(&app);
+
+        // Back out to the Lobby and into Combat again: the next duel of the
+        // same pinned session, not a replay of the first.
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Lobby);
+        app.update();
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Combat);
+        app.update();
+
+        assert_ne!(first, draw(&app));
     }
 
     #[test]
