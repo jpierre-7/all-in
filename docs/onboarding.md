@@ -92,10 +92,10 @@ grilling tickets need a human who can answer for the design.
 | | GitHub | Role |
 | --- | --- | --- |
 | John | @jpierre-7 | Leads; drives the map; holds the design |
-| | @HefKer | Dev |
+| Nelson | @HefKer | Dev |
 | Andrei | @ambornstein | Dev |
 | Rui | @ruiiiijiiiiang | Dev |
-| | @MEmshousen | Art |
+| Madison | @MEmshousen | Art |
 
 Ownership is per ticket, not per module. The hackathon's module split (combat
 vs overworld) is history; the seam it left behind is documented in the ADR.
