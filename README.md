@@ -127,6 +127,7 @@ demo), and **3** the Floor, where the run starts.
 | `src/combat/` | The duel: rules, UI, the glossary. |
 | `src/overworld/` | The shell: title, lobby, floors, rewards, endings. |
 | `CONTEXT.md` | The game's vocabulary. Read this before naming anything. |
+| `docs/onboarding.md` | New to the team? Start here: what to read, how tickets are claimed. |
 | `docs/adr/` | Architectural decisions. |
 | `docs/pitch.md` | The 60-second pitch and the demo script. |
 | `assets/README.md` | The art contract — paths are bound in code. |
