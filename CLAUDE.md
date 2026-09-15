@@ -11,3 +11,7 @@ Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `
 ### Domain docs
 
 Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Commits and pull requests
+
+No session links and no Claude attribution lines (`Co-Authored-By`, `Claude-Session`, "Generated with Claude Code") in commit messages or PR descriptions.
