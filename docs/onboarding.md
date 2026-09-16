@@ -87,6 +87,13 @@ session resolves one ticket at a time and follows the same claim → resolve →
 index protocol above. Research tickets are the ones it does well alone;
 grilling tickets need a human who can answer for the design.
 
+## Matt Pocock Skills
+
+This is the skills suite we use to drive our development with agents. You can find the repo and documentation below.
+
+[mattpocock-skills](https://github.com/mattpocock/skills)
+[AI Skills for Real Engineers (Docs)](https://www.aihero.dev/skills)
+
 ## Who is who
 
 | | GitHub | Role |
