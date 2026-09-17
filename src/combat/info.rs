@@ -22,7 +22,7 @@ pub struct InfoOpen;
 pub struct InfoOverlay;
 
 /// One line per term, in the order a new player meets them. Text follows
-/// `CONTEXT.md`.
+/// `CONTEXT.md`. The Peek's nested tags read from the same table.
 const GLOSSARY: &[(&str, &str)] = &[
     (
         "Stack",
@@ -76,6 +76,15 @@ const BIG_SHOTS: &[(&str, &str)] = &[
         "Your last Play. The House locks its Edge on everything before it, so the Hole Card is the only card it can't see.",
     ),
 ];
+
+/// The glossary line for a term, if it has one.
+pub fn define(term: &str) -> Option<&'static str> {
+    GLOSSARY
+        .iter()
+        .chain(BIG_SHOTS)
+        .find(|(name, _)| *name == term)
+        .map(|(_, line)| *line)
+}
 
 pub struct InfoPlugin;
 
