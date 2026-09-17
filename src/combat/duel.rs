@@ -102,6 +102,15 @@ pub struct TurnResult {
     pub blinds_rose: bool,
 }
 
+/// A card played this turn and what it resolved to. Tells that reach back
+/// along the turn (Streak, Echo) read these.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Played {
+    pub card: Card,
+    /// The contribution to The Hand, after the card's Tell.
+    pub value: u32,
+}
+
 pub struct Duel {
     deck: Vec<Card>,
     draw: Vec<Card>,
@@ -110,8 +119,8 @@ pub struct Duel {
     hand: u32,
     plays: u8,
     plays_left: u8,
-    /// Whether the last card played this turn carried a Tell (for Streak).
-    last_had_tell: bool,
+    /// The cards played this turn, in play order; empty again after the turn.
+    played: Vec<Played>,
     player_stack: u32,
     enemy: Enemy,
     house_edge: u32,
@@ -147,7 +156,7 @@ impl Duel {
             hand: 0,
             plays,
             plays_left: plays,
-            last_had_tell: false,
+            played: Vec::new(),
             player_stack,
             house_edge: enemy.house_edge,
             enemy,
@@ -341,7 +350,7 @@ impl Duel {
         self.turn += 1;
         self.hand = 0;
         self.plays_left = self.plays;
-        self.last_had_tell = false;
+        self.played.clear();
         self.phase = Phase::Playing;
         self.refill();
 
@@ -364,6 +373,12 @@ impl Duel {
 
     pub fn plays_left(&self) -> u8 {
         self.plays_left
+    }
+
+    /// The cards played this turn, in play order, with what each resolved to.
+    #[cfg_attr(not(test), allow(dead_code))] // read by Echo (#109) and Copycat (#110)
+    pub fn played(&self) -> &[Played] {
+        &self.played
     }
 
     /// Play the card at `card` in the Draw. It resolves immediately into The
@@ -389,7 +404,7 @@ impl Duel {
 
         let mut value = played.stack;
         match played.tell {
-            Some(Tell::Streak) if self.last_had_tell => value *= 2,
+            Some(Tell::Streak) if self.previous_had_tell() => value *= 2,
             Some(Tell::AllIn) => value += sacrificed.as_ref().map_or(0, |c| c.stack),
             _ => {}
         }
@@ -404,11 +419,19 @@ impl Duel {
 
         self.hand += value;
         self.plays_left -= 1;
-        self.last_had_tell = played.tell.is_some();
+        self.played.push(Played {
+            card: played,
+            value,
+        });
         if self.plays_left == 1 {
             self.house_reads_the_hand();
         }
         Ok(value)
+    }
+
+    /// Whether the previous card played this turn carried any Tell.
+    fn previous_had_tell(&self) -> bool {
+        self.played.last().is_some_and(|p| p.card.tell.is_some())
     }
 
     fn refill(&mut self) {
@@ -554,6 +577,43 @@ mod tests {
 
         assert_eq!(doubled, 10);
         assert_eq!(duel.hand(), 15);
+    }
+
+    #[test]
+    fn the_duel_keeps_the_cards_played_this_turn_with_what_they_resolved_to() {
+        // Drawn first: all_in(2), streak(5), card(3), ...
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(3),
+            streak(5),
+            all_in(2),
+        ];
+        let mut duel = Duel::new(deck, 40, 5, enemy(30, 20));
+        assert!(duel.played().is_empty());
+
+        duel.play(0, Some(2)).unwrap(); // All In 2, sacrificing card(3): 5
+        duel.play(0, None).unwrap(); // Streak 5 after a Tell: 10
+        duel.play(0, None).unwrap(); // card(1): 1
+
+        let played: Vec<(Option<Tell>, u32, u32)> = duel
+            .played()
+            .iter()
+            .map(|p| (p.card.tell, p.card.stack, p.value))
+            .collect();
+        assert_eq!(
+            played,
+            vec![
+                (Some(Tell::AllIn), 2, 5),
+                (Some(Tell::Streak), 5, 10),
+                (None, 1, 1),
+            ]
+        );
+
+        duel.end_turn();
+        assert!(duel.played().is_empty());
     }
 
     #[test]
