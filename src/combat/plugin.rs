@@ -1406,6 +1406,35 @@ mod peek_tests {
         assert_eq!(tag(&mut app).map(|(_, slot)| slot), Some(4));
     }
 
+    /// The cursor off the card again, onto the tag or the felt.
+    fn unhover(app: &mut App, slot: usize) {
+        let entity = app
+            .world_mut()
+            .query::<(Entity, &CardSlot)>()
+            .iter(app.world())
+            .find(|(_, s)| s.0 == slot)
+            .map(|(e, _)| e)
+            .expect("a card node for that slot");
+        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::None;
+        app.update();
+    }
+
+    #[test]
+    fn the_tag_stays_on_the_mouses_card_after_the_cursor_leaves_it() {
+        // Crossing from the card up to its tag passes over nothing; the tag
+        // must not snap back to the keyboard's card on the way.
+        let mut app = table_of(None);
+        press(&mut app, KeyCode::ArrowRight);
+        hover(&mut app, 4);
+        unhover(&mut app, 4);
+
+        assert_eq!(tag(&mut app).map(|(_, slot)| slot), Some(4));
+
+        // The keyboard moving takes the tag back.
+        press(&mut app, KeyCode::ArrowRight);
+        assert_eq!(tag(&mut app).map(|(_, slot)| slot), Some(1));
+    }
+
     #[test]
     fn a_play_lands_the_pointer_on_the_nearest_slot() {
         let mut app = table_of(None);

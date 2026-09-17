@@ -43,6 +43,11 @@ pub struct Peek {
     /// Counted, not named, so it is the nth term of whatever card is pointed
     /// at. Reset when the pointer moves.
     term: Option<usize>,
+    /// The last card the mouse was over. The tag stays on it after the
+    /// cursor leaves, so crossing the gap up to the tag (or off onto the
+    /// felt) does not snap it back to the keyboard's card. The keyboard
+    /// takes over again the moment it moves.
+    mouse: Option<usize>,
 }
 
 impl Default for Peek {
@@ -50,6 +55,7 @@ impl Default for Peek {
         Self {
             on: true,
             term: None,
+            mouse: None,
         }
     }
 }
@@ -155,6 +161,7 @@ pub fn walk(
             Some(p) => (p + len - 1) % len,
         });
         peek.term = None;
+        peek.mouse = None;
     }
     // Esc has other jobs first: backing out of a sacrifice, leaving the Arcade.
     if keys.just_pressed(KeyCode::Escape)
@@ -163,6 +170,7 @@ pub fn walk(
     {
         pointer = None;
         peek.term = None;
+        peek.mouse = None;
     }
     if pointer != was {
         active.pointer = pointer;
@@ -176,31 +184,30 @@ pub fn walk(
     }
 }
 
-/// What the tag would show right now, if anything.
+/// What the tag would show right now, if anything. Notes the card under the
+/// mouse on the way, for the frames after it leaves.
 fn wanted(
-    peek: &Peek,
+    peek: &mut Peek,
     active: &ActiveDuel,
     cards: &Query<(Entity, &Interaction, &CardSlot)>,
-    tags: &Query<(Entity, &Tag, &Interaction)>,
     terms_hovered: &Query<(&Interaction, &Term)>,
 ) -> Option<Tag> {
     if !peek.on {
         return None;
     }
     let hovered = |i: &Interaction| matches!(i, Interaction::Hovered | Interaction::Pressed);
-    let on_tag =
-        tags.iter().any(|(_, _, i)| hovered(i)) || terms_hovered.iter().any(|(i, _)| hovered(i));
-    // The mouse over a card wins; the mouse over the tag keeps the card the
-    // tag is for, so the cursor can cross onto it; else the keyboard pointer.
-    let card = cards
+    let under_mouse = cards
         .iter()
         .find(|(_, i, _)| hovered(i))
-        .map(|(_, _, slot)| slot.0)
-        .or_else(|| {
-            on_tag
-                .then(|| tags.iter().next().map(|(_, t, _)| t.card))
-                .flatten()
-        })
+        .map(|(_, _, slot)| slot.0);
+    if under_mouse.is_some() && under_mouse != peek.mouse {
+        peek.mouse = under_mouse;
+    }
+    // The mouse's card, now or lately, wins over the keyboard's: it is the
+    // thing the player most recently pointed at, until the keyboard moves.
+    let len = active.duel.draw().len();
+    let card = under_mouse
+        .or(peek.mouse.filter(|m| *m < len))
         .or(active.pointer)?;
     let held = active.duel.draw().get(card)?;
     let term = terms_hovered
@@ -224,20 +231,20 @@ fn wanted(
 /// spawned under its card.
 pub fn show(
     mut commands: Commands,
-    peek: Res<Peek>,
+    mut peek: ResMut<Peek>,
     active: Option<Res<ActiveDuel>>,
     info: Option<Res<InfoOpen>>,
     cards: Query<(Entity, &Interaction, &CardSlot)>,
-    tags: Query<(Entity, &Tag, &Interaction)>,
+    tags: Query<(Entity, &Tag)>,
     terms_hovered: Query<(&Interaction, &Term)>,
 ) {
     let Some(active) = active else { return };
     let wanted = if info.is_some() {
         None
     } else {
-        wanted(&peek, &active, &cards, &tags, &terms_hovered)
+        wanted(&mut peek, &active, &cards, &terms_hovered)
     };
-    let current = tags.iter().next().map(|(entity, tag, _)| (entity, *tag));
+    let current = tags.iter().next().map(|(entity, tag)| (entity, *tag));
     match (current, wanted) {
         (Some((_, showing)), Some(wanted)) if showing == wanted => return,
         (Some((entity, _)), _) => commands.entity(entity).despawn(),
@@ -263,9 +270,7 @@ pub fn show(
             },
             BackgroundColor(PANEL),
             BorderColor::all(GOLD),
-            // Hoverable, so the cursor can move from the card onto the tag
-            // (and onto a term in it) without the tag closing underneath.
-            Interaction::default(),
+            // Solid to the cursor, so a card behind it never lights up.
             FocusPolicy::Block,
             GlobalZIndex(5),
             tag,
