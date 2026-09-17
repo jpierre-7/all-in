@@ -5,6 +5,7 @@
 pub mod duel;
 pub mod hits;
 pub mod info;
+pub mod peek;
 pub mod plugin;
 pub mod ui;
 

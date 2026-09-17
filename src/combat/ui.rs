@@ -20,6 +20,10 @@ const CARD_FACE: Color = Color::srgb(0.04, 0.08, 0.06);
 /// light, because tinting green felt with a saturated red crushes it to black.
 const SACRIFICE_TINT: Color = Color::srgb(1.0, 0.52, 0.56);
 
+/// The card node's size, in pixels. The Peek hangs its tag off these.
+pub const CARD_WIDTH: f32 = 150.0;
+pub const CARD_HEIGHT: f32 = 210.0;
+
 /// Portrait side, in pixels. The node is square; `assets/README.md` holds the
 /// authoring contract that goes with it.
 const PORTRAIT: f32 = 96.0;
@@ -269,8 +273,8 @@ pub fn redraw(
                 .with_children(|slot| {
                     slot.spawn((
                         Node {
-                            width: px(150),
-                            height: px(210),
+                            width: px(CARD_WIDTH),
+                            height: px(CARD_HEIGHT),
                             flex_direction: FlexDirection::Column,
                             justify_content: JustifyContent::SpaceBetween,
                             align_items: AlignItems::Center,
@@ -325,7 +329,12 @@ pub fn redraw(
                         centre(c, card, &art);
                         corner_row(c, JustifyContent::FlexEnd, &value);
                     });
-                    text(slot, (i + 1).to_string(), 16.0, DIM);
+                    // The keyboard pointer (the Peek, #106) brackets its slot.
+                    if active.pointer == Some(i) {
+                        text(slot, format!("[{}]", i + 1), 16.0, HOVER);
+                    } else {
+                        text(slot, (i + 1).to_string(), 16.0, DIM);
+                    }
                 });
             }
         });
@@ -336,7 +345,7 @@ pub fn redraw(
             text(r, format!("Stack {}", duel.player_stack()), 26.0, GOLD);
             let keys = match duel.phase() {
                 Phase::PushYourLuck => "P push   H hold   I what the words mean",
-                Phase::Playing => "1-7 play a card   Enter show your Hand   I what the words mean",
+                Phase::Playing => "1-7 play a card   Enter show your Hand   T peek   I what the words mean",
             };
             text(r, keys, 16.0, DIM);
         });

@@ -17,14 +17,17 @@ impl Plugin for CombatPlugin {
         app.add_plugins((super::info::InfoPlugin, super::hits::HitsPlugin))
             .add_systems(Startup, ui::load_art)
             .init_resource::<HandoverDelay>()
+            .init_resource::<super::peek::Peek>()
             .add_systems(OnEnter(AppState::Combat), start_duel)
             .add_systems(
                 Update,
                 (
+                    super::peek::walk.run_if(not(resource_exists::<Leaving>)),
                     take_input.run_if(not(resource_exists::<Leaving>)),
                     leave_when_ready.run_if(resource_exists::<Leaving>),
                     ui::redraw.run_if(resource_exists_and_changed::<ActiveDuel>),
                     ui::hover_cards,
+                    super::peek::show,
                 )
                     .chain()
                     .run_if(in_state(AppState::Combat)),
@@ -47,6 +50,9 @@ pub struct ActiveDuel {
     pub notice: Option<String>,
     /// The Arcade's script (#40). `None` in a real duel.
     pub guide: Option<Guide>,
+    /// The keyboard's place in the Draw, for the Peek (#106). `Left` and
+    /// `Right` move it; the screen brackets the slot.
+    pub pointer: Option<usize>,
 }
 
 /// Walks the player through the scripted first turn, one expected key at a
@@ -222,6 +228,7 @@ fn start_duel(
         last_turn: None,
         notice: None,
         guide: tutorial.then(Guide::default),
+        pointer: None,
     });
 }
 
@@ -1294,5 +1301,213 @@ mod hit_marker_tests {
         press(&mut app, KeyCode::KeyH);
 
         assert_eq!(markers(&mut app).len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod peek_tests {
+    use bevy::prelude::*;
+
+    use super::super::peek::{Peek, Tag};
+    use super::super::ui::CardSlot;
+    use super::ActiveDuel;
+    use super::tests::{press, table, table_for_run};
+    use crate::run::{Card, RunState, Tell};
+
+    /// A table dealt from a deck where every card is the same, so the test
+    /// never has to go looking for a Tell.
+    fn table_of(tell: Option<Tell>) -> App {
+        let card = Card {
+            name: "test card",
+            stack: 4,
+            tell,
+        };
+        table_for_run(
+            RunState {
+                deck: vec![card; 18],
+                ..RunState::new()
+            },
+            30,
+            20,
+        )
+    }
+
+    fn pointer(app: &App) -> Option<usize> {
+        app.world().resource::<ActiveDuel>().pointer
+    }
+
+    /// The tag on the table, if there is one, and the slot it hangs off.
+    fn tag(app: &mut App) -> Option<(Tag, usize)> {
+        let (tag, parent) = app
+            .world_mut()
+            .query::<(&Tag, &ChildOf)>()
+            .iter(app.world())
+            .map(|(tag, child_of)| (*tag, child_of.parent()))
+            .next()?;
+        let slot = app
+            .world()
+            .get::<CardSlot>(parent)
+            .expect("a tag hangs off a card");
+        Some((tag, slot.0))
+    }
+
+    /// The cursor over the card in `slot`, as the focus system would report it.
+    fn hover(app: &mut App, slot: usize) {
+        let entity = app
+            .world_mut()
+            .query::<(Entity, &CardSlot)>()
+            .iter(app.world())
+            .find(|(_, s)| s.0 == slot)
+            .map(|(e, _)| e)
+            .expect("a card node for that slot");
+        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Hovered;
+        app.update();
+    }
+
+    #[test]
+    fn right_walks_onto_the_first_card_and_left_wraps_to_the_last() {
+        let mut app = table(40, 30, 20);
+        assert_eq!(pointer(&app), None);
+
+        press(&mut app, KeyCode::ArrowRight);
+        assert_eq!(pointer(&app), Some(0));
+
+        press(&mut app, KeyCode::ArrowLeft);
+        assert_eq!(pointer(&app), Some(6));
+    }
+
+    #[test]
+    fn the_pointer_hangs_a_tag_off_its_card() {
+        let mut app = table_of(None);
+        assert_eq!(tag(&mut app), None);
+
+        press(&mut app, KeyCode::ArrowRight);
+        press(&mut app, KeyCode::ArrowRight);
+
+        let (tag, slot) = tag(&mut app).expect("a tag");
+        assert_eq!(slot, 1);
+        assert_eq!(
+            tag,
+            Tag {
+                card: 1,
+                term: None,
+                burn: None
+            }
+        );
+    }
+
+    #[test]
+    fn the_mouse_over_a_card_wins_over_the_pointer() {
+        let mut app = table_of(None);
+        press(&mut app, KeyCode::ArrowRight);
+
+        hover(&mut app, 4);
+
+        assert_eq!(tag(&mut app).map(|(_, slot)| slot), Some(4));
+    }
+
+    #[test]
+    fn a_play_lands_the_pointer_on_the_nearest_slot() {
+        let mut app = table_of(None);
+        press(&mut app, KeyCode::ArrowLeft); // the last card
+        assert_eq!(pointer(&app), Some(6));
+
+        press(&mut app, KeyCode::Digit1);
+
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.draw().len(), 6);
+        assert_eq!(pointer(&app), Some(5));
+        assert_eq!(tag(&mut app).map(|(_, slot)| slot), Some(5));
+    }
+
+    #[test]
+    fn t_waves_the_peek_off_and_calls_it_back() {
+        let mut app = table_of(None);
+        press(&mut app, KeyCode::ArrowRight);
+        assert!(tag(&mut app).is_some());
+
+        press(&mut app, KeyCode::KeyT);
+        assert!(!app.world().resource::<Peek>().on);
+        assert_eq!(tag(&mut app), None);
+
+        press(&mut app, KeyCode::KeyT);
+        assert!(tag(&mut app).is_some());
+    }
+
+    #[test]
+    fn esc_lets_go_of_the_pointer() {
+        let mut app = table_of(None);
+        press(&mut app, KeyCode::ArrowRight);
+
+        press(&mut app, KeyCode::Escape);
+
+        assert_eq!(pointer(&app), None);
+        assert_eq!(tag(&mut app), None);
+    }
+
+    #[test]
+    fn up_opens_the_tells_terms_in_order_and_down_closes_them() {
+        let mut app = table_of(Some(Tell::Streak));
+        press(&mut app, KeyCode::ArrowRight);
+        assert_eq!(tag(&mut app).unwrap().0.term, None);
+
+        press(&mut app, KeyCode::ArrowUp);
+        assert_eq!(tag(&mut app).unwrap().0.term, Some("Stack"));
+        press(&mut app, KeyCode::ArrowUp);
+        assert_eq!(tag(&mut app).unwrap().0.term, Some("Tell"));
+        press(&mut app, KeyCode::ArrowUp);
+        assert_eq!(tag(&mut app).unwrap().0.term, Some("Stack"), "wraps");
+
+        press(&mut app, KeyCode::ArrowDown);
+        assert_eq!(tag(&mut app).unwrap().0.term, None);
+    }
+
+    #[test]
+    fn a_waiting_all_in_says_what_the_burn_adds() {
+        let mut app = table_of(Some(Tell::AllIn));
+        press(&mut app, KeyCode::Digit1);
+        assert_eq!(
+            app.world().resource::<ActiveDuel>().awaiting_sacrifice,
+            Some(0)
+        );
+
+        hover(&mut app, 3);
+        assert_eq!(tag(&mut app).unwrap().0.burn, Some(4));
+
+        // The All In itself is not a burn.
+        hover(&mut app, 0);
+        assert_eq!(tag(&mut app).unwrap().0.burn, None);
+    }
+
+    #[test]
+    fn esc_out_of_a_sacrifice_keeps_the_pointer() {
+        let mut app = table_of(Some(Tell::AllIn));
+        press(&mut app, KeyCode::ArrowRight);
+        press(&mut app, KeyCode::Digit1);
+
+        press(&mut app, KeyCode::Escape);
+
+        assert_eq!(
+            app.world().resource::<ActiveDuel>().awaiting_sacrifice,
+            None
+        );
+        assert_eq!(pointer(&app), Some(0));
+    }
+
+    #[test]
+    fn the_glossary_hides_the_tag_and_takes_the_keys() {
+        let mut app = table_of(None);
+        press(&mut app, KeyCode::ArrowRight);
+
+        press(&mut app, KeyCode::KeyI);
+        assert_eq!(tag(&mut app), None);
+        press(&mut app, KeyCode::ArrowRight);
+        assert_eq!(
+            pointer(&app),
+            Some(0),
+            "the pointer did not move under the glossary"
+        );
+
+        press(&mut app, KeyCode::KeyI);
+        assert!(tag(&mut app).is_some());
     }
 }
