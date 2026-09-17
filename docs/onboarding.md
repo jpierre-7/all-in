@@ -69,7 +69,7 @@ touching different files from each other.
 ## Finishing a ticket
 
 1. Open a PR to `main`, small and frequent. `cargo build` and `cargo test`
-   green before merge (CI will enforce this once the CI ticket lands).
+   green before merge; the `ci` workflow runs both on every PR.
 2. Post the outcome as a comment on the ticket — what was done, and any fact a
    later ticket will need (numbers, paths, URLs) — and close it.
 3. Add one line to the map's **Decisions so far**: the ticket title as a link,

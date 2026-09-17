@@ -1,5 +1,5 @@
-# The merge gate: every pull request, and every push to main, must build and
-# pass its tests.
+# Builds and tests every pull request and every push to main. It becomes the
+# merge gate once branch protection on main requires the build-and-test check.
 #
 # The toolchain comes from rust-toolchain.toml via the runner's rustup, not the
 # flake, so the job skips installing Nix. toolchain-pin.yml keeps the two in
@@ -29,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The flake's buildInputs, as Ubuntu packages -- keep them in sync.
       - name: Install system libraries
         run: |
           sudo apt-get update
