@@ -1,0 +1,383 @@
+<title>Tell Overlay Prototype</title>
+<!--
+  PROTOTYPE — throwaway. Answers #102 "Design the Tell overlay".
+  Three variants of the explain-on-point panel on a mock of the combat table,
+  at a true 640x360 canvas (see #92), integer-scaled. Switch with the bar or V.
+  Not the game: the table logic here is just enough for Streak and All In to
+  resolve so the "live numbers" question can be judged.
+-->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&display=swap">
+<style>
+  :root {
+    --page: #e9e4d6; --page-ink: #23201b; --page-dim: #6d675b; --page-rule: #c9c2b0;
+    --bar: #1b1815; --bar-ink: #f1ebdc;
+    /* the table itself is one look in every theme */
+    --felt: #0c1a13; --felt-2: #10241a; --ink: #e6dfcc; --gold: #d9b35a; --neon: #e0334f;
+    --dim: #8c877a; --card: #08120d; --hover: #ffe9a8; --burn: #ff8a94; --panel: #05100a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --page: #16130f; --page-ink: #ece5d3; --page-dim: #9a927f; --page-rule: #3a342b; --bar: #ece5d3; --bar-ink: #16130f; }
+  }
+  :root[data-theme="dark"] { --page: #16130f; --page-ink: #ece5d3; --page-dim: #9a927f; --page-rule: #3a342b; --bar: #ece5d3; --bar-ink: #16130f; }
+
+  body { background: var(--page); color: var(--page-ink); font: 15px/1.5 system-ui, sans-serif; padding: 16px 16px 96px; }
+  .wrap { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  h1 small { color: var(--page-dim); font-weight: 400; margin-left: 8px; }
+  .stage { display: flex; justify-content: center; overflow: auto; }
+  .frame { position: relative; flex: none; }
+  .canvas {
+    position: absolute; left: 0; top: 0; width: 640px; height: 360px; overflow: hidden;
+    transform-origin: 0 0; background: var(--felt); color: var(--ink);
+    font-family: 'VT323', 'Courier New', monospace; font-size: 18px; line-height: 1;
+    image-rendering: pixelated; user-select: none;
+    background-image: radial-gradient(ellipse at 50% 60%, var(--felt-2) 0%, var(--felt) 70%);
+  }
+  .canvas * { box-sizing: border-box; }
+  .abs { position: absolute; }
+  .gold { color: var(--gold); } .neon { color: var(--neon); } .dim { color: var(--dim); } .ink { color: var(--ink); }
+  .big { font-size: 34px; } .mid { font-size: 22px; } .sm { font-size: 16px; }
+  .term { cursor: help; border-bottom: 1px dotted var(--dim); }
+  .term.on { color: var(--hover); border-bottom-color: var(--hover); }
+
+  /* the Draw */
+  .draw { position: absolute; left: 0; top: 232px; width: 640px; display: flex; justify-content: center; gap: 6px; }
+  .slot { width: 56px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .card {
+    width: 56px; height: 80px; background: var(--card); border: 2px solid var(--gold);
+    position: relative; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; padding: 3px 4px;
+  }
+  .card.on { border-color: var(--hover); box-shadow: 0 0 0 1px var(--hover) inset; }
+  .card.burn { border-color: var(--burn); }
+  .card.awaiting { border-color: var(--neon); }
+  .card .v { font-size: 16px; color: var(--gold); }
+  .card .v.br { align-self: flex-end; }
+  .card .ic { position: absolute; left: 14px; top: 26px; width: 28px; height: 28px; image-rendering: pixelated; }
+  .key { font-size: 16px; color: var(--dim); }
+  .key.on { color: var(--hover); }
+  .ghost { width: 56px; height: 80px; border: 2px dashed #24362c; }
+
+  /* A: the Rail */
+  .rail { left: 448px; top: 48px; width: 180px; height: 168px; background: var(--panel); border: 2px solid var(--gold); padding: 6px 7px; display: flex; flex-direction: column; gap: 5px; }
+  .rail .head { display: flex; justify-content: space-between; align-items: baseline; }
+  .rail .rule { font-size: 16px; line-height: 1.05; }
+  .rail .now { border-top: 1px solid #2c4335; padding-top: 4px; font-size: 16px; line-height: 1.05; }
+  .rail .foot { margin-top: auto; font-size: 16px; line-height: 1.05; color: var(--dim); }
+  .rail .foot b { color: var(--dim); font-weight: normal; border-bottom: 1px dotted var(--dim); }
+
+  /* B: the Tag */
+  .tag { width: 168px; background: var(--panel); border: 2px solid var(--gold); padding: 5px 6px; font-size: 16px; line-height: 1.05; display: flex; flex-direction: column; gap: 3px; }
+  .tag:after { content: ''; position: absolute; left: var(--ax, 50%); bottom: -8px; width: 0; height: 0; border: 6px solid transparent; border-top-color: var(--gold); border-bottom: 0; margin-left: -6px; }
+  .tag .name { color: var(--gold); font-size: 18px; }
+  .tag.nest { border-color: var(--dim); width: 150px; z-index: 2; }
+  .tag.nest:after { display: none; }
+  .tag.nest .name { color: var(--ink); font-size: 16px; }
+
+  /* C: the Dealer */
+  .lift { left: 40px; top: 44px; width: 112px; height: 160px; background: var(--card); border: 2px solid var(--hover); padding: 6px 7px; display: flex; flex-direction: column; gap: 4px; }
+  .lift .v { font-size: 22px; color: var(--gold); display: flex; justify-content: space-between; }
+  .lift .nm { font-size: 18px; color: var(--ink); line-height: 1; }
+  .lift .rl { font-size: 16px; line-height: 1.05; color: var(--ink); margin-top: auto; }
+  .lift .ic { width: 28px; height: 28px; image-rendering: pixelated; align-self: center; }
+  .patter { left: 168px; top: 150px; width: 300px; font-size: 18px; line-height: 1.1; color: var(--ink); }
+  .patter:before { content: '“'; color: var(--neon); } .patter:after { content: '”'; color: var(--neon); }
+  .patter.idle { color: var(--dim); font-size: 16px; } .patter.idle:before, .patter.idle:after { content: ''; }
+
+  /* switcher: obviously not part of the design */
+  .bar {
+    position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--bar); color: var(--bar-ink); border-radius: 999px 999px 0 0; display: flex; align-items: center; gap: 12px;
+    font: 14px/1 system-ui, sans-serif; box-shadow: 0 -2px 12px rgba(0,0,0,.25); white-space: nowrap;
+  }
+  .bar button { background: none; border: 1px solid currentColor; color: inherit; border-radius: 999px; width: 30px; height: 30px; cursor: pointer; font-size: 16px; }
+  .bar button:focus-visible { outline: 2px solid var(--gold); }
+  .bar .lbl { min-width: 150px; text-align: center; }
+  .bar select { background: none; color: inherit; border: 1px solid currentColor; border-radius: 6px; padding: 4px 6px; font: inherit; }
+
+  .brief { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 22px; border-top: 1px solid var(--page-rule); padding-top: 14px; }
+  .brief h2 { font-size: 14px; margin: 0 0 6px; }
+  .brief h2.cur { color: var(--neon); }
+  .brief p { margin: 0; color: var(--page-dim); font-size: 14px; }
+  .keys { color: var(--page-dim); font-size: 14px; }
+  kbd { font: 12px/1 ui-monospace, monospace; border: 1px solid var(--page-rule); border-radius: 4px; padding: 2px 5px; }
+</style>
+
+<div class="wrap">
+  <h1>Tell overlay <small>three takes on the table, 640×360, for #102</small></h1>
+  <div class="stage"><div class="frame" id="frame"><div class="canvas" id="canvas"></div></div></div>
+  <div class="keys">
+    <kbd>←</kbd> <kbd>→</kbd> walk the Draw &nbsp; <kbd>1</kbd>–<kbd>7</kbd> play (or pick the card to burn) &nbsp; <kbd>Enter</kbd> show the Hand, next turn &nbsp; <kbd>Esc</kbd> let go &nbsp; <kbd>V</kbd> next variant &nbsp; — or just hover.
+  </div>
+  <div class="brief" id="brief"></div>
+</div>
+
+<div class="bar" role="toolbar" aria-label="Prototype variant">
+  <button id="prev" aria-label="Previous variant">‹</button>
+  <span class="lbl" id="lbl"></span>
+  <button id="next" aria-label="Next variant">›</button>
+  <select id="zoom" aria-label="Zoom"><option value="0">fit</option><option value="1">1×</option><option value="2">2×</option><option value="3">3×</option></select>
+</div>
+
+<script>
+const ICON = {
+  Streak: 'data:image/png;base64,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',
+  AllIn: 'data:image/png;base64,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',
+};
+
+// ---- glossary, following CONTEXT.md --------------------------------------
+const TERMS = {
+  'Stack':      'Chips. Yours and the enemy\'s are your lives; a card\'s is what it adds to The Hand.',
+  'Draw':       'The seven cards you\'re holding. Refilled at the start of every turn.',
+  'Plays':      'How many cards you may play this turn.',
+  'The Hand':   'The running total of the cards you\'ve played this turn.',
+  'House Edge': 'The number The Hand has to reach this turn.',
+  'Tell':       'A keyword on a card. One per card, at most.',
+  'Rising Blinds': 'Every few turns the House Edge climbs. Nobody sits here forever.',
+  'Payout':     'Clear the Edge and the excess comes off the enemy\'s Stack.',
+  'Whiff':      'Fall short and the shortfall comes off yours.',
+};
+const TELL = {
+  Streak: { name: 'Streak', rule: 'Doubles this card\'s [Stack] if the card played before it had any [Tell].' },
+  AllIn:  { name: 'All In', rule: 'Burns another card from your [Draw] and adds its [Stack] to [The Hand].' },
+};
+// C's voice: the dealer, in character.
+const PATTER = {
+  'Hot Streak':     'Three. Six if you\'re already on a run. Don\'t lead with it.',
+  'Dealer Blinks':  'Five, or ten right after a Tell. I don\'t blink twice.',
+  'Pawned Ring':    'Eight, no strings. Best thing to burn when you go all in.',
+  'Car Keys':       'Three on their own. Burn another card and they take its chips along. You won\'t need the car.',
+  'Firstborn':      'Five, plus whatever you feed it. Yes, that one.',
+  'Four of Hearts': 'Four. It\'s a four.',
+  'Six of Diamonds':'Six. Nothing clever about it.',
+  'Bus Ticket Home':'Four. Keep it if you want a way out.',
+  'Lucky Seat':     'Four, eight on a run. Sit down.',
+  'Last Dollar':    'Two. Burn something with it and it stops being two.',
+  'Marked Card':    'Seven. Don\'t tell the pit boss where you got it.',
+};
+const PATTER_TABLE = {
+  'House Edge': 'Twenty-four to clear tonight. Two more every three turns.',
+  'Stack':      'Forty chips between him and the door.',
+  'The Hand':   'What you\'ve put down so far this turn. I count it when you say.',
+  'Plays':      'Five cards. Then I count.',
+  'Rising Blinds': 'The line goes up every three turns. Nobody sits here forever.',
+  'Your Stack': 'Fifty. That\'s all of you.',
+};
+
+// ---- a mock of the table ---------------------------------------------------
+const DECK = [
+  { name: 'Hot Streak', stack: 3, tell: 'Streak' },
+  { name: 'Pawned Ring', stack: 8 },
+  { name: 'Car Keys', stack: 3, tell: 'AllIn' },
+  { name: 'Four of Hearts', stack: 4 },
+  { name: 'Dealer Blinks', stack: 5, tell: 'Streak' },
+  { name: 'Firstborn', stack: 5, tell: 'AllIn' },
+  { name: 'Six of Diamonds', stack: 6 },
+  { name: 'Bus Ticket Home', stack: 4 },
+  { name: 'Lucky Seat', stack: 4, tell: 'Streak' },
+  { name: 'Last Dollar', stack: 2, tell: 'AllIn' },
+  { name: 'Marked Card', stack: 7 },
+];
+const S = { draw: [], played: [], hand: 0, plays: 5, edge: 24, turn: 1, awaiting: null, pointer: null, target: null, nest: null, last: null };
+
+function deal() {
+  const pool = DECK.slice();
+  S.draw = [];
+  // first turn is the fixed set above so the variants are comparable; later turns shuffle.
+  if (S.turn === 1) S.draw = pool.slice(0, 7);
+  else { for (let i = 0; i < 7; i++) S.draw.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]); }
+  S.played = []; S.hand = 0; S.plays = 5; S.awaiting = null; S.pointer = null; S.target = null; S.nest = null;
+}
+const lastHadTell = () => S.played.length > 0 && !!S.played[S.played.length - 1].tell;
+/** What card i is worth if played right now, and why. */
+function now(i) {
+  const c = S.draw[i];
+  if (!c) return null;
+  if (S.awaiting !== null && S.awaiting !== i) {
+    const a = S.draw[S.awaiting];
+    return { n: a.stack + c.stack, why: `Burn it: ${a.name} plays for ${a.stack} + ${c.stack}.` };
+  }
+  if (c.tell === 'Streak') return lastHadTell()
+    ? { n: c.stack * 2, why: `${S.played[S.played.length - 1].name} had a Tell, so this doubles.` }
+    : { n: c.stack, why: S.played.length ? `${S.played[S.played.length - 1].name} had no Tell. Play a Tell first to double it.` : 'Nothing played yet, so no double. Play a Tell first.' };
+  if (c.tell === 'AllIn') {
+    const best = S.draw.filter((_, j) => j !== i).reduce((m, d) => Math.max(m, d.stack), 0);
+    return { n: c.stack + best, why: `${c.stack} plus the card you burn: up to ${best} right now.` };
+  }
+  return { n: c.stack, why: 'No Tell. What it says.' };
+}
+function play(i) {
+  const c = S.draw[i]; if (!c || S.plays === 0) return;
+  if (S.awaiting !== null) {
+    if (i === S.awaiting) { S.awaiting = null; render(); return; }
+    const a = S.draw[S.awaiting];
+    S.hand += a.stack + c.stack; S.plays--;
+    S.played.push(a); S.last = `${a.name} burns ${c.name}: +${a.stack + c.stack}.`;
+    S.draw = S.draw.filter((_, j) => j !== i && j !== S.awaiting); S.awaiting = null;
+  } else if (c.tell === 'AllIn') {
+    if (S.draw.length < 2) return;
+    S.awaiting = i; S.last = `${c.name}: pick the card to burn.`;
+  } else {
+    const v = now(i); S.hand += v.n; S.plays--; S.played.push(c);
+    S.last = `${c.name}: +${v.n}.`; S.draw.splice(i, 1);
+  }
+  if (S.pointer !== null && S.pointer >= S.draw.length) S.pointer = S.draw.length ? S.draw.length - 1 : null;
+  S.target = S.pointer !== null ? { kind: 'card', i: S.pointer } : null; S.nest = null;
+  render();
+}
+function showHand() {
+  const diff = S.hand - S.edge;
+  S.last = diff >= 0 ? `${S.hand} vs House Edge ${S.edge}: Payout ${diff}.` : `${S.hand} vs House Edge ${S.edge}: Whiff. You lose ${-diff}.`;
+  S.turn++; if (S.turn % 3 === 1) S.edge += 2;
+  deal(); render();
+}
+
+// ---- variants ------------------------------------------------------------------
+const VARIANTS = [
+  { key: 'A', name: 'The Rail', blurb: 'A fixed panel that is always on the table, so the eye learns where to look. Whole read of whatever you point at — card, Stack, Edge, Plays — with the live number it is worth right now. Terms it uses are footnoted flat underneath. Strictly mechanical.' },
+  { key: 'B', name: 'The Tag', blurb: 'Balatro\'s framing: a tag floats above the card you point at and says the Tell, nothing else. Terms inside the rule light up; point at one and a second tag opens beside it. Cards only; the rest of the table stays mute.' },
+  { key: 'C', name: 'The Dealer', blurb: 'The pointed card lifts into a big face with its rule printed on it, and the dealer says a line about it. Whole read, in voice, no nesting. Point at the Edge or a Stack and the dealer speaks to that too.' },
+];
+let V = 0;
+function variantFromUrl() {
+  const q = new URLSearchParams(location.search).get('variant') || location.hash.replace('#', '');
+  const i = VARIANTS.findIndex(v => v.key === (q || '').toUpperCase()); if (i >= 0) V = i;
+}
+function setVariant(i) {
+  V = (i + VARIANTS.length) % VARIANTS.length;
+  try { history.replaceState(null, '', '#' + VARIANTS[V].key); } catch (e) {}
+  S.nest = null; render();
+}
+
+// ---- rendering ---------------------------------------------------------------
+const canvas = document.getElementById('canvas');
+const h = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+/** Wrap [Term] markers as hoverable spans. */
+const withTerms = (s, cls = 'term') => h(s).replace(/\[([^\]]+)\]/g, (_, t) => `<span class="${cls}" data-term="${t}">${t}</span>`);
+const plain = (s) => s.replace(/[\[\]]/g, '');
+
+function tableText(v) {
+  // Which table labels are pointable depends on the variant's reach.
+  const reach = v.key !== 'B';
+  const t = (term, label, cls, x, y, extra = '') =>
+    `<div class="abs ${cls} ${reach ? 'term' : ''}" style="left:${x}px;top:${y}px" ${reach ? `data-term="${term}"` : ''} ${extra}>${label}</div>`;
+  let s = `<div class="abs neon mid" style="left:16px;top:12px">Pit Boss</div>`;
+  s += t('Stack', 'Stack 40', 'gold mid', 150, 12);
+  s += t('House Edge', `House Edge ${S.edge}`, 'ink mid', 270, 12);
+  s += t('Rising Blinds', `Blinds rise in ${3 - ((S.turn - 1) % 3)}`, 'dim sm', 470, 16);
+  const hx = v.key === 'A' ? 60 : v.key === 'C' ? 260 : 200;
+  s += t('The Hand', `The Hand &nbsp;${S.hand}`, 'gold big', hx, 76);
+  s += t('Plays', `Plays left &nbsp;${S.plays}`, 'dim', hx + 4, 112);
+  if (S.last) s += `<div class="abs ink sm" style="left:${hx + 4}px;top:130px;width:${v.key === 'A' ? 360 : 340}px;line-height:1.05">${h(S.last)}</div>`;
+  s += `<div class="abs ink mid" style="left:16px;top:334px">Lucky Jack</div>`;
+  s += t('Your Stack', 'Stack 50', 'gold mid', 140, 334);
+  s += `<div class="abs dim sm" style="right:16px;top:338px">1-7 play &nbsp; Enter show your Hand &nbsp; I the words</div>`;
+  return s;
+}
+function drawHtml() {
+  let s = '<div class="draw">';
+  S.draw.forEach((c, i) => {
+    const on = S.target && S.target.kind === 'card' && S.target.i === i;
+    const cls = ['card', on ? 'on' : '', S.awaiting === i ? 'awaiting' : '', S.awaiting !== null && S.awaiting !== i && on ? 'burn' : ''].join(' ');
+    s += `<div class="slot"><div class="${cls}" data-card="${i}">
+      <span class="v">${c.stack}</span>${c.tell ? `<img class="ic" src="${ICON[c.tell]}" alt="">` : ''}<span class="v br">${c.stack}</span>
+    </div><span class="key ${S.pointer === i ? 'on' : ''}">${S.pointer === i ? '[' + (i + 1) + ']' : i + 1}</span></div>`;
+  });
+  for (let i = S.draw.length; i < 7; i++) s += '<div class="slot"><div class="ghost"></div><span class="key">&nbsp;</span></div>';
+  return s + '</div>';
+}
+function cardX(i) { const w = S.draw.length * 56 + (S.draw.length - 1) * 6; return (640 - w) / 2 + i * 62; }
+
+function overlayA() {
+  const t = S.target;
+  let body;
+  if (!t) body = `<div class="dim sm" style="line-height:1.05">Point at a card, or at anything on the table.<br><br>← → walks the Draw.</div>`;
+  else if (t.kind === 'term') body = `<div class="head"><span class="gold mid">${h(t.term)}</span></div><div class="rule">${h(TERMS[t.term] || TERMS['Stack'])}</div>`;
+  else {
+    const c = S.draw[t.i], v = now(t.i), tl = c.tell && TELL[c.tell];
+    const used = tl ? [...tl.rule.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]) : [];
+    body = `<div class="head"><span class="gold mid">${h(c.name)}</span><span class="gold">${c.stack}</span></div>`
+      + (tl ? `<div class="rule"><span class="gold">${tl.name}.</span> ${h(plain(tl.rule))}</div>` : `<div class="rule dim">No Tell.</div>`)
+      + `<div class="now"><span class="${S.awaiting !== null ? 'neon' : 'gold'}">Right now: +${v.n}</span><br>${h(v.why)}</div>`
+      + (used.length ? `<div class="foot">${used.map(u => `<b>${u}</b> ${h(TERMS[u])}`).join('<br>')}</div>` : '');
+  }
+  return `<div class="abs rail">${body}</div>`;
+}
+function overlayB() {
+  const t = S.target; if (!t || t.kind !== 'card') return '';
+  const c = S.draw[t.i], tl = c.tell && TELL[c.tell];
+  const x = Math.max(6, Math.min(640 - 168 - 6, cardX(t.i) + 28 - 84));
+  const ax = cardX(t.i) + 28 - x;
+  let inner = tl ? `<div class="name">${tl.name}</div><div>${withTerms(tl.rule)}</div>` : `<div class="name dim">No Tell</div><div class="dim">${c.stack} chips, what it says.</div>`;
+  if (S.awaiting !== null && S.awaiting !== t.i) inner += `<div class="neon">Burn for +${c.stack}</div>`;
+  const hgt = tl ? 66 : 48;
+  let s = `<div class="abs tag" id="tag" style="left:${x}px;top:${232 - hgt - 10}px;--ax:${ax}px">${inner}</div>`;
+  if (S.nest) {
+    const nx = Math.min(640 - 150 - 6, x + 172), ny = 232 - hgt - 10;
+    s += `<div class="abs tag nest" style="left:${nx}px;top:${ny}px"><div class="name">${h(S.nest)}</div><div>${h(TERMS[S.nest])}</div></div>`;
+  }
+  return s;
+}
+function overlayC() {
+  const t = S.target;
+  if (!t) return `<div class="abs patter idle">Point at a card and the dealer will tell you what it's worth.</div>`;
+  if (t.kind === 'term') return `<div class="abs patter" style="left:40px;width:420px;top:150px">${h(PATTER_TABLE[t.term] || TERMS[t.term])}</div>`;
+  const c = S.draw[t.i], tl = c.tell && TELL[c.tell], v = now(t.i);
+  const line = S.awaiting !== null && S.awaiting !== t.i ? `Burn ${c.name}? That makes it ${v.n}.` : (PATTER[c.name] || `${c.stack}.`);
+  return `<div class="abs lift"><div class="v"><span>${c.stack}</span>${tl ? `<span class="sm gold">${tl.name}</span>` : ''}</div>
+      <div class="nm">${h(c.name)}</div>${c.tell ? `<img class="ic" src="${ICON[c.tell]}" alt="">` : ''}
+      <div class="rl">${tl ? h(plain(tl.rule)) : '<span class="dim">No Tell.</span>'}</div></div>
+    <div class="abs patter">${h(line)}</div>`;
+}
+
+function render() {
+  const v = VARIANTS[V];
+  canvas.innerHTML = tableText(v) + drawHtml() + (v.key === 'A' ? overlayA() : v.key === 'B' ? overlayB() : overlayC());
+  document.getElementById('lbl').textContent = `${v.key} · ${v.name}`;
+  document.getElementById('brief').innerHTML = VARIANTS.map((x, i) => `<div><h2 class="${i === V ? 'cur' : ''}">${x.key} · ${x.name}</h2><p>${x.blurb}</p></div>`).join('');
+  // mark the pointed term
+  if (S.target && S.target.kind === 'term') canvas.querySelectorAll(`[data-term="${S.target.term}"]`).forEach(el => el.classList.add('on'));
+}
+
+// ---- input ------------------------------------------------------------------------
+canvas.addEventListener('mouseover', (e) => {
+  const card = e.target.closest('[data-card]');
+  const term = e.target.closest('[data-term]');
+  if (card) { S.target = { kind: 'card', i: +card.dataset.card }; S.nest = null; render(); }
+  else if (term && term.closest('#tag')) { S.nest = term.dataset.term; render(); }
+  else if (term) { S.target = { kind: 'term', term: term.dataset.term }; S.nest = null; render(); }
+});
+canvas.addEventListener('mouseleave', () => { S.target = S.pointer !== null ? { kind: 'card', i: S.pointer } : null; S.nest = null; render(); });
+canvas.addEventListener('mouseout', (e) => {
+  const term = e.target.closest('[data-term]');
+  if (term && term.closest('#tag')) { S.nest = null; render(); }
+});
+canvas.addEventListener('click', (e) => { const card = e.target.closest('[data-card]'); if (card) play(+card.dataset.card); });
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.key >= '1' && e.key <= '7') { play(+e.key - 1); return; }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (!S.draw.length) return;
+    const d = e.key === 'ArrowLeft' ? -1 : 1;
+    S.pointer = S.pointer === null ? (d > 0 ? 0 : S.draw.length - 1) : (S.pointer + d + S.draw.length) % S.draw.length;
+    S.target = { kind: 'card', i: S.pointer }; S.nest = null; render(); e.preventDefault(); return;
+  }
+  if (e.key === 'Enter') { showHand(); return; }
+  if (e.key === 'Escape') { S.pointer = null; S.target = null; S.nest = null; S.awaiting = null; render(); return; }
+  if (e.key === 'v' || e.key === 'V') { setVariant(V + 1); }
+});
+document.getElementById('prev').onclick = () => setVariant(V - 1);
+document.getElementById('next').onclick = () => setVariant(V + 1);
+
+// ---- scale --------------------------------------------------------------------------
+const frame = document.getElementById('frame'), zoom = document.getElementById('zoom');
+function fit() {
+  let k = +zoom.value;
+  if (!k) k = Math.max(1, Math.floor(Math.min((innerWidth - 32) / 640, (innerHeight - 220) / 360)));
+  canvas.style.transform = `scale(${k})`;
+  frame.style.width = 640 * k + 'px'; frame.style.height = 360 * k + 'px';
+}
+zoom.onchange = fit; addEventListener('resize', fit);
+
+variantFromUrl(); deal(); render(); fit();
+</script>
