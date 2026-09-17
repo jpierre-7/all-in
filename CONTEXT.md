@@ -68,6 +68,10 @@ Tell: doubles the card's Stack if the previous card played this turn had any Tel
 **All In**:
 Tell: sacrifice another card from the Draw to add its Stack to The Hand.
 
+**Peek**:
+The tag that opens beside the card the player points at, mouse or keyboard, and says its Tell. The player can wave it off for the table and call it back.
+_Avoid_: tooltip, hover text, popup, hint
+
 ### Run
 
 **Fight or Fold**:
