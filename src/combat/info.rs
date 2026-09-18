@@ -56,6 +56,10 @@ const GLOSSARY: &[(&str, &str)] = &[
         "Tell: burns another card from your Draw and adds its chips.",
     ),
     (
+        "Copycat",
+        "Tell: worth the next card's printed Stack, not its Tell. Its own if no card follows.",
+    ),
+    (
         "Push Your Luck",
         "Once The Hand clears the Edge: Push to flip a coin. Win and the Payout doubles; lose and The Hand is 0. Hold to take the Payout as is.",
     ),

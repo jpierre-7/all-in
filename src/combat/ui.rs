@@ -34,6 +34,7 @@ pub struct Art {
     pub frame: Option<Handle<Image>>,
     pub streak: Option<Handle<Image>>,
     pub all_in: Option<Handle<Image>>,
+    pub copycat: Option<Handle<Image>>,
     pub backdrop: Option<Handle<Image>>,
     pub slotz: Option<Handle<Image>>,
     pub pit_boss: Option<Handle<Image>>,
@@ -109,6 +110,7 @@ pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
         frame: load("cards/frame.png"),
         streak: load("tells/streak.png"),
         all_in: load("tells/all_in.png"),
+        copycat: load("tells/copycat.png"),
         backdrop: load("backdrops/combat.png"),
         slotz: load("portraits/slotz.png"),
         pit_boss: load("portraits/pit_boss.png"),
@@ -449,6 +451,7 @@ fn centre(parent: &mut ChildSpawnerCommands, card: &crate::run::Card, art: &Art)
     let image = art.face(card.name).cloned().or_else(|| match card.tell {
         Some(Tell::Streak) => art.streak.clone(),
         Some(Tell::AllIn) => art.all_in.clone(),
+        Some(Tell::Copycat) => art.copycat.clone(),
         None => None,
     });
     let mut node = parent.spawn(Node {

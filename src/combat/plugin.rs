@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use super::duel::{Coin, Duel, Phase, PlayError, TurnResult};
 use super::ui;
 use crate::overworld::narrative;
-use crate::run::{Card, CombatOutcome, Encounter, EncounterId, RunState, xorshift64};
+use crate::run::{Card, CombatOutcome, Encounter, EncounterId, RunState, Tell, xorshift64};
 use crate::state::AppState;
 
 pub struct CombatPlugin;
@@ -280,6 +280,7 @@ fn take_input(
 
     if let Some(digit) = digit {
         let index = usize::from(digit - 1);
+        let before = active.duel.hand();
         let result = match active.awaiting_sacrifice.take() {
             Some(all_in) => active.duel.play(all_in, Some(index)),
             None => match active.duel.play(index, None) {
@@ -292,7 +293,28 @@ fn take_input(
             },
         };
         active.notice = Some(match result {
-            Ok(value) => format!("+{value} to The Hand."),
+            Ok(value) => {
+                // A Copycat played before this card fills in as it lands, so
+                // The Hand can rise by more than the card itself.
+                let filled = active.duel.hand() - before - value;
+                let copycat = active
+                    .duel
+                    .played()
+                    .last()
+                    .is_some_and(|p| p.card.tell == Some(Tell::Copycat));
+                let mut line = if copycat {
+                    "Copycat. Nothing yet: it takes the next card's Stack.".to_string()
+                } else {
+                    format!("+{value} to The Hand.")
+                };
+                if filled > 0 {
+                    line.pop();
+                    line.push_str(&format!(
+                        ", and the Copycat before it fills in for {filled}."
+                    ));
+                }
+                line
+            }
             Err(PlayError::NoPlaysLeft) => "No Plays left. Enter to show your Hand.".into(),
             Err(PlayError::NoSuchCard) => "No card there.".into(),
             Err(PlayError::AllInNeedsSacrifice) => "All In needs a sacrifice.".into(),
@@ -1538,5 +1560,90 @@ mod peek_tests {
 
         press(&mut app, KeyCode::KeyI);
         assert!(tag(&mut app).is_some());
+    }
+}
+
+#[cfg(test)]
+mod copycat_tests {
+    use bevy::prelude::*;
+
+    use super::ActiveDuel;
+    use super::tests::{press, table_for_run};
+    use crate::run::{Card, RunState, Tell};
+
+    const KEYS: [KeyCode; 7] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+    ];
+
+    /// A table dealt from Copycats and sixes, half and half.
+    fn table() -> App {
+        let copycat = Card {
+            name: "copycat",
+            stack: 3,
+            tell: Some(Tell::Copycat),
+        };
+        let six = Card {
+            name: "six",
+            stack: 6,
+            tell: None,
+        };
+        let mut deck = vec![copycat; 9];
+        deck.extend(vec![six; 9]);
+        table_for_run(
+            RunState {
+                deck,
+                ..RunState::new()
+            },
+            30,
+            20,
+        )
+    }
+
+    /// The key for the first card in the Draw with, or without, a Tell.
+    fn key_of(app: &App, tell: Option<Tell>) -> KeyCode {
+        let slot = app
+            .world()
+            .resource::<ActiveDuel>()
+            .duel
+            .draw()
+            .iter()
+            .position(|c| c.tell == tell)
+            .expect("the Draw holds both kinds");
+        KEYS[slot]
+    }
+
+    fn notice(app: &App) -> String {
+        app.world()
+            .resource::<ActiveDuel>()
+            .notice
+            .clone()
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn the_table_says_the_copycat_is_waiting_then_what_it_filled_in_for() {
+        let mut app = table();
+
+        let key = key_of(&app, Some(Tell::Copycat));
+        press(&mut app, key);
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 0);
+        assert_eq!(
+            notice(&app),
+            "Copycat. Nothing yet: it takes the next card's Stack."
+        );
+
+        let key = key_of(&app, None);
+        press(&mut app, key);
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 12);
+        assert_eq!(
+            notice(&app),
+            "+6 to The Hand, and the Copycat before it fills in for 6."
+        );
     }
 }

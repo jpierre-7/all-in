@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate placeholder card art for `assets/`: the frame and the two Tell icons.
+"""Generate placeholder card art for `assets/`: the frame and the Tell icons.
 
 Paths and sizes come from the merged combat UI (`src/combat/ui.rs`), not from
 taste — `load_art` binds these exact relative paths, and a mismatch fails
@@ -226,6 +226,32 @@ def tell_all_in(path):
     _save_icon(img, path)
 
 
+def tell_copycat(path):
+    """Two cards, one behind the other: this card takes on the next one.
+
+    The front card is drawn solid so the pair reads as one silhouette with a
+    step in it at 28px, rather than two thin outlines that blur together.
+    """
+    img = _icon_canvas()
+    d = ImageDraw.Draw(img)
+    # The card behind, up and to the right: the one being copied.
+    d.rounded_rectangle(
+        (48 * SS, 14 * SS, 106 * SS, 94 * SS),
+        radius=9 * SS,
+        outline=GOLD + (255,),
+        width=8 * SS,
+    )
+    # The copy in front, solid, with a dark rim so it cuts out of the one behind.
+    d.rounded_rectangle(
+        (22 * SS, 34 * SS, 80 * SS, 114 * SS),
+        radius=9 * SS,
+        fill=GOLD + (255,),
+        outline=(0, 0, 0, 255),
+        width=5 * SS,
+    )
+    _save_icon(img, path)
+
+
 def _relative_luminance(rgb):
     def channel(c):
         c /= 255
@@ -247,6 +273,7 @@ def main():
     card_frame(ASSETS / "cards" / "frame.png")
     tell_streak(ASSETS / "tells" / "streak.png")
     tell_all_in(ASSETS / "tells" / "all_in.png")
+    tell_copycat(ASSETS / "tells" / "copycat.png")
 
     # Text on the card body is the one readability risk worth checking.
     for name, fg in (("gold", GOLD), ("gold-lit", GOLD_LIT), ("bone", BONE)):
