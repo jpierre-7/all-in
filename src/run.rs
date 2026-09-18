@@ -17,6 +17,9 @@ pub enum Tell {
     Streak,
     /// Sacrifice another card from the Draw to add its Stack to The Hand.
     AllIn,
+    /// Takes the printed Stack of the next card played this turn, and none of
+    /// its Tell; its own if no card follows.
+    Copycat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -359,7 +362,7 @@ fn streak_reward_cards() -> Vec<Card> {
 }
 
 /// Pit Boss Option 2 (#12): four cards off the Pit's own table, two with a
-/// random Tell and two plain. Stacks stay inside the starter deck's ranges so
+/// random Tell (Streak, All In, or Copycat) and two plain. Stacks stay inside the starter deck's ranges so
 /// the pack thickens the deck without rewriting its maths.
 fn random_cards(seed: u64) -> Vec<Card> {
     const TELLED: [&str; 6] = [
@@ -390,11 +393,13 @@ fn random_cards(seed: u64) -> Vec<Card> {
     for _ in 0..2 {
         let name = telled.swap_remove(roll(telled.len() as u64) as usize);
         // Each Tell keeps the range the starter deck gives it: Streak 3..=6,
-        // All In 2..=5.
-        let (tell, stack) = if roll(2) == 0 {
-            (Tell::Streak, 3 + roll(4) as u32)
-        } else {
-            (Tell::AllIn, 2 + roll(4) as u32)
+        // All In 2..=5. Copycat prints 2..=5 too (#110): the print only
+        // counts when no card follows, so a low one pushes it into the
+        // sequence rather than the last slot.
+        let (tell, stack) = match roll(3) {
+            0 => (Tell::Streak, 3 + roll(4) as u32),
+            1 => (Tell::AllIn, 2 + roll(4) as u32),
+            _ => (Tell::Copycat, 2 + roll(4) as u32),
         };
         cards.push(Card {
             name,

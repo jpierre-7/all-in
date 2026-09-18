@@ -102,6 +102,13 @@ fn rule(tell: Tell) -> &'static [Piece] {
             Piece::Term("The Hand"),
             Piece::Words("."),
         ],
+        Tell::Copycat => &[
+            Piece::Words("Takes the printed"),
+            Piece::Term("Stack"),
+            Piece::Words("of the next card played this turn, and none of its"),
+            Piece::Term("Tell"),
+            Piece::Words(". Its own if no card follows."),
+        ],
     }
 }
 
@@ -109,6 +116,7 @@ fn tell_name(tell: Tell) -> &'static str {
     match tell {
         Tell::Streak => "Streak",
         Tell::AllIn => "All In",
+        Tell::Copycat => "Copycat",
     }
 }
 

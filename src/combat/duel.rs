@@ -103,11 +103,12 @@ pub struct TurnResult {
 }
 
 /// A card played this turn and what it resolved to. Tells that reach back
-/// along the turn (Streak, Echo) read these.
+/// along the turn (Streak, Echo, Copycat) read these.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Played {
     pub card: Card,
-    /// The contribution to The Hand, after the card's Tell.
+    /// The contribution to The Hand, after the card's Tell. A Copycat still
+    /// waiting on the next card sits at 0.
     pub value: u32,
 }
 
@@ -283,6 +284,12 @@ impl Duel {
         // Showing early against The House still locks the Edge at "one Play
         // remaining"; with no Hole Card played it's a Whiff by the margin.
         self.house_reads_the_hand();
+        // A Copycat nothing followed is worth its own printed Stack, landing
+        // after the lock like any Hole Card.
+        if let Some(last) = self.played.last() {
+            let own = last.card.stack;
+            self.copycat_takes(own);
+        }
         // Step 4: the items that modify The Hand land here, after every card
         // is down and after The House has locked its Edge on what it saw.
         if self.dice_left > 0 {
@@ -376,7 +383,6 @@ impl Duel {
     }
 
     /// The cards played this turn, in play order, with what each resolved to.
-    #[cfg_attr(not(test), allow(dead_code))] // read by Echo (#109) and Copycat (#110)
     pub fn played(&self) -> &[Played] {
         &self.played
     }
@@ -406,8 +412,12 @@ impl Duel {
         match played.tell {
             Some(Tell::Streak) if self.previous_had_tell() => value *= 2,
             Some(Tell::AllIn) => value += sacrificed.as_ref().map_or(0, |c| c.stack),
+            Some(Tell::Copycat) => value = 0,
             _ => {}
         }
+        // The card before this one takes its printed Stack, if it is a
+        // Copycat waiting for it.
+        self.copycat_takes(played.stack);
 
         // Remove the higher index first so the lower one stays valid.
         let mut gone: Vec<usize> = sacrifice.into_iter().chain([card]).collect();
@@ -432,6 +442,19 @@ impl Duel {
     /// Whether the previous card played this turn carried any Tell.
     fn previous_had_tell(&self) -> bool {
         self.played.last().is_some_and(|p| p.card.tell.is_some())
+    }
+
+    /// The last card played takes `stack` into The Hand, if it is a Copycat
+    /// still waiting on a card. Only ever the last: a Copycat resolves the
+    /// moment the next card lands, or when the Hand is shown.
+    fn copycat_takes(&mut self, stack: u32) {
+        if let Some(last) = self.played.last_mut()
+            && last.card.tell == Some(Tell::Copycat)
+            && last.value == 0
+        {
+            last.value = stack;
+            self.hand += stack;
+        }
     }
 
     fn refill(&mut self) {
@@ -506,18 +529,25 @@ mod tests {
             tell: None,
         }
     }
-    fn streak(stack: u32) -> Card {
+    pub(super) fn streak(stack: u32) -> Card {
         Card {
             name: "streak",
             stack,
             tell: Some(Tell::Streak),
         }
     }
-    fn all_in(stack: u32) -> Card {
+    pub(super) fn all_in(stack: u32) -> Card {
         Card {
             name: "all in",
             stack,
             tell: Some(Tell::AllIn),
+        }
+    }
+    pub(super) fn copycat(stack: u32) -> Card {
+        Card {
+            name: "copycat",
+            stack,
+            tell: Some(Tell::Copycat),
         }
     }
     pub(super) fn enemy(stack: u32, house_edge: u32) -> Enemy {
@@ -1106,7 +1136,7 @@ mod the_house_tests {
 
     /// The House from `Enemy::for_encounter`: `house_edge` is the starting
     /// margin, `blinds` the margin ramp.
-    fn the_house(stack: u32) -> Enemy {
+    pub(super) fn the_house(stack: u32) -> Enemy {
         Enemy {
             name: "THE HOUSE",
             stack,
@@ -1190,5 +1220,193 @@ mod the_house_tests {
             duel.play(0, None).unwrap();
         }
         assert_eq!(duel.house_edge(), 20);
+    }
+}
+
+#[cfg(test)]
+mod copycat_tests {
+    use super::tests::{all_in, card, copycat, enemy, streak};
+    use super::the_house_tests::the_house;
+    use super::*;
+
+    /// What the duel has kept of the turn: (Tell, printed Stack, resolved to).
+    fn played(duel: &Duel) -> Vec<(Option<Tell>, u32, u32)> {
+        duel.played()
+            .iter()
+            .map(|p| (p.card.tell, p.card.stack, p.value))
+            .collect()
+    }
+
+    #[test]
+    fn copycat_sits_at_nothing_until_the_next_card_gives_it_its_printed_stack() {
+        // Drawn first: copycat(3), card(6), ...
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(6),
+            copycat(3),
+        ];
+        let mut duel = Duel::new(deck, 40, 5, enemy(30, 20));
+
+        assert_eq!(duel.play(0, None).unwrap(), 0);
+        assert_eq!(duel.hand(), 0);
+        assert_eq!(played(&duel), vec![(Some(Tell::Copycat), 3, 0)]);
+
+        assert_eq!(duel.play(0, None).unwrap(), 6);
+        assert_eq!(duel.hand(), 12);
+        assert_eq!(
+            played(&duel),
+            vec![(Some(Tell::Copycat), 3, 6), (None, 6, 6)]
+        );
+    }
+
+    #[test]
+    fn copycat_takes_the_printed_stack_not_what_the_card_resolved_to() {
+        // Drawn first: copycat(3), streak(5), copycat(3), all_in(2), card(4), ...
+        let deck = vec![
+            card(1),
+            card(1),
+            card(4),
+            all_in(2),
+            copycat(3),
+            streak(5),
+            copycat(3),
+        ];
+        let mut duel = Duel::new(deck, 40, 5, enemy(30, 20));
+
+        duel.play(0, None).unwrap(); // Copycat: nothing yet
+        assert_eq!(duel.play(0, None).unwrap(), 10); // a Streak after a Copycat doubles
+        assert_eq!(duel.hand(), 15); // the Copycat took 5, not 10
+
+        duel.play(0, None).unwrap(); // Copycat, after a Streak: still nothing
+        assert_eq!(duel.hand(), 15);
+        assert_eq!(duel.play(0, Some(1)).unwrap(), 6); // All In 2 burning card(4)
+        assert_eq!(duel.hand(), 23); // the Copycat took 2, not 6
+
+        assert_eq!(
+            played(&duel),
+            vec![
+                (Some(Tell::Copycat), 3, 5),
+                (Some(Tell::Streak), 5, 10),
+                (Some(Tell::Copycat), 3, 2),
+                (Some(Tell::AllIn), 2, 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_copycat_after_a_copycat_gives_it_its_own_printed_stack() {
+        // Drawn first: copycat(3), copycat(4), card(6), ...
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(6),
+            copycat(4),
+            copycat(3),
+        ];
+        let mut duel = Duel::new(deck, 40, 5, enemy(30, 20));
+
+        duel.play(0, None).unwrap();
+        duel.play(0, None).unwrap();
+        assert_eq!(duel.hand(), 4);
+        duel.play(0, None).unwrap();
+        assert_eq!(duel.hand(), 16);
+    }
+
+    #[test]
+    fn copycat_as_the_last_play_is_worth_its_printed_stack() {
+        // Drawn first: card(4), copycat(3), ...
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            copycat(3),
+            card(4),
+        ];
+        let mut duel = Duel::new(deck, 40, 2, enemy(30, 20));
+
+        duel.play(0, None).unwrap();
+        duel.play(0, None).unwrap();
+        assert_eq!(duel.hand(), 4);
+
+        let result = duel.end_turn();
+        assert_eq!(result.hand, 7);
+        assert_eq!(played(&duel), vec![]);
+    }
+
+    #[test]
+    fn copycat_when_the_hand_is_shown_early_is_worth_its_printed_stack() {
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            copycat(3),
+        ];
+        let mut duel = Duel::new(deck, 40, 5, enemy(30, 20));
+
+        duel.play(0, None).unwrap();
+        assert_eq!(duel.hand(), 0);
+
+        assert_eq!(duel.end_turn().hand, 3);
+    }
+
+    #[test]
+    fn the_house_reads_a_copycat_fourth_as_nothing_and_the_hole_card_fills_it_after() {
+        // Drawn first: 10, 10, 10, copycat(3), 8, ...
+        let deck = vec![
+            card(1),
+            card(1),
+            card(8),
+            copycat(3),
+            card(10),
+            card(10),
+            card(10),
+        ];
+        let mut duel = Duel::new(deck, 50, 5, the_house(100)).under_the_hole_card_rule();
+
+        for _ in 0..4 {
+            duel.play(0, None).unwrap();
+        }
+        assert_eq!(duel.hand(), 30);
+        assert_eq!(duel.locked_edge(), Some(31)); // the Copycat read as nothing
+
+        duel.play(0, None).unwrap(); // the Hole Card, 8
+        assert_eq!(duel.hand(), 46); // 8 for the card and 8 for the Copycat
+        assert_eq!(duel.house_edge(), 31);
+    }
+
+    #[test]
+    fn a_copycat_hole_card_lands_its_own_printed_stack_after_the_lock() {
+        // Drawn first: 10, 10, 10, 10, copycat(3), ...
+        let deck = vec![
+            card(1),
+            card(1),
+            copycat(3),
+            card(10),
+            card(10),
+            card(10),
+            card(10),
+        ];
+        let mut duel = Duel::new(deck, 50, 5, the_house(100)).under_the_hole_card_rule();
+
+        for _ in 0..5 {
+            duel.play(0, None).unwrap();
+        }
+        assert_eq!(duel.locked_edge(), Some(41));
+        assert_eq!(duel.hand(), 40);
+
+        let result = duel.end_turn();
+        assert_eq!(result.hand, 43);
+        assert_eq!(result.kind, Outcome::Payout(2));
     }
 }

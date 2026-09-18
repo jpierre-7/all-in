@@ -15,6 +15,7 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `cards/frame.png` | 240×340 | 120×170 node | `ui.rs` — `Art::frame` |
 | `tells/streak.png` | 128×128 | 28×28 node | `ui.rs` — `Art::streak` |
 | `tells/all_in.png` | 128×128 | 28×28 node | `ui.rs` — `Art::all_in` |
+| `tells/copycat.png` | 128×128 | 28×28 node | `ui.rs` — `Art::copycat` |
 | `backdrops/combat.png` | 1920×1080 | full screen | `ui.rs` — `Art::backdrop` |
 | `backdrops/lobby.png` | 1920×1080 | every prose screen | `screens.rs` — `OverworldArt::lobby` |
 | `backdrops/title.png` | 1920×1080 | the title screen | `screens.rs` — `OverworldArt::title` — **not drawn yet** |
@@ -64,6 +65,10 @@ redraw at 28px before committing. 128px source leaves room to work.
 `all_in.png` is a card with a diagonal strike: the Tell sacrifices a card from
 the Draw. A side-on chip stack was the first attempt and it turned to mush at
 28px — the gaps between chips disappear.
+
+`copycat.png` is two cards, a solid one in front of an outlined one: the Tell
+takes on the card that follows it. The front card is filled, not outlined, so
+the pair keeps one stepped silhouette at 28px instead of two blurred rims.
 
 ## Backdrops
 

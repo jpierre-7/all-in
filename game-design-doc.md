@@ -129,7 +129,7 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 - **Streak**
 - **All In**
 
-**Stretch Tells (cut if behind schedule):** Echo, Brittle, [others TBD]
+**Stretch Tells (cut if behind schedule):** Echo, Brittle, Copycat (built, #110), [others TBD]
 
 **Starter deck:** fixed, no deckbuilding meta-layer for MVP. 18 cards, 8 with a Tell (44%). Prototyped on the `prototype/starter-deck` branch: a careless player fires Streak ~1/3 of the time, a careful one ~94%, a 6-chip gap in mean Hand from sequencing alone. Mean Hand ~28 (naive) / ~34 (smart), range 18–52. Whiffs start appearing around House Edge 26.
 
