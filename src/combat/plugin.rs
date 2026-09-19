@@ -355,15 +355,10 @@ fn take_input(
             active.notice = Some("Name the sacrifice first (1-7), or Esc.".into());
             return;
         }
-        // A clearing Hand puts the Push Your Luck prompt up instead of
-        // resolving; a Whiff resolves here.
-        let Some(result) = active.duel.show_hand() else {
-            active.notice = None;
-            return;
-        };
-        active.last_turn = Some(result);
+        // Showing puts the Push Your Luck prompt up, clear or Whiff; the
+        // turn resolves when it is answered.
+        active.duel.show_hand();
         active.notice = None;
-        finish_if_over(&mut commands, &mut active, &mut run, &mut next);
     }
 }
 
@@ -622,6 +617,7 @@ mod tests {
         let mut app = table(10, 999, 50);
 
         press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::KeyH);
 
         assert_eq!(state(&app), AppState::PostCombat);
         assert_eq!(
@@ -702,14 +698,51 @@ mod push_your_luck_tests {
     }
 
     #[test]
-    fn a_whiff_needs_no_prompt_and_resolves_on_enter() {
+    fn a_whiff_is_offered_the_prompt_and_hold_takes_it() {
         let mut app = table(40, 999, 30);
 
         press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.world().resource::<ActiveDuel>().duel.phase(),
+            Phase::PushYourLuck
+        );
+
+        press(&mut app, KeyCode::KeyH);
 
         let active = app.world().resource::<ActiveDuel>();
         assert_eq!(active.duel.phase(), Phase::Playing);
         assert_eq!(active.last_turn.unwrap().kind, Outcome::Whiff(30));
+        assert_eq!(active.duel.player_stack(), 10);
+    }
+
+    #[test]
+    fn pushing_a_whiff_and_winning_forgives_it() {
+        let mut app = table(40, 999, 30);
+        rig(&mut app, Coin::SURE_THING);
+        press(&mut app, KeyCode::Enter);
+
+        press(&mut app, KeyCode::KeyP);
+
+        let active = app.world().resource::<ActiveDuel>();
+        let turn = active.last_turn.unwrap();
+        assert_eq!(turn.pyl, Some(Push::Won));
+        assert_eq!(turn.kind, Outcome::Whiff(0));
+        assert_eq!(active.duel.player_stack(), 40);
+    }
+
+    #[test]
+    fn pushing_a_whiff_and_losing_doubles_it() {
+        let mut app = table(100, 999, 30);
+        rig(&mut app, Coin::RIGGED);
+        press(&mut app, KeyCode::Enter);
+
+        press(&mut app, KeyCode::KeyP);
+
+        let active = app.world().resource::<ActiveDuel>();
+        let turn = active.last_turn.unwrap();
+        assert_eq!(turn.pyl, Some(Push::Lost));
+        assert_eq!(turn.kind, Outcome::Whiff(60));
+        assert_eq!(active.duel.player_stack(), 40);
     }
 
     #[test]
@@ -847,7 +880,8 @@ mod run_modifier_tests {
         let mut steep = table_with(400, 999, 30, vec![Perk::SixPlaysSteepBlinds]);
 
         for app in [&mut plain, &mut steep] {
-            press(app, KeyCode::Enter); // a Whiff: the turn resolves on the spot
+            press(app, KeyCode::Enter); // a Whiff, held
+            press(app, KeyCode::KeyH);
         }
 
         assert_eq!(plain.world().resource::<ActiveDuel>().duel.house_edge(), 30);
@@ -1270,6 +1304,7 @@ mod hit_marker_tests {
         let mut app = table(50, 999, 30);
 
         press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::KeyH);
 
         assert_eq!(markers(&mut app), vec![(Side::Player, "-30".to_string())]);
     }
@@ -1300,6 +1335,7 @@ mod hit_marker_tests {
     fn the_marker_is_gone_once_its_time_is_up() {
         let mut app = table(50, 999, 30);
         press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::KeyH);
         assert_eq!(markers(&mut app).len(), 1);
 
         // Run its clock out by hand: the test harness has no real frame time.

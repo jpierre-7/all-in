@@ -61,7 +61,7 @@ const GLOSSARY: &[(&str, &str)] = &[
     ),
     (
         "Push Your Luck",
-        "Once The Hand clears the Edge: Push to flip a coin. Win and the Payout doubles; lose and The Hand is 0. Hold to take the Payout as is.",
+        "Once The Hand is shown: Push to flip a coin, or Hold to take the turn as it is. Cleared the Edge? Win doubles the Payout; lose and The Hand is 0. Fell short? Win forgives the Whiff; lose and it doubles.",
     ),
     (
         "Rising Blinds",
