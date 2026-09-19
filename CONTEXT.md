@@ -41,7 +41,7 @@ The number of cards the player may play from the Draw in one turn.
 _Avoid_: actions, energy, mana
 
 **Push Your Luck**:
-An optional coin flip offered once The Hand is final and clears House Edge. Push and win: the Payout doubles. Push and lose: The Hand becomes 0, a full Whiff. The Hand itself is the stake; there is no separate wager.
+An optional coin flip offered once The Hand is final, whether it clears House Edge or falls short. On a clearing Hand, push and win: the Payout doubles; push and lose: The Hand becomes 0, a full Whiff. On a Whiff, push and win: the Whiff is forgiven; push and lose: it doubles. The Hand itself is the stake; there is no separate wager.
 _Avoid_: gamble, double-or-nothing, wager
 
 **Push / Hold**:

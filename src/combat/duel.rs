@@ -247,6 +247,18 @@ impl Duel {
         self.hand.saturating_sub(self.house_edge) * if pyl == Some(Push::Won) { 2 } else { 1 }
     }
 
+    /// The Whiff The Hand would take right now: its shortfall under House
+    /// Edge, forgiven by a won Push and doubled by a lost one. 0 on a
+    /// clearing Hand.
+    pub fn whiff(&self, pyl: Option<Push>) -> u32 {
+        let short = self.house_edge.saturating_sub(self.hand);
+        match pyl {
+            Some(Push::Won) => 0,
+            Some(Push::Lost) => short * 2,
+            None => short,
+        }
+    }
+
     pub fn house_edge(&self) -> u32 {
         self.house_edge
     }
@@ -274,12 +286,12 @@ impl Duel {
         }
     }
 
-    /// Step 5: The Hand is final. A Hand that clears House Edge puts the
-    /// Push Your Luck prompt up and resolves nothing yet (`None`); a Whiff is
-    /// never offered the flip and resolves on the spot.
-    pub fn show_hand(&mut self) -> Option<TurnResult> {
+    /// Step 5: The Hand is final and the Push Your Luck prompt goes up,
+    /// whether The Hand clears House Edge or falls short. Nothing is dealt
+    /// until the prompt is answered.
+    pub fn show_hand(&mut self) {
         if self.phase == Phase::PushYourLuck {
-            return None;
+            return;
         }
         // Showing early against The House still locks the Edge at "one Play
         // remaining"; with no Hole Card played it's a Whiff by the margin.
@@ -296,11 +308,7 @@ impl Duel {
             self.dice_left -= 1;
             self.hand += LOADED_DICE_BONUS;
         }
-        if self.hand >= self.house_edge {
-            self.phase = Phase::PushYourLuck;
-            return None;
-        }
-        Some(self.resolve(None))
+        self.phase = Phase::PushYourLuck;
     }
 
     /// Answer the prompt with Hold: the turn resolves as normal. `None` when
@@ -309,18 +317,16 @@ impl Duel {
         (self.phase == Phase::PushYourLuck).then(|| self.resolve(None))
     }
 
-    /// Answer the prompt with Push: flip the coin. Win and the Payout
-    /// doubles; lose and The Hand becomes 0, a full Whiff for the whole House
-    /// Edge. `None` when no prompt is up.
+    /// Answer the prompt with Push: flip the coin. On a clearing Hand, win
+    /// and the Payout doubles; lose and The Hand becomes 0, a full Whiff for
+    /// the whole House Edge. On a Whiff, win and it is forgiven; lose and it
+    /// doubles. `None` when no prompt is up.
     pub fn push(&mut self) -> Option<TurnResult> {
         if self.phase != Phase::PushYourLuck {
             return None;
         }
         let coin = self.coin;
         let flip = coin.resolve(std::iter::repeat_with(|| (self.next_rng() % 100) as u32));
-        if flip == Push::Lost {
-            self.hand = 0;
-        }
         Some(self.resolve(Some(flip)))
     }
 
@@ -330,15 +336,16 @@ impl Duel {
     fn resolve(&mut self, pyl: Option<Push>) -> TurnResult {
         let hand = self.hand;
         let house_edge = self.house_edge;
-        let kind = if hand >= house_edge {
-            let payout = self.payout(pyl);
-            self.enemy.stack = self.enemy.stack.saturating_sub(payout);
-            Outcome::Payout(payout)
-        } else {
-            let whiff = house_edge - hand;
-            self.player_stack = self.player_stack.saturating_sub(whiff);
-            Outcome::Whiff(whiff)
+        let kind = match (hand >= house_edge, pyl) {
+            // A lost Push on a clearing Hand zeroes it: a full Whiff.
+            (true, Some(Push::Lost)) => Outcome::Whiff(house_edge),
+            (true, _) => Outcome::Payout(self.payout(pyl)),
+            (false, _) => Outcome::Whiff(self.whiff(pyl)),
         };
+        match kind {
+            Outcome::Payout(n) => self.enemy.stack = self.enemy.stack.saturating_sub(n),
+            Outcome::Whiff(n) => self.player_stack = self.player_stack.saturating_sub(n),
+        }
 
         let every = u32::from(self.enemy.blinds.every_turns.max(1));
         let blinds_rose = self.turn.is_multiple_of(every);
@@ -508,12 +515,8 @@ impl Duel {
 
     /// Show the Hand and Hold.
     pub fn end_turn(&mut self) -> TurnResult {
-        match self.show_hand() {
-            Some(result) => result,
-            None => self
-                .hold()
-                .expect("showing a clearing Hand puts the prompt up"),
-        }
+        self.show_hand();
+        self.hold().expect("showing the Hand puts the prompt up")
     }
 }
 
@@ -852,7 +855,8 @@ mod push_your_luck_tests {
     fn showing_a_clearing_hand_offers_push_your_luck_instead_of_resolving() {
         let mut duel = hand_of(30, 20);
 
-        assert_eq!(duel.show_hand(), None);
+        duel.show_hand();
+
         assert_eq!(duel.phase(), Phase::PushYourLuck);
         // Nothing has been dealt yet.
         assert_eq!(duel.enemy_stack(), 999);
@@ -860,15 +864,82 @@ mod push_your_luck_tests {
     }
 
     #[test]
-    fn a_whiff_is_never_offered_the_flip_and_resolves_on_the_spot() {
+    fn a_whiff_is_offered_the_flip_too() {
         let mut duel = hand_of(10, 20);
 
-        let result = duel.show_hand().expect("a Whiff resolves without a prompt");
+        duel.show_hand();
+
+        assert_eq!(duel.phase(), Phase::PushYourLuck);
+        // Nothing has been dealt yet.
+        assert_eq!(duel.player_stack(), 40);
+        assert_eq!(duel.hand(), 10);
+    }
+
+    #[test]
+    fn the_prompt_can_quote_what_a_whiff_would_cost() {
+        let mut duel = hand_of(10, 20);
+        duel.show_hand();
+
+        assert_eq!(duel.whiff(None), 10);
+        assert_eq!(duel.whiff(Some(Push::Won)), 0);
+        assert_eq!(duel.whiff(Some(Push::Lost)), 20);
+        assert_eq!(duel.payout(None), 0);
+    }
+
+    #[test]
+    fn holding_a_whiff_takes_it_as_normal() {
+        let mut duel = hand_of(10, 20);
+        duel.show_hand();
+
+        let result = duel.hold().expect("the prompt is up");
 
         assert_eq!(result.kind, Outcome::Whiff(10));
         assert_eq!(result.pyl, None);
         assert_eq!(duel.phase(), Phase::Playing);
         assert_eq!(duel.player_stack(), 30);
+    }
+
+    #[test]
+    fn pushing_a_whiff_and_winning_forgives_it() {
+        let mut duel = hand_of(10, 20);
+        duel.show_hand();
+
+        let result = duel.push().expect("the prompt is up");
+
+        assert_eq!(result.pyl, Some(Push::Won));
+        assert_eq!(result.hand, 10);
+        assert_eq!(result.kind, Outcome::Whiff(0));
+        assert_eq!(duel.player_stack(), 40);
+        assert_eq!(duel.enemy_stack(), 999);
+        assert_eq!(duel.phase(), Phase::Playing);
+    }
+
+    #[test]
+    fn pushing_a_whiff_and_losing_doubles_it() {
+        let mut duel = hand_of(10, 20);
+        duel.set_coin(Coin::RIGGED);
+        duel.show_hand();
+
+        let result = duel.push().expect("the prompt is up");
+
+        assert_eq!(result.pyl, Some(Push::Lost));
+        assert_eq!(result.hand, 10);
+        assert_eq!(result.kind, Outcome::Whiff(20));
+        assert_eq!(duel.player_stack(), 20);
+    }
+
+    #[test]
+    fn a_doubled_whiff_can_end_the_duel() {
+        let mut deck = vec![card(1); 6];
+        deck.push(card(10));
+        let mut duel = Duel::new(deck, 15, 5, enemy(999, 20)).with_coin(Coin::RIGGED);
+        duel.play(0, None).unwrap();
+        duel.show_hand();
+
+        duel.push().expect("the prompt is up");
+
+        assert_eq!(duel.player_stack(), 0);
+        assert_eq!(duel.outcome(), Some(CombatOutcome::Lost));
     }
 
     #[test]
@@ -914,7 +985,7 @@ mod push_your_luck_tests {
         let result = duel.push().expect("the prompt is up");
 
         assert_eq!(result.pyl, Some(Push::Lost));
-        assert_eq!(result.hand, 0);
+        assert_eq!(result.hand, 30); // as shown; the flip is what zeroed it
         assert_eq!(result.kind, Outcome::Whiff(20));
         assert_eq!(duel.player_stack(), 20);
         assert_eq!(duel.enemy_stack(), 999);
@@ -940,7 +1011,7 @@ mod push_your_luck_tests {
         duel.show_hand();
 
         assert_eq!(duel.play(0, None), Err(PlayError::HandIsFinal));
-        assert_eq!(duel.show_hand(), None);
+        duel.show_hand(); // showing twice changes nothing
         assert_eq!(duel.hand(), 30);
     }
 
@@ -1173,7 +1244,7 @@ mod the_house_tests {
             duel.play(0, None).unwrap(); // hole card is 14
         }
 
-        assert_eq!(duel.show_hand(), None); // 80 >= 67: PYL is offered
+        duel.show_hand(); // 80 >= 67
         let result = duel.hold().unwrap();
 
         assert_eq!(result.kind, Outcome::Payout(13)); // 14 - 1
@@ -1186,7 +1257,7 @@ mod the_house_tests {
         duel.play(0, None).unwrap();
         duel.play(0, None).unwrap(); // 35, three Plays unused
 
-        let result = duel.show_hand().unwrap(); // no hole card: never offered PYL
+        let result = duel.end_turn(); // no hole card: a Whiff, held
 
         assert_eq!(result.house_edge, 36);
         assert_eq!(result.kind, Outcome::Whiff(1));
@@ -1199,8 +1270,8 @@ mod the_house_tests {
             Duel::new(vanilla_deck(40), 999, 5, the_house(9999)).under_the_hole_card_rule();
 
         assert_eq!(duel.margin(), Some(1));
-        duel.show_hand(); // turn 1
-        duel.show_hand(); // turn 2: blinds tick
+        duel.end_turn(); // turn 1
+        duel.end_turn(); // turn 2: blinds tick
         assert_eq!(duel.margin(), Some(3));
         assert_eq!(duel.locked_edge(), None); // a fresh turn, nothing read yet
 

@@ -244,10 +244,17 @@ pub fn redraw(
                 text(mid, "The House is watching. It sets the line after your fourth card; your last card is the one it can't see.", 18.0, DIM);
             }
             if duel.phase() == Phase::PushYourLuck {
-                let held = duel.payout(None);
-                let pushed = duel.payout(Some(Push::Won));
-                text(mid, format!("Push Your Luck?   Hold for a Payout of {held}, or {pushed} if the coin lands your way."), 24.0, GOLD);
-                text(mid, format!("Lose and The Hand is 0: a Whiff of {}, out of your own Stack.", duel.house_edge()), 18.0, NEON);
+                if duel.hand() >= duel.house_edge() {
+                    let held = duel.payout(None);
+                    let pushed = duel.payout(Some(Push::Won));
+                    text(mid, format!("Push Your Luck?   Hold for a Payout of {held}, or {pushed} if the coin lands your way."), 24.0, GOLD);
+                    text(mid, format!("Lose and The Hand is 0: a Whiff of {}, out of your own Stack.", duel.house_edge()), 18.0, NEON);
+                } else {
+                    let held = duel.whiff(None);
+                    let lost = duel.whiff(Some(Push::Lost));
+                    text(mid, format!("Push Your Luck?   Hold and take the Whiff of {held}, or Push: the coin lands your way and it's forgiven."), 24.0, GOLD);
+                    text(mid, format!("Lose and the Whiff doubles to {lost}, out of your own Stack."), 18.0, NEON);
+                }
                 text(mid, coin_line(duel.coin()), 18.0, DIM);
             }
             if let Some(turn) = &active.last_turn {
@@ -370,8 +377,21 @@ fn turn_line(turn: &TurnResult) -> String {
         (Some(Push::Won), Outcome::Payout(n)) => {
             format!("The coin is yours. Payout doubled to {n}.")
         }
-        (Some(Push::Lost), Outcome::Whiff(n)) => {
+        // A lost Push on a Hand that cleared the Edge zeroed it.
+        (Some(Push::Lost), Outcome::Whiff(n)) if turn.hand >= edge => {
             format!("The coin is the House's. The Hand is 0: Whiff. You lose {n}.")
+        }
+        (Some(Push::Won), Outcome::Whiff(_)) => {
+            format!(
+                "{} vs House Edge {edge}. The coin is yours: the Whiff is forgiven.",
+                turn.hand
+            )
+        }
+        (Some(Push::Lost), Outcome::Whiff(n)) => {
+            format!(
+                "{} vs House Edge {edge}. The coin is the House's: the Whiff doubles. You lose {n}.",
+                turn.hand
+            )
         }
         (_, Outcome::Payout(n)) => format!("{} vs House Edge {edge}: Payout {n}.", turn.hand),
         (_, Outcome::Whiff(n)) => {
