@@ -1683,3 +1683,164 @@ mod copycat_tests {
         );
     }
 }
+#[cfg(test)]
+mod pyl_probe {
+    use super::shuffled;
+    use crate::combat::duel::{Coin, Duel, Outcome, Push};
+    use crate::run::{Card, CombatOutcome, EncounterId, Enemy, Reward, RunState, Tell, xorshift64};
+
+    const RUN: [EncounterId; 5] = [
+        EncounterId::FloorMinion,
+        EncounterId::Slotz,
+        EncounterId::PitMinion,
+        EncounterId::PitBoss,
+        EncounterId::TheHouse,
+    ];
+
+    #[derive(Clone, Copy)]
+    enum Whiff { Never, OnlyIfHoldKills, IfHalfStack, Always }
+    #[derive(Clone, Copy)]
+    enum Player { Naive, Careful }
+
+    fn pick(duel: &Duel, player: Player) -> Option<(usize, Option<usize>)> {
+        let draw = duel.draw();
+        if draw.is_empty() { return None; }
+        let prev_tell = duel.played().last().is_some_and(|p| p.card.tell.is_some());
+        let idx = match player {
+            Player::Naive => 0,
+            Player::Careful if duel.margin().is_some() && duel.plays_left() > 1 => {
+                // Before the lock a card only raises the Edge: lead with the
+                // smallest plain card, keep All Ins and Streaks for the Hole Card.
+                (0..draw.len()).min_by_key(|&i| draw[i].stack + if draw[i].tell.is_some() { 100 } else { 0 }).unwrap()
+            }
+            Player::Careful if duel.margin().is_some() => {
+                // The Hole Card: an All In with the biggest burn, else a Streak
+                // after a Tell, else the biggest card.
+                let all_in = draw.iter().position(|c| c.tell == Some(Tell::AllIn));
+                let streak = draw.iter().position(|c| c.tell == Some(Tell::Streak));
+                match (all_in, prev_tell, streak) {
+                    (Some(i), _, _) if draw.len() >= 2 => i,
+                    (_, true, Some(i)) => i,
+                    _ => (0..draw.len()).max_by_key(|&i| draw[i].stack).unwrap(),
+                }
+            }
+            Player::Careful => {
+                let streak = draw.iter().position(|c| c.tell == Some(Tell::Streak));
+                match (prev_tell, streak) {
+                    (true, Some(i)) => i,
+                    _ => (0..draw.len()).max_by_key(|&i| draw[i].stack + if draw[i].tell == Some(Tell::AllIn) { 3 } else { 0 }).unwrap(),
+                }
+            }
+        };
+        if draw[idx].tell == Some(Tell::AllIn) {
+            if draw.len() < 2 { return None; }
+            let hole = duel.margin().is_some() && duel.plays_left() == 1;
+            let others = (0..draw.len()).filter(|&i| i != idx);
+            let burn = if hole { others.max_by_key(|&i| draw[i].stack) } else { others.min_by_key(|&i| draw[i].stack) }.unwrap();
+            Some((idx, Some(burn)))
+        } else {
+            Some((idx, None))
+        }
+    }
+
+    fn duel_for(run: &RunState, id: EncounterId, seed: u64) -> Duel {
+        let mut enemy = Enemy::for_encounter(id);
+        enemy.blinds = run.blinds(enemy.blinds);
+        let mut duel = Duel::new(shuffled(run.deck.clone(), seed), run.stack, run.plays(), enemy)
+            .with_seed(seed.rotate_left(17))
+            .with_coin(Coin::for_perks(&run.perks))
+            .with_loaded_dice(run.loaded_dice());
+        if id == EncounterId::TheHouse { duel = duel.under_the_hole_card_rule(); }
+        duel
+    }
+
+    thread_local! { static ARRIVALS: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+    /// Plays one run; returns how many encounters were won (5 = beat The House).
+    fn play_run(seed: &mut u64, player: Player, whiff: Whiff) -> usize {
+        let mut run = RunState::new();
+        for (won, id) in RUN.iter().enumerate() {
+            if *id == EncounterId::TheHouse { ARRIVALS.with(|a| a.borrow_mut().push(run.stack)); }
+            let mut duel = duel_for(&run, *id, xorshift64(seed));
+            let outcome = loop {
+                while duel.plays_left() > 0 {
+                    let Some((i, burn)) = pick(&duel, player) else { break };
+                    if duel.play(i, burn).is_err() { break; }
+                }
+                duel.show_hand();
+                let push = if duel.hand() >= duel.house_edge() {
+                    // Push a clearing Hand only when the double is the kill and the hold isn't.
+                    duel.payout(Some(Push::Won)) >= duel.enemy_stack() && duel.payout(None) < duel.enemy_stack()
+                } else {
+                    let w = duel.whiff(None);
+                    match whiff {
+                        Whiff::Never => false,
+                        Whiff::OnlyIfHoldKills => w >= duel.player_stack(),
+                        Whiff::IfHalfStack => w * 2 >= duel.player_stack(),
+                        Whiff::Always => true,
+                    }
+                };
+                let r = if push { duel.push() } else { duel.hold() }.unwrap();
+                let _ = matches!(r.kind, Outcome::Whiff(_));
+                if let Some(o) = duel.outcome() { break o; }
+                if duel.turn() > 300 { break CombatOutcome::Lost; }
+            };
+            if outcome == CombatOutcome::Lost { return won; }
+            run.stack = duel.player_stack();
+            run.set_loaded_dice(duel.dice_left());
+            match id {
+                EncounterId::FloorMinion | EncounterId::PitMinion => run.apply(Reward::LoadedDice, 1),
+                EncounterId::Slotz => run.apply(Reward::SlotzStreakCards, 1),
+                EncounterId::PitBoss => run.apply(Reward::PitBossRandomCards, xorshift64(seed)),
+                _ => {}
+            }
+        }
+        5
+    }
+
+    #[test]
+    fn trace_house() {
+        let mut run = RunState::new();
+        run.stack = 60;
+        let mut duel = duel_for(&run, EncounterId::TheHouse, 12345);
+        let mut out = String::new();
+        for _ in 0..12 {
+            let mut plays = vec![];
+            while duel.plays_left() > 0 {
+                let Some((i, burn)) = pick(&duel, Player::Careful) else { break };
+                let c = duel.draw()[i].clone();
+                let b = burn.map(|b| duel.draw()[b].stack);
+                match duel.play(i, burn) { Ok(v) => plays.push(format!("{:?}{}{} ->{}", c.tell, c.stack, b.map(|b| format!("+{b}")).unwrap_or_default(), v)), Err(e) => { plays.push(format!("{e:?}")); break } }
+            }
+            duel.show_hand();
+            let r = duel.hold().unwrap();
+            out.push_str(&format!("turn {} margin {:?} edge {} hand {} -> {:?}  player {} enemy {}   {:?}\n", r.hand, duel.margin(), r.house_edge, r.hand, r.kind, duel.player_stack(), duel.enemy_stack(), plays));
+            if duel.outcome().is_some() { break; }
+        }
+        panic!("\n{out}");
+    }
+
+    #[test]
+    fn probe() {
+        let _ = Card { name: "", stack: 0, tell: None };
+        let n = 20000;
+        let mut out = String::new();
+        for player in [Player::Naive, Player::Careful] {
+            for (name, whiff) in [("never (before)", Whiff::Never), ("only if hold kills", Whiff::OnlyIfHoldKills), ("if whiff >= half stack", Whiff::IfHalfStack), ("always", Whiff::Always)] {
+                let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+                ARRIVALS.with(|a| a.borrow_mut().clear());
+                let mut wins = 0; let mut depth = 0usize; let mut ends = [0usize; 6];
+                for _ in 0..n {
+                    let d = play_run(&mut seed, player, whiff);
+                    depth += d; if d == 5 { wins += 1; } ends[d] += 1;
+                }
+                let arr = ARRIVALS.with(|a| a.borrow().clone());
+                let mean_arr = arr.iter().sum::<u32>() as f64 / arr.len().max(1) as f64;
+                out.push_str(&format!("{:8} {:24} win {:5.1}%  mean won {:.2}  died at [minion slotz pitminion pitboss house]: {:?}  arrive at House: {} runs, mean stack {:.1}\n",
+                    match player { Player::Naive => "naive", Player::Careful => "careful" }, name,
+                    100.0 * wins as f64 / n as f64, depth as f64 / n as f64, &ends[..5], arr.len(), mean_arr));
+            }
+        }
+        panic!("\n{out}");
+    }
+}
