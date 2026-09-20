@@ -357,8 +357,8 @@ impl Enemy {
                 stack: 32,
                 deal: Deal {
                     row: 3,
-                    low: 5,
-                    high: 9,
+                    low: 3,
+                    high: 7,
                     tell_pct: 35,
                     tells: &[Tell::Streak, Tell::Copycat],
                     hidden_pct: 50,
@@ -389,7 +389,7 @@ impl Enemy {
                 deal: Deal {
                     row: 4,
                     low: 4,
-                    high: 8,
+                    high: 9,
                     tell_pct: 40,
                     tells: &[Tell::Streak, Tell::Copycat, Tell::Flop],
                     hidden_pct: 55,
