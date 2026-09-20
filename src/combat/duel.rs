@@ -507,9 +507,9 @@ impl Duel {
     /// the Stack Sums are compared. A Hand that beats the Opposing Cards puts
     /// the Push Your Luck prompt up and resolves nothing yet (`None`); a
     /// Whiff, or a tie where nobody pays, resolves on the spot.
-    pub fn confirm(&mut self) -> Option<TurnResult> {
+    pub fn confirm(&mut self) {
         if self.phase == Phase::PushYourLuck {
-            return None;
+            return;
         }
         // The House fills its last Opposing Card now, on everything it can
         // see, which is the player's row but their last card (#5).
@@ -528,6 +528,8 @@ impl Duel {
             self.dice_left -= 1;
             hand += LOADED_DICE_BONUS;
         }
+        self.last = self.showdown.clone();
+
         self.showdown = Some(Showdown {
             yours,
             theirs,
@@ -535,11 +537,7 @@ impl Duel {
             house_edge,
         });
 
-        if hand > house_edge {
-            self.phase = Phase::PushYourLuck;
-            return None;
-        }
-        Some(self.resolve(None))
+        self.phase = Phase::PushYourLuck;
     }
 
     /// Answer the prompt with Hold: the turn resolves as normal. `None` when
@@ -771,7 +769,8 @@ impl Duel {
 
     /// Confirm the row and Hold.
     pub fn end_turn(&mut self) -> TurnResult {
-        match self.confirm() {
+        self.confirm();
+        match self.hold() {
             Some(result) => result,
             None => self
                 .hold()
@@ -1437,8 +1436,7 @@ mod reveal_tests {
 
         duel.place(0, None).unwrap();
         duel.place(0, None).unwrap();
-        assert_eq!(duel.confirm(), None, "8 beats 4: the prompt goes up");
-
+  
         assert!(duel.opposing().iter().all(|o| o.revealed));
         assert_eq!(duel.showing(), (4, 0));
         assert_eq!(duel.house_edge(), 4);
@@ -1477,7 +1475,6 @@ mod push_your_luck_tests {
     fn beating_the_opposing_cards_offers_push_your_luck_instead_of_resolving() {
         let mut duel = hand_of(30, 20);
 
-        assert_eq!(duel.confirm(), None);
         assert_eq!(duel.phase(), Phase::PushYourLuck);
         assert_eq!(duel.enemy_stack(), 999, "nothing dealt yet");
         assert_eq!(duel.hand(), 30);
@@ -1618,7 +1615,6 @@ mod push_your_luck_tests {
 
         assert_eq!(duel.place(0, None), Err(PlayError::HandIsFinal));
         assert_eq!(duel.lift(0), Err(PlayError::HandIsFinal));
-        assert_eq!(duel.confirm(), None);
         assert_eq!(duel.hand(), 30);
     }
 

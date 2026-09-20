@@ -332,7 +332,7 @@ impl Enemy {
     /// a decent player, and the Blinds only bite past ~6.
     pub fn for_encounter(id: EncounterId) -> Self {
         let blinds = RisingBlinds {
-            every_turns: 3,
+            every_turns: 5,
             cards: 1,
         };
         match id {

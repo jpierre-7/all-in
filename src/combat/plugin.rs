@@ -371,13 +371,8 @@ fn take_input(
         // Both rows turn over. A Hand that beats the Opposing Cards puts the
         // Push Your Luck prompt up instead of resolving; a Whiff, or a tie
         // that pays nobody, resolves here.
-        let Some(result) = active.duel.confirm() else {
-            active.notice = None;
-            return;
-        };
-        active.last_turn = Some(result);
+        active.duel.confirm();
         active.notice = None;
-        finish_if_over(&mut commands, &mut active, &mut run, &mut next);
     }
 }
 
