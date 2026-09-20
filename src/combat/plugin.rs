@@ -5,9 +5,9 @@
 use bevy::prelude::*;
 
 use super::duel::{Coin, Duel, Phase, PlayError, TurnResult};
-use super::ui;
+use super::ui::{self, Zone};
 use crate::overworld::narrative;
-use crate::run::{Card, CombatOutcome, Encounter, EncounterId, RunState, Tell, xorshift64};
+use crate::run::{Card, CombatOutcome, Encounter, EncounterId, RunState, xorshift64};
 use crate::state::AppState;
 
 pub struct CombatPlugin;
@@ -190,15 +190,16 @@ fn start_duel(
     // rewards built, the Plays and Blinds the perks bought, the coin Slotz
     // rigged, and whatever is left of the Loaded Dice.
     let tutorial = encounter.id == EncounterId::Tutorial;
-    let mut duel = if tutorial {
-        // The Arcade: a fixed deal, a fresh Stack, a coin that can't lose,
-        // and nothing the run has picked up (#40).
+    let duel = if tutorial {
+        // The Arcade: a fixed deal on both sides of the table, a fresh Stack,
+        // a coin that can't lose, and nothing the run has picked up (#40).
         Duel::new(
             crate::run::tutorial_deal(),
             crate::run::STARTING_STACK,
             5,
             encounter.enemy.clone(),
         )
+        .with_opposing(crate::run::tutorial_opposing())
         .with_coin(Coin {
             player_pct: 100,
             best_of: 1,
@@ -206,6 +207,8 @@ fn start_duel(
     } else {
         let mut enemy = encounter.enemy.clone();
         enemy.blinds = run.blinds(enemy.blinds);
+        // The Hole Card rule rides in on the enemy itself (#5), so there is
+        // nothing to switch on here: The House is the only one carrying one.
         Duel::new(
             shuffled(run.deck.clone(), seed),
             run.stack,
@@ -216,9 +219,6 @@ fn start_duel(
         .with_coin(Coin::for_perks(&run.perks))
         .with_loaded_dice(run.loaded_dice())
     };
-    if encounter.id == EncounterId::TheHouse {
-        duel = duel.under_the_hole_card_rule();
-    }
 
     commands.insert_resource(ActiveDuel {
         duel,
@@ -255,9 +255,23 @@ fn take_input(
     if info.is_some() || super::info::toggled(&keys) {
         return;
     }
-    // A card, from either the number keys or a click on it (#58). From here
-    // on the two are the same thing.
-    let digit = card_key(&keys).or_else(|| card_click(&clicked));
+    // A click anywhere on the table: a card in the Draw picks the slot it
+    // goes into, a card already in the row comes back out.
+    let click = card_click(&clicked);
+    // A card out of the Draw, from either the number keys or a click on it
+    // (#58). From here on the two are the same thing.
+    let digit = card_key(&keys).or_else(|| match click {
+        Some(slot) if slot.zone == Zone::Draw => Some(slot.index as u8 + 1),
+        _ => None,
+    });
+    // A card out of the row: clicked, or Backspace for the last one placed.
+    let lifting = match click {
+        Some(slot) if slot.zone == Zone::Row => Some(slot.index),
+        _ => keys
+            .just_pressed(KeyCode::Backspace)
+            .then(|| active.duel.row().len().checked_sub(1))
+            .flatten(),
+    };
 
     if active.guide.is_some() {
         // Esc leaves the Arcade from anywhere; the overworld routes it home.
@@ -280,10 +294,9 @@ fn take_input(
 
     if let Some(digit) = digit {
         let index = usize::from(digit - 1);
-        let before = active.duel.hand();
         let result = match active.awaiting_sacrifice.take() {
-            Some(all_in) => active.duel.play(all_in, Some(index)),
-            None => match active.duel.play(index, None) {
+            Some(all_in) => active.duel.place(all_in, Some(index)),
+            None => match active.duel.place(index, None) {
                 Err(PlayError::AllInNeedsSacrifice) => {
                     active.awaiting_sacrifice = Some(index);
                     active.notice = Some("All In. Which card do you burn?".into());
@@ -292,35 +305,35 @@ fn take_input(
                 other => other,
             },
         };
-        active.notice = Some(match result {
-            Ok(value) => {
-                // A Copycat played before this card fills in as it lands, so
-                // The Hand can rise by more than the card itself.
-                let filled = active.duel.hand() - before - value;
-                let copycat = active
-                    .duel
-                    .played()
-                    .last()
-                    .is_some_and(|p| p.card.tell == Some(Tell::Copycat));
-                let mut line = if copycat {
-                    "Copycat. Nothing yet: it takes the next card's Stack.".to_string()
-                } else {
-                    format!("+{value} to The Hand.")
-                };
-                if filled > 0 {
-                    line.pop();
-                    line.push_str(&format!(
-                        ", and the Copycat before it fills in for {filled}."
-                    ));
-                }
-                line
+        let notice = match result {
+            Ok(slot) => placed_line(&active.duel, slot),
+            Err(PlayError::RowIsFull) => {
+                "Every slot you can cover is covered. Enter to confirm, or click a card in your row to take it back.".into()
             }
-            Err(PlayError::NoPlaysLeft) => "No Plays left. Enter to show your Hand.".into(),
             Err(PlayError::NoSuchCard) => "No card there.".into(),
             Err(PlayError::AllInNeedsSacrifice) => "All In needs a sacrifice.".into(),
             Err(PlayError::NotAllIn) => "Only All In burns a card.".into(),
-            Err(PlayError::HandIsFinal) => "The Hand is final. Push (P) or Hold (H).".into(),
-        });
+            Err(PlayError::HandIsFinal) => "The rows are down. Push (P) or Hold (H).".into(),
+        };
+        active.notice = Some(notice);
+        return;
+    }
+
+    // Taking a card back out of the row. Everything to its right slides left,
+    // so the Tells that read a neighbour read a new one.
+    if let Some(slot) = lifting
+        && active.awaiting_sacrifice.is_none()
+    {
+        let notice = match active.duel.lift(slot) {
+            Ok(card) => format!(
+                "{} back in the Draw. Your row reads {}.",
+                card.name,
+                active.duel.hand()
+            ),
+            Err(PlayError::HandIsFinal) => "The rows are down. Push (P) or Hold (H).".into(),
+            Err(_) => "Nothing in that slot.".into(),
+        };
+        active.notice = Some(notice);
         return;
     }
 
@@ -355,11 +368,32 @@ fn take_input(
             active.notice = Some("Name the sacrifice first (1-7), or Esc.".into());
             return;
         }
-        // Showing puts the Push Your Luck prompt up, clear or Whiff; the
-        // turn resolves when it is answered.
-        active.duel.show_hand();
+        // Both rows turn over. A Hand that beats the Opposing Cards puts the
+        // Push Your Luck prompt up instead of resolving; a Whiff, or a tie
+        // that pays nobody, resolves here.
+        let Some(result) = active.duel.confirm() else {
+            active.notice = None;
+            return;
+        };
+        active.last_turn = Some(result);
         active.notice = None;
+        finish_if_over(&mut commands, &mut active, &mut run, &mut next);
     }
+}
+
+/// What the table says when a card lands in the row. Nothing resolves until
+/// the rows turn over, so this is what the row reads so far and what is left
+/// to cover — not what the card was "worth", which nothing yet knows.
+fn placed_line(duel: &Duel, slot: usize) -> String {
+    let left = duel.plays_left();
+    let mut line = format!("Slot {}. Your row reads {}.", slot + 1, duel.hand());
+    if left == 0 {
+        line.push_str("  Enter to confirm.");
+    } else {
+        let cards = if left == 1 { "card" } else { "cards" };
+        line.push_str(&format!("  {left} more {cards} to cover the row."));
+    }
+    line
 }
 
 /// Write the Stack back and hand over at `PostCombat` once one Stack is out.
@@ -390,12 +424,14 @@ fn hand_over(commands: &mut Commands, outcome: CombatOutcome, next: &mut NextSta
     next.set(AppState::PostCombat);
 }
 
-/// A card just clicked, as its 1-based slot.
-fn card_click(clicked: &Query<(&Interaction, &ui::CardSlot), Changed<Interaction>>) -> Option<u8> {
+/// The card just clicked, wherever on the table it was.
+fn card_click(
+    clicked: &Query<(&Interaction, &ui::CardSlot), Changed<Interaction>>,
+) -> Option<ui::CardSlot> {
     clicked
         .iter()
         .find(|(interaction, _)| **interaction == Interaction::Pressed)
-        .map(|(_, slot)| slot.0 as u8 + 1)
+        .map(|(_, slot)| *slot)
 }
 
 /// 1-7, top row or numpad: the Draw slot to play or to sacrifice.
@@ -419,20 +455,46 @@ mod tests {
     use bevy::state::app::StatesPlugin;
 
     use super::super::duel::Coin;
+    use super::super::ui;
     use super::{ActiveDuel, CombatPlugin, DuelSeed};
-    use crate::run::{CombatOutcome, Encounter, EncounterId, Enemy, Perk, RisingBlinds, RunState};
+    use crate::run::{
+        Card, CombatOutcome, Deal, Encounter, EncounterId, Enemy, Perk, RisingBlinds, RunState,
+    };
     use crate::state::AppState;
 
+    /// An enemy that deals five Opposing Cards worth nothing at all, so a
+    /// test that hasn't laid its own row out is facing an Edge of zero.
+    pub(super) fn shill(stack: u32) -> Enemy {
+        Enemy {
+            name: "shill",
+            stack,
+            deal: Deal {
+                row: 5,
+                low: 0,
+                high: 0,
+                tell_pct: 0,
+                tells: &[],
+                hidden_pct: 0,
+            },
+            blinds: RisingBlinds {
+                every_turns: 2,
+                cards: 1,
+            },
+            hole_card: None,
+        }
+    }
+
     /// Combat on its own: no window, no overworld. The test plays the
-    /// overworld's part by inserting the Encounter and entering the state.
-    pub(super) fn table(player_stack: u32, enemy_stack: u32, house_edge: u32) -> App {
-        table_with(player_stack, enemy_stack, house_edge, Vec::new())
+    /// overworld's part by inserting the Encounter and entering the state,
+    /// then lays a known row across the table worth `edge`.
+    pub(super) fn table(player_stack: u32, enemy_stack: u32, edge: u32) -> App {
+        table_with(player_stack, enemy_stack, edge, Vec::new())
     }
 
     pub(super) fn table_with(
         player_stack: u32,
         enemy_stack: u32,
-        house_edge: u32,
+        edge: u32,
         perks: Vec<Perk>,
     ) -> App {
         table_for_run(
@@ -442,12 +504,24 @@ mod tests {
                 ..RunState::new()
             },
             enemy_stack,
-            house_edge,
+            edge,
         )
     }
 
     /// A table set for a run that has already picked things up.
-    pub(super) fn table_for_run(run: RunState, enemy_stack: u32, house_edge: u32) -> App {
+    pub(super) fn table_for_run(run: RunState, enemy_stack: u32, edge: u32) -> App {
+        let mut app = dealt_table(run, shill(enemy_stack));
+        lay_out(&mut app, edge);
+        // Laying the row out changed the duel, so the screen is a frame
+        // behind it. The mouse tests click on nodes; let them be the right
+        // ones before anyone reaches for them.
+        app.update();
+        app
+    }
+
+    /// The same table with whatever `enemy` deals itself left alone, for the
+    /// tests that are about the deal rather than about a known Edge.
+    pub(super) fn dealt_table(run: RunState, enemy: Enemy) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_plugins(StatesPlugin)
@@ -457,15 +531,7 @@ mod tests {
             .insert_resource(super::HandoverDelay(0.0))
             .insert_resource(Encounter {
                 id: EncounterId::FloorMinion,
-                enemy: Enemy {
-                    name: "shill",
-                    stack: enemy_stack,
-                    house_edge,
-                    blinds: RisingBlinds {
-                        every_turns: 2,
-                        increase: 2,
-                    },
-                },
+                enemy,
             })
             .add_plugins(CombatPlugin);
         app.update();
@@ -474,6 +540,54 @@ mod tests {
             .set(AppState::Combat);
         app.update();
         app
+    }
+
+    /// Five slots across the table, the first card carrying the whole Edge
+    /// and the other four carrying nothing. Fixed, so it comes back the same
+    /// every turn the way a flat House Edge used to.
+    pub(super) fn lay_out(app: &mut App, edge: u32) {
+        let mut row = vec![Card {
+            name: "the edge",
+            stack: edge,
+            tell: None,
+        }];
+        row.extend((1..5).map(|_| Card {
+            name: "nothing",
+            stack: 0,
+            tell: None,
+        }));
+        app.world_mut()
+            .resource_mut::<ActiveDuel>()
+            .duel
+            .lay_out(row);
+    }
+
+    /// The card node for a slot in one of the three rows.
+    pub(super) fn node_at(app: &mut App, zone: ui::Zone, index: usize) -> Entity {
+        let wanted = ui::CardSlot { zone, index };
+        app.world_mut()
+            .query::<(Entity, &ui::CardSlot)>()
+            .iter(app.world())
+            .find(|(_, slot)| **slot == wanted)
+            .map(|(entity, _)| entity)
+            .unwrap_or_else(|| panic!("a card node for {zone:?} slot {index}"))
+    }
+
+    /// A mouse click on a card, as the UI focus system would report it: the
+    /// node's Interaction goes to Pressed for a frame.
+    pub(super) fn click_at(app: &mut App, zone: ui::Zone, index: usize) {
+        let entity = node_at(app, zone, index);
+        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Pressed;
+        app.update();
+        if let Some(mut interaction) = app.world_mut().get_mut::<Interaction>(entity) {
+            *interaction = Interaction::None;
+        }
+        app.update();
+    }
+
+    /// A click on a card in the Draw, which is most of them.
+    pub(super) fn click(app: &mut App, index: usize) {
+        click_at(app, ui::Zone::Draw, index);
     }
 
     pub(super) fn press(app: &mut App, key: KeyCode) {
@@ -557,21 +671,53 @@ mod tests {
 
     #[test]
     fn the_big_shots_table_plays_under_the_hole_card_rule() {
-        let mut app = table(50, 35, 1);
-        app.world_mut().resource_mut::<Encounter>().id = EncounterId::TheHouse;
-        // Re-enter Combat so start_duel sees the House.
-        app.world_mut()
-            .resource_mut::<NextState<AppState>>()
-            .set(AppState::Lobby);
-        app.update();
-        app.world_mut()
-            .resource_mut::<NextState<AppState>>()
-            .set(AppState::Combat);
-        app.update();
+        let app = dealt_table(
+            RunState::new(),
+            Enemy::for_encounter(EncounterId::TheHouse),
+        );
 
-        let active = app.world().resource::<ActiveDuel>();
-        assert_eq!(active.duel.margin(), Some(1));
-        assert_eq!(active.duel.locked_edge(), None);
+        let duel = &app.world().resource::<ActiveDuel>().duel;
+        assert_eq!(duel.margin(), Some(1));
+        // The last Opposing Card is face down and worth nothing yet.
+        let last = duel.opposing().last().expect("a row");
+        assert!(!last.revealed);
+        assert_eq!(last.card.stack, 0);
+        assert_eq!(duel.showing().1, 1, "one card kept back");
+    }
+
+    #[test]
+    fn the_enemy_lays_its_row_down_before_the_player_touches_a_card() {
+        let app = dealt_table(
+            RunState::new(),
+            Enemy::for_encounter(EncounterId::PitBoss),
+        );
+
+        let duel = &app.world().resource::<ActiveDuel>().duel;
+        assert_eq!(duel.slots(), 4, "the Pit Boss deals four");
+        assert!(duel.row().is_empty());
+        assert!(duel.opposing()[0].revealed, "the first is always face up");
+        assert!(duel.opposing().iter().all(|o| o.card.stack >= 4));
+    }
+
+    #[test]
+    fn a_card_goes_into_the_row_and_can_be_taken_back_out_again() {
+        let mut app = table(40, 999, 10);
+        let held = app.world().resource::<ActiveDuel>().duel.draw()[0].clone();
+        if held.tell == Some(crate::run::Tell::AllIn) {
+            return; // this deal wants a sacrifice; the All In tests cover it
+        }
+
+        press(&mut app, KeyCode::Digit1);
+        let duel = &app.world().resource::<ActiveDuel>().duel;
+        assert_eq!(duel.row().len(), 1);
+        assert_eq!(duel.draw().len(), 6);
+        assert_eq!(duel.hand(), held.stack);
+
+        press(&mut app, KeyCode::Backspace);
+        let duel = &app.world().resource::<ActiveDuel>().duel;
+        assert!(duel.row().is_empty());
+        assert_eq!(duel.draw().len(), 7);
+        assert_eq!(duel.hand(), 0);
     }
 
     #[test]
@@ -852,40 +998,52 @@ mod run_modifier_tests {
     use bevy::prelude::*;
 
     use super::ActiveDuel;
-    use super::tests::{press, state, table, table_for_run, table_with};
+    use super::tests::{dealt_table, press, shill, state, table_for_run};
     use crate::run::{CombatOutcome, Perk, Reward, RunState};
     use crate::state::AppState;
 
+    /// A six-card row, so there is a sixth slot for the perk's sixth Play to
+    /// go into and a sixth card to go uncovered without it.
+    fn wide_table(perks: Vec<Perk>) -> App {
+        let mut enemy = shill(999);
+        enemy.deal.row = 6;
+        dealt_table(
+            RunState {
+                stack: 400,
+                perks,
+                ..RunState::new()
+            },
+            enemy,
+        )
+    }
+
     #[test]
     fn the_pit_boss_perk_deals_a_sixth_play() {
-        assert_eq!(
-            table(40, 999, 20)
-                .world()
-                .resource::<ActiveDuel>()
-                .duel
-                .plays_left(),
-            5
-        );
+        // Six Opposing Cards. Five Plays covers five of them and leaves the
+        // sixth sitting there counting for the enemy.
+        let plain = wide_table(Vec::new());
+        let duel = &plain.world().resource::<ActiveDuel>().duel;
+        assert_eq!(duel.slots(), 6);
+        assert_eq!(duel.plays_left(), 5);
 
-        let six = table_with(40, 999, 20, vec![Perk::SixPlaysSteepBlinds]);
+        let six = wide_table(vec![Perk::SixPlaysSteepBlinds]);
 
         assert_eq!(six.world().resource::<ActiveDuel>().duel.plays_left(), 6);
     }
 
     #[test]
-    fn the_pit_boss_perk_raises_the_blinds_every_turn() {
-        // Base blinds are every 3 turns, so a plain table's Edge sits still
-        // after one turn and the perk's has already moved.
-        let mut plain = table(400, 999, 30);
-        let mut steep = table_with(400, 999, 30, vec![Perk::SixPlaysSteepBlinds]);
+    fn the_pit_boss_perk_lays_another_opposing_card_down_every_turn() {
+        // Base blinds are every 2 turns at this table, so after one turn the
+        // plain row has not grown and the perk's already has.
+        let mut plain = wide_table(Vec::new());
+        let mut steep = wide_table(vec![Perk::SixPlaysSteepBlinds]);
 
         for app in [&mut plain, &mut steep] {
-            press(app, KeyCode::Enter); // a Whiff, held
-            press(app, KeyCode::KeyH);
+            press(app, KeyCode::Enter); // nothing covered: the turn resolves
         }
 
-        assert_eq!(plain.world().resource::<ActiveDuel>().duel.house_edge(), 30);
-        assert_eq!(steep.world().resource::<ActiveDuel>().duel.house_edge(), 32);
+        assert_eq!(plain.world().resource::<ActiveDuel>().duel.slots(), 6);
+        assert_eq!(steep.world().resource::<ActiveDuel>().duel.slots(), 7);
     }
 
     #[test]
@@ -1150,34 +1308,16 @@ mod mouse_tests {
     use bevy::prelude::*;
 
     use super::super::info::InfoOpen;
-    use super::super::ui::CardSlot;
+    use super::super::ui::Zone;
     use super::ActiveDuel;
-    use super::tests::{press, table};
-
-    /// A mouse click on the card in `slot`, as the UI focus system would
-    /// report it: the node's Interaction goes to Pressed for a frame.
-    fn click(app: &mut App, slot: usize) {
-        let entity = app
-            .world_mut()
-            .query::<(Entity, &CardSlot)>()
-            .iter(app.world())
-            .find(|(_, s)| s.0 == slot)
-            .map(|(e, _)| e)
-            .expect("a card node for that slot");
-        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Pressed;
-        app.update();
-        if let Some(mut i) = app.world_mut().get_mut::<Interaction>(entity) {
-            *i = Interaction::None;
-        }
-        app.update();
-    }
+    use super::tests::{click, click_at, press, table};
 
     fn active(app: &App) -> &ActiveDuel {
         app.world().resource::<ActiveDuel>()
     }
 
     #[test]
-    fn clicking_a_card_plays_it_like_its_number_key() {
+    fn clicking_a_card_in_the_draw_covers_a_slot_like_its_number_key() {
         let mut app = table(40, 30, 20);
         // Any card but an All In, which would wait for its burn instead.
         let slot = active(&app)
@@ -1192,6 +1332,47 @@ mod mouse_tests {
 
         assert_eq!(active(&app).duel.hand(), stack);
         assert_eq!(active(&app).duel.draw().len(), 6);
+        assert_eq!(active(&app).duel.row().len(), 1);
+    }
+
+    #[test]
+    fn clicking_a_card_in_your_own_row_takes_it_back_out() {
+        let mut app = table(40, 30, 20);
+        let slot = active(&app)
+            .duel
+            .draw()
+            .iter()
+            .position(|c| c.tell != Some(crate::run::Tell::AllIn))
+            .expect("a deal with a playable card");
+        click(&mut app, slot);
+        assert_eq!(active(&app).duel.row().len(), 1);
+
+        click_at(&mut app, Zone::Row, 0);
+
+        assert!(active(&app).duel.row().is_empty());
+        assert_eq!(active(&app).duel.draw().len(), 7);
+        assert_eq!(active(&app).duel.hand(), 0);
+    }
+
+    #[test]
+    fn a_click_on_the_enemys_row_does_nothing_at_all() {
+        let mut app = table(40, 30, 20);
+
+        click_at(&mut app, Zone::Opposing, 0);
+
+        assert!(active(&app).duel.row().is_empty());
+        assert_eq!(active(&app).duel.draw().len(), 7);
+    }
+
+    #[test]
+    fn an_empty_slot_in_your_row_is_not_a_card_to_take_back() {
+        let mut app = table(40, 30, 20);
+
+        // Slot 3 has nothing in it; clicking it must not disturb the row.
+        click_at(&mut app, Zone::Row, 3);
+
+        assert!(active(&app).duel.row().is_empty());
+        assert_eq!(active(&app).duel.draw().len(), 7);
     }
 
     #[test]
@@ -1237,27 +1418,9 @@ mod mouse_tests {
 
 #[cfg(test)]
 mod mouse_tutorial_tests {
-    use bevy::prelude::*;
-
-    use super::super::ui::CardSlot;
     use super::ActiveDuel;
+    use super::tests::click;
     use super::tutorial_tests::arcade;
-
-    fn click(app: &mut App, slot: usize) {
-        let entity = app
-            .world_mut()
-            .query::<(Entity, &CardSlot)>()
-            .iter(app.world())
-            .find(|(_, s)| s.0 == slot)
-            .map(|(e, _)| e)
-            .expect("a card node for that slot");
-        *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Pressed;
-        app.update();
-        if let Some(mut i) = app.world_mut().get_mut::<Interaction>(entity) {
-            *i = Interaction::None;
-        }
-        app.update();
-    }
 
     #[test]
     fn the_script_treats_a_click_on_card_one_as_pressing_one() {
@@ -1367,9 +1530,9 @@ mod peek_tests {
     use bevy::prelude::*;
 
     use super::super::peek::{Peek, Tag};
-    use super::super::ui::CardSlot;
+    use super::super::ui::{CardSlot, Zone};
     use super::ActiveDuel;
-    use super::tests::{press, table, table_for_run};
+    use super::tests::{node_at, press, table, table_for_run};
     use crate::run::{Card, RunState, Tell};
 
     /// A table dealt from a deck where every card is the same, so the test
@@ -1406,20 +1569,27 @@ mod peek_tests {
             .world()
             .get::<CardSlot>(parent)
             .expect("a tag hangs off a card");
-        Some((tag, slot.0))
+        Some((tag, slot.index))
     }
 
-    /// The cursor over the card in `slot`, as the focus system would report it.
-    fn hover(app: &mut App, slot: usize) {
-        let entity = app
-            .world_mut()
-            .query::<(Entity, &CardSlot)>()
-            .iter(app.world())
-            .find(|(_, s)| s.0 == slot)
-            .map(|(e, _)| e)
-            .expect("a card node for that slot");
+    /// A card in the Draw, as the Peek's `Tag` names it.
+    fn held(index: usize) -> CardSlot {
+        CardSlot {
+            zone: Zone::Draw,
+            index,
+        }
+    }
+
+    /// The cursor over a card, as the focus system would report it.
+    fn hover_at(app: &mut App, zone: Zone, index: usize) {
+        let entity = node_at(app, zone, index);
         *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Hovered;
         app.update();
+    }
+
+    /// The cursor over the card in `slot` of the Draw.
+    fn hover(app: &mut App, slot: usize) {
+        hover_at(app, Zone::Draw, slot);
     }
 
     #[test]
@@ -1447,11 +1617,41 @@ mod peek_tests {
         assert_eq!(
             tag,
             Tag {
-                card: 1,
+                card: held(1),
                 term: None,
                 burn: None
             }
         );
+    }
+
+    #[test]
+    fn the_peek_reads_a_face_up_opposing_card_and_not_a_face_down_one() {
+        let mut app = table(40, 30, 20);
+        // `lay_out` puts everything across the table face up.
+        hover_at(&mut app, Zone::Opposing, 0);
+        let (showing, _) = tag(&mut app).expect("a tag on the enemy's card");
+        assert_eq!(showing.card.zone, Zone::Opposing);
+
+        // Turn that card face down and the Peek has nothing to say.
+        app.world_mut()
+            .resource_mut::<ActiveDuel>()
+            .duel
+            .hide_opposing(0);
+        app.update();
+        hover_at(&mut app, Zone::Opposing, 0);
+        assert_eq!(tag(&mut app), None);
+    }
+
+    #[test]
+    fn the_peek_follows_a_card_into_your_own_row() {
+        let mut app = table_of(Some(Tell::Streak));
+        press(&mut app, KeyCode::Digit1);
+
+        hover_at(&mut app, Zone::Row, 0);
+
+        let (showing, _) = tag(&mut app).expect("a tag on the card you placed");
+        assert_eq!(showing.card.zone, Zone::Row);
+        assert_eq!(showing.burn, None, "a card in the row is not a burn");
     }
 
     #[test]
@@ -1466,13 +1666,7 @@ mod peek_tests {
 
     /// The cursor off the card again, onto the tag or the felt.
     fn unhover(app: &mut App, slot: usize) {
-        let entity = app
-            .world_mut()
-            .query::<(Entity, &CardSlot)>()
-            .iter(app.world())
-            .find(|(_, s)| s.0 == slot)
-            .map(|(e, _)| e)
-            .expect("a card node for that slot");
+        let entity = node_at(app, Zone::Draw, slot);
         *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::None;
         app.update();
     }
@@ -1600,7 +1794,7 @@ mod peek_tests {
 }
 
 #[cfg(test)]
-mod copycat_tests {
+mod row_feedback_tests {
     use bevy::prelude::*;
 
     use super::ActiveDuel;
@@ -1662,24 +1856,59 @@ mod copycat_tests {
             .unwrap_or_default()
     }
 
+    /// What the row reads, which is the only number the table can honestly
+    /// give a card as it lands: nothing resolves until the rows turn over,
+    /// and the card to the right of a Copycat hasn't been chosen yet.
     #[test]
-    fn the_table_says_the_copycat_is_waiting_then_what_it_filled_in_for() {
+    fn the_table_says_where_the_card_landed_and_what_the_row_now_reads() {
         let mut app = table();
 
         let key = key_of(&app, Some(Tell::Copycat));
         press(&mut app, key);
-        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 0);
+
+        // A Copycat alone at the end of the row is worth its own printed 3.
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 3);
         assert_eq!(
             notice(&app),
-            "Copycat. Nothing yet: it takes the next card's Stack."
+            "Slot 1. Your row reads 3.  4 more cards to cover the row."
         );
 
         let key = key_of(&app, None);
         press(&mut app, key);
+
+        // Now a six follows it, so the Copycat takes the six's print too.
         assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 12);
         assert_eq!(
             notice(&app),
-            "+6 to The Hand, and the Copycat before it fills in for 6."
+            "Slot 2. Your row reads 12.  3 more cards to cover the row."
         );
+    }
+
+    #[test]
+    fn the_table_says_what_came_back_when_a_card_is_taken_out_of_the_row() {
+        let mut app = table();
+        let key = key_of(&app, None);
+        press(&mut app, key);
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 6);
+
+        press(&mut app, KeyCode::Backspace);
+
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 0);
+        assert_eq!(notice(&app), "six back in the Draw. Your row reads 0.");
+    }
+
+    #[test]
+    fn the_last_slot_says_the_row_is_ready_to_confirm() {
+        let mut app = table();
+        // Neither kind in this deck wants a sacrifice, so slot 1 of the Draw
+        // five times over fills the row whatever the shuffle dealt.
+        for _ in 0..5 {
+            press(&mut app, KeyCode::Digit1);
+        }
+
+        let line = notice(&app);
+        assert!(line.starts_with("Slot 5."), "{line}");
+        assert!(line.ends_with("Enter to confirm."), "{line}");
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.plays_left(), 0);
     }
 }

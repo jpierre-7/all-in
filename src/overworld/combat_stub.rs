@@ -26,8 +26,8 @@ fn show_stub(mut commands: Commands, encounter: Res<Encounter>, run: Res<RunStat
     Screen::new()
         .title("[ combat stub ]")
         .prose(format!(
-            "{} sits down with {} chips behind a House Edge of {}.\nYou have {}.",
-            encounter.enemy.name, encounter.enemy.stack, encounter.enemy.house_edge, run.stack
+            "{} sits down with {} chips and deals {} Opposing Cards.\nYou have {}.",
+            encounter.enemy.name, encounter.enemy.stack, encounter.enemy.deal.row, run.stack
         ))
         .option(1, "Win the duel")
         .option(2, "Lose the duel")
