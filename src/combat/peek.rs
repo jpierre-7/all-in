@@ -12,10 +12,11 @@
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
 
+use super::duel::Duel;
 use super::info::{self, InfoOpen};
 use super::plugin::ActiveDuel;
-use super::ui::{CARD_HEIGHT, CARD_WIDTH, CardSlot};
-use crate::run::Tell;
+use super::ui::{CardSlot, Zone};
+use crate::run::{Card, Tell};
 
 const INK: Color = Color::srgb(0.90, 0.87, 0.80);
 const GOLD: Color = Color::srgb(0.85, 0.70, 0.35);
@@ -43,11 +44,11 @@ pub struct Peek {
     /// Counted, not named, so it is the nth term of whatever card is pointed
     /// at. Reset when the pointer moves.
     term: Option<usize>,
-    /// The last card the mouse was over. The tag stays on it after the
-    /// cursor leaves, so crossing the gap up to the tag (or off onto the
-    /// felt) does not snap it back to the keyboard's card. The keyboard
-    /// takes over again the moment it moves.
-    mouse: Option<usize>,
+    /// The last card the mouse was over, anywhere on the table. The tag
+    /// stays on it after the cursor leaves, so crossing the gap up to the tag
+    /// (or off onto the felt) does not snap it back to the keyboard's card.
+    /// The keyboard takes over again the moment it moves.
+    mouse: Option<CardSlot>,
 }
 
 impl Default for Peek {
@@ -64,11 +65,27 @@ impl Default for Peek {
 /// whether it is still the right one.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tag {
-    pub card: usize,
+    /// Which card on the table it is explaining, in whichever row.
+    pub card: CardSlot,
     /// The term whose own tag is open beside this one.
     pub term: Option<&'static str>,
     /// While an All In waits for its sacrifice: what burning this card adds.
     pub burn: Option<u32>,
+}
+
+/// The card in a slot, as the player is entitled to see it. A face-down
+/// Opposing Card has nothing to say about itself, so nothing is what the
+/// Peek says about it.
+fn card_at(duel: &Duel, slot: CardSlot) -> Option<Card> {
+    match slot.zone {
+        Zone::Draw => duel.draw().get(slot.index).cloned(),
+        Zone::Row => duel.row().get(slot.index).map(|p| p.card.clone()),
+        Zone::Opposing => duel
+            .opposing()
+            .get(slot.index)
+            .filter(|opposing| opposing.revealed)
+            .map(|opposing| opposing.card.clone()),
+    }
 }
 
 /// A term inside the rules text. Point at it and it gets a tag of its own.
@@ -89,7 +106,7 @@ fn rule(tell: Tell) -> &'static [Piece] {
         Tell::Streak => &[
             Piece::Words("Doubles this card's"),
             Piece::Term("Stack"),
-            Piece::Words("if the card played before it had any"),
+            Piece::Words("if the card in the slot to its left has any"),
             Piece::Term("Tell"),
             Piece::Words("."),
         ],
@@ -105,9 +122,18 @@ fn rule(tell: Tell) -> &'static [Piece] {
         Tell::Copycat => &[
             Piece::Words("Takes the printed"),
             Piece::Term("Stack"),
-            Piece::Words("of the next card played this turn, and none of its"),
+            Piece::Words("of the card in the slot to its right, and none of its"),
             Piece::Term("Tell"),
-            Piece::Words(". Its own if no card follows."),
+            Piece::Words(". Its own if nothing follows it."),
+        ],
+        Tell::Flop => &[
+            Piece::Words("Takes the printed"),
+            Piece::Term("Stack"),
+            Piece::Words("of the"),
+            Piece::Term("Opposing Card"),
+            Piece::Words("across from it, and none of its"),
+            Piece::Term("Tell"),
+            Piece::Words(". Its own if nothing is across."),
         ],
     }
 }
@@ -117,6 +143,7 @@ fn tell_name(tell: Tell) -> &'static str {
         Tell::Streak => "Streak",
         Tell::AllIn => "All In",
         Tell::Copycat => "Copycat",
+        Tell::Flop => "Flop",
     }
 }
 
@@ -207,17 +234,21 @@ fn wanted(
     let under_mouse = cards
         .iter()
         .find(|(_, i, _)| hovered(i))
-        .map(|(_, _, slot)| slot.0);
+        .map(|(_, _, slot)| *slot);
     if under_mouse.is_some() && under_mouse != peek.mouse {
         peek.mouse = under_mouse;
     }
     // The mouse's card, now or lately, wins over the keyboard's: it is the
     // thing the player most recently pointed at, until the keyboard moves.
-    let len = active.duel.draw().len();
+    // The keyboard only ever walks the Draw.
+    let keyboard = active.pointer.map(|index| CardSlot {
+        zone: Zone::Draw,
+        index,
+    });
     let card = under_mouse
-        .or(peek.mouse.filter(|m| *m < len))
-        .or(active.pointer)?;
-    let held = active.duel.draw().get(card)?;
+        .or_else(|| peek.mouse.filter(|slot| card_at(&active.duel, *slot).is_some()))
+        .or(keyboard)?;
+    let held = card_at(&active.duel, card)?;
     let term = terms_hovered
         .iter()
         .find(|(i, _)| hovered(i))
@@ -227,8 +258,9 @@ fn wanted(
             let all: Vec<_> = terms(tell).collect();
             peek.term.map(|t| all[t % all.len()])
         });
+    // Only a card still in the Draw can be burned to a waiting All In.
     let burn = match active.awaiting_sacrifice {
-        Some(all_in) if all_in != card => Some(held.stack),
+        Some(all_in) if card.zone == Zone::Draw && all_in != card.index => Some(held.stack),
         _ => None,
     };
     Some(Tag { card, term, burn })
@@ -259,23 +291,34 @@ pub fn show(
         (None, _) => {}
     }
     let Some(tag) = wanted else { return };
-    let Some((card_node, _, _)) = cards.iter().find(|(_, _, slot)| slot.0 == tag.card) else {
+    let Some((card_node, _, _)) = cards.iter().find(|(_, _, slot)| **slot == tag.card) else {
         return;
     };
-    let held = active.duel.draw()[tag.card].clone();
+    let Some(held) = card_at(&active.duel, tag.card) else {
+        return;
+    };
+    // The tag opens above the card it explains, whichever row that is and
+    // whatever size that row is drawn at. The Opposing Cards sit at the top
+    // of the table with nothing above them, so theirs opens downwards.
+    let (card_width, card_height) = tag.card.zone.card_size();
+    let mut node = Node {
+        position_type: PositionType::Absolute,
+        left: px((card_width - TAG_WIDTH) / 2.0),
+        width: px(TAG_WIDTH),
+        flex_direction: FlexDirection::Column,
+        row_gap: px(4),
+        padding: UiRect::axes(px(8), px(6)),
+        border: UiRect::all(px(2)),
+        ..default()
+    };
+    if tag.card.zone == Zone::Opposing {
+        node.top = px(card_height + GAP);
+    } else {
+        node.bottom = px(card_height + GAP);
+    }
     commands.entity(card_node).with_children(|card| {
         card.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: px(CARD_HEIGHT + GAP),
-                left: px((CARD_WIDTH - TAG_WIDTH) / 2.0),
-                width: px(TAG_WIDTH),
-                flex_direction: FlexDirection::Column,
-                row_gap: px(4),
-                padding: UiRect::axes(px(8), px(6)),
-                border: UiRect::all(px(2)),
-                ..default()
-            },
+            node,
             BackgroundColor(PANEL),
             BorderColor::all(GOLD),
             // Solid to the cursor, so a card behind it never lights up.
@@ -345,7 +388,7 @@ pub fn show(
                 text(body, format!("Burn for +{burn}"), 16.0, NEON);
             }
             if let Some(term) = tag.term {
-                nest(body, tag.card, term);
+                nest(body, tag.card.index, term);
             }
         });
     });

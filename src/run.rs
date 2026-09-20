@@ -11,21 +11,30 @@ use bevy::prelude::*;
 // ---------------------------------------------------------------------------
 
 /// A single passive keyword on a card. At most one per card.
+///
+/// Every Tell reads the row by position, not by the order the cards were
+/// picked up: Streak looks one slot to its left, Copycat one slot to its
+/// right, Flop straight across at the Opposing Card. All of them read
+/// *printed* Stacks, so no Tell ever depends on another Tell resolving first
+/// and the two rows can be worked out in either order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tell {
-    /// Doubles the card's Stack if the previous card played this turn had any Tell.
+    /// Doubles the card's Stack if the card in the slot to its left has any Tell.
     Streak,
-    /// Sacrifice another card from the Draw to add its Stack to The Hand.
+    /// Sacrifice another card from the Draw to add its Stack to this card's.
     AllIn,
-    /// Takes the printed Stack of the next card played this turn, and none of
-    /// its Tell; its own if no card follows.
+    /// Takes the printed Stack of the card in the slot to its right, and none
+    /// of its Tell; its own if it is the last card in the row.
     Copycat,
+    /// Takes the printed Stack of the Opposing Card across from it; its own
+    /// if there is nothing across.
+    Flop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Card {
     pub name: &'static str,
-    /// The chips this card contributes to The Hand.
+    /// The chips this card contributes to its row's Stack Sum.
     pub stack: u32,
     pub tell: Option<Tell>,
 }
@@ -71,7 +80,7 @@ impl Reward {
             Self::SlotzStreakCards => "Three more Streak cards in the deck.",
             Self::SlotzPylBestTwoOfThree => "Push Your Luck becomes best 2 of 3, at 49/51.",
             Self::PitBossSixPlays => {
-                "A sixth Play every turn - but the Blinds rise +2 every turn, not every third."
+                "A sixth Play every turn - but the Blinds rise every turn, not every third, and each rise is another Opposing Card."
             }
             Self::PitBossRandomCards => {
                 "Four cards off the Pit's table: two with Tells, two plain."
@@ -174,7 +183,9 @@ impl RunState {
         }
     }
 
-    /// Plays per turn after perks.
+    /// Plays per turn after perks: the most cards the player may put in the
+    /// row. An enemy row longer than this can't be covered slot for slot, and
+    /// what isn't covered is free chips for the enemy.
     pub fn plays(&self) -> u8 {
         if self.perks.contains(&Perk::SixPlaysSteepBlinds) {
             6
@@ -184,13 +195,14 @@ impl RunState {
     }
 
     /// Rising Blinds after perks. The Pit Boss perk states its own price
-    /// rather than borrowing the enemy's step: +2 every turn, three times the
-    /// base rate, and the same price whoever is sitting across the table.
+    /// rather than borrowing the enemy's step: another Opposing Card every
+    /// turn, three times the base rate, and the same price whoever is sitting
+    /// across the table. The sixth Play buys one turn of cover against it.
     pub fn blinds(&self, base: RisingBlinds) -> RisingBlinds {
         if self.perks.contains(&Perk::SixPlaysSteepBlinds) {
             RisingBlinds {
                 every_turns: 1,
-                increase: STEEP_BLINDS_INCREASE,
+                cards: STEEP_BLINDS_CARDS,
             }
         } else {
             base
@@ -228,11 +240,76 @@ pub enum EncounterId {
     Tutorial,
 }
 
-/// How House Edge escalates as combat goes on.
+/// How the enemy's side escalates as combat goes on: every `every_turns`
+/// turns it lays `cards` more Opposing Cards. The House is the exception —
+/// it raises its margin instead, by `HoleCard::step`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RisingBlinds {
     pub every_turns: u8,
-    pub increase: u32,
+    pub cards: u8,
+}
+
+/// What an enemy deals its Opposing Cards from. Ordinary enemies keep no
+/// named deck: a Stack range and the odds of a Tell are the whole of them, so
+/// a new enemy is six numbers rather than eighteen cards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Deal {
+    /// Opposing Cards laid down on turn one. Rising Blinds add more.
+    pub row: u8,
+    /// The Stack range a card is dealt from, inclusive at both ends.
+    pub low: u32,
+    pub high: u32,
+    /// Chance in 100 that a dealt card carries a Tell at all.
+    pub tell_pct: u32,
+    /// The Tells this enemy plays; one is drawn at random when `tell_pct`
+    /// hits. **Never All In** — an enemy has no Draw to burn a card from, so
+    /// an All In dealt here would just be worth its printed Stack.
+    pub tells: &'static [Tell],
+    /// Chance in 100 that a card is dealt face down. The first Opposing Card
+    /// is always face up whatever this says.
+    pub hidden_pct: u32,
+}
+
+/// The names the house deals under. Flavour only: an Opposing Card is a
+/// Stack and a Tell, and the name is what the Peek puts at the top of the tag.
+const HOUSE_CARDS: [&str; 10] = [
+    "Dealer's Nod",
+    "Chip Rack",
+    "Table Limit",
+    "Floorman's Eye",
+    "Comped Suite",
+    "Shoe of Eights",
+    "The Rake",
+    "Cut Card",
+    "Pit Marker",
+    "Eye in the Sky",
+];
+
+impl Deal {
+    /// One Opposing Card off the enemy's table. Rolls the Stack, then whether
+    /// it carries a Tell, then which — always in that order, so a change to
+    /// the Tell list doesn't re-deal the Stacks of a pinned seed.
+    pub fn card(&self, rng: &mut u64) -> Card {
+        let span = u64::from(self.high.saturating_sub(self.low) + 1);
+        let stack = self.low + (xorshift64(rng) % span) as u32;
+        let carries = !self.tells.is_empty() && xorshift64(rng) % 100 < u64::from(self.tell_pct);
+        let tell = carries.then(|| self.tells[(xorshift64(rng) % self.tells.len() as u64) as usize]);
+        let name = HOUSE_CARDS[(xorshift64(rng) % HOUSE_CARDS.len() as u64) as usize];
+        Card { name, stack, tell }
+    }
+}
+
+/// The House's Hole Card rule (#5). It deals its last Opposing Card face
+/// down and leaves it blank until the showdown, then sets it so its row reads
+/// the player's row — everything but the player's own last card — plus the
+/// margin. The player's last card is the Hole Card: the one card The House
+/// could not see. Rising Blinds raise the margin rather than the row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HoleCard {
+    /// How far above the row it read The House sets its own.
+    pub margin: u32,
+    /// What each Blinds tick adds to the margin.
+    pub step: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -240,67 +317,126 @@ pub struct Enemy {
     pub name: &'static str,
     /// The enemy's chips; 0 means the encounter is won.
     pub stack: u32,
-    /// Starting House Edge. The House overrides this per turn (#5).
-    pub house_edge: u32,
+    /// How it fills the row across from the player.
+    pub deal: Deal,
     pub blinds: RisingBlinds,
+    /// Set for The House alone (#5); `None` for every ordinary enemy.
+    pub hole_card: Option<HoleCard>,
 }
 
 impl Enemy {
-    /// The single place enemy numbers live (#8). Tuned on the
-    /// `prototype/starter-deck` sim: fights run 2-5 turns for a decent
-    /// player, and Rising Blinds only bite past ~6.
-    ///
-    /// The House has no fixed Edge (the Hole Card rule, #5): for it,
-    /// `house_edge` is the **starting margin** and `blinds` is the margin
-    /// ramp. #14 reads it that way.
+    /// The single place enemy numbers live (#8). The Stack ranges are picked
+    /// so a row's expected Stack Sum lands on the House Edge each enemy used
+    /// to carry as a flat number — 18, 20, 22, 24 — now that the Edge is
+    /// whatever the Opposing Cards add up to. Fights still run 2-5 turns for
+    /// a decent player, and the Blinds only bite past ~6.
     pub fn for_encounter(id: EncounterId) -> Self {
         let blinds = RisingBlinds {
             every_turns: 3,
-            increase: 2,
+            cards: 1,
         };
         match id {
+            // Three cards averaging 6: a row of about 18.
             EncounterId::FloorMinion => Enemy {
                 name: "A shill in a rented tux",
                 stack: 25,
-                house_edge: 18,
+                deal: Deal {
+                    row: 3,
+                    low: 2,
+                    high: 5,
+                    tell_pct: 20,
+                    tells: &[Tell::Streak],
+                    hidden_pct: 50,
+                },
                 blinds,
+                hole_card: None,
             },
+            // Three averaging 7: about 21, and it plays Copycat.
             EncounterId::Slotz => Enemy {
                 name: "SLOTZ",
                 stack: 32,
-                house_edge: 20,
+                deal: Deal {
+                    row: 3,
+                    low: 5,
+                    high: 9,
+                    tell_pct: 35,
+                    tells: &[Tell::Streak, Tell::Copycat],
+                    hidden_pct: 50,
+                },
                 blinds,
+                hole_card: None,
             },
+            // Four averaging 5.5: about 22. The first enemy to play Flop, so
+            // covering a hidden card with a big one starts to cost.
             EncounterId::PitMinion => Enemy {
                 name: "A dealer with a scar",
                 stack: 32,
-                house_edge: 22,
+                deal: Deal {
+                    row: 4,
+                    low: 4,
+                    high: 7,
+                    tell_pct: 30,
+                    tells: &[Tell::Streak, Tell::Flop],
+                    hidden_pct: 50,
+                },
                 blinds,
+                hole_card: None,
             },
+            // Four averaging 6: about 24, and every Tell it can hold.
             EncounterId::PitBoss => Enemy {
                 name: "THE PIT BOSS",
                 stack: 40,
-                house_edge: 24,
+                deal: Deal {
+                    row: 4,
+                    low: 4,
+                    high: 8,
+                    tell_pct: 40,
+                    tells: &[Tell::Streak, Tell::Copycat, Tell::Flop],
+                    hidden_pct: 55,
+                },
                 blinds,
+                hole_card: None,
             },
-            // Blinds off: a practice hand, not a clock.
+            // A practice hand, not a clock: everything face up, no Tells, no
+            // Blinds. The Arcade overrides the row outright (#40).
             EncounterId::Tutorial => Enemy {
                 name: "THE DEMO DEALER",
                 stack: 30,
-                house_edge: 20,
+                deal: Deal {
+                    row: 5,
+                    low: 4,
+                    high: 4,
+                    tell_pct: 0,
+                    tells: &[],
+                    hidden_pct: 0,
+                },
                 blinds: RisingBlinds {
                     every_turns: u8::MAX,
-                    increase: 0,
+                    cards: 0,
                 },
+                hole_card: None,
             },
+            // The House deals itself scraps and keeps the last card blank
+            // until the showdown, so its row lands wherever the Hole Card
+            // rule says it lands. Streak and Flop only: both read a slot
+            // that is already settled when the Hole Card is worked out,
+            // where a Copycat would have to read the blank.
             EncounterId::TheHouse => Enemy {
                 name: "THE HOUSE",
                 stack: 35,
-                house_edge: 1,
+                deal: Deal {
+                    row: 4,
+                    low: 1,
+                    high: 4,
+                    tell_pct: 35,
+                    tells: &[Tell::Streak, Tell::Flop],
+                    hidden_pct: 40,
+                },
                 blinds: RisingBlinds {
                     every_turns: 2,
-                    increase: 2,
+                    cards: 0,
                 },
+                hole_card: Some(HoleCard { margin: 1, step: 2 }),
             },
         }
     }
@@ -310,9 +446,9 @@ impl Enemy {
 /// Combat removes it on exit.
 #[derive(Resource, Debug, Clone)]
 pub struct Encounter {
-    /// Which encounter this is. Combat reads it twice: the Hole Card rule
-    /// (#14) needs to tell The House from everyone else, and the screen picks
-    /// the enemy's portrait off it.
+    /// Which encounter this is. Combat reads it for the Arcade's fixed deal
+    /// and for the portrait the screen hangs across the table; the Hole Card
+    /// rule rides on `enemy.hole_card` rather than on the id.
     pub id: EncounterId,
     pub enemy: Enemy,
 }
@@ -344,9 +480,9 @@ pub fn xorshift64(state: &mut u64) -> u64 {
 pub const LOADED_DICE_BONUS: u32 = 5;
 pub const LOADED_DICE_HANDS: u8 = 2;
 
-/// What the Pit Boss perk's sixth Play costs: this much on House Edge every
-/// single turn, against a base of the same step every three (#12).
-const STEEP_BLINDS_INCREASE: u32 = 2;
+/// What the Pit Boss perk's sixth Play costs: this many more Opposing Cards
+/// every single turn, against a base of the same step every three (#12).
+const STEEP_BLINDS_CARDS: u8 = 1;
 
 /// Slotz Option 2 (#12): three more Streak cards, all middling, so the reward
 /// is a better chance of firing Streak rather than a higher ceiling.
@@ -362,8 +498,9 @@ fn streak_reward_cards() -> Vec<Card> {
 }
 
 /// Pit Boss Option 2 (#12): four cards off the Pit's own table, two with a
-/// random Tell (Streak, All In, or Copycat) and two plain. Stacks stay inside the starter deck's ranges so
-/// the pack thickens the deck without rewriting its maths.
+/// random Tell (Streak, All In, Copycat, or Flop) and two plain. Stacks stay
+/// inside the starter deck's ranges so the pack thickens the deck without
+/// rewriting its maths.
 fn random_cards(seed: u64) -> Vec<Card> {
     const TELLED: [&str; 6] = [
         "Sleeve Ace",
@@ -395,11 +532,13 @@ fn random_cards(seed: u64) -> Vec<Card> {
         // Each Tell keeps the range the starter deck gives it: Streak 3..=6,
         // All In 2..=5. Copycat prints 2..=5 too (#110): the print only
         // counts when no card follows, so a low one pushes it into the
-        // sequence rather than the last slot.
-        let (tell, stack) = match roll(3) {
+        // sequence rather than the last slot. Flop prints low for the same
+        // reason — its print only counts opposite an empty slot (#88).
+        let (tell, stack) = match roll(4) {
             0 => (Tell::Streak, 3 + roll(4) as u32),
             1 => (Tell::AllIn, 2 + roll(4) as u32),
-            _ => (Tell::Copycat, 2 + roll(4) as u32),
+            2 => (Tell::Copycat, 2 + roll(4) as u32),
+            _ => (Tell::Flop, 2 + roll(4) as u32),
         };
         cards.push(Card {
             name,
@@ -494,6 +633,34 @@ pub fn tutorial_deal() -> Vec<Card> {
         .collect();
     rest.extend(draw.iter().rev().map(|n| pick(n)));
     rest
+}
+
+/// The Arcade's fixed Opposing Cards (#40), left to right, with whether the
+/// cabinet deals each one face up. Five slots for the five cards the script
+/// walks the player through, adding up to 20 — the number the old House Edge
+/// used to be handed as a flat total — with 12 of it showing and 8 face down,
+/// so the first thing the tutorial teaches about the enemy's row is that you
+/// never see all of it.
+pub fn tutorial_opposing() -> Vec<(Card, bool)> {
+    [
+        ("Cut Card", 5, true),
+        ("Chip Rack", 4, false),
+        ("Dealer's Nod", 4, true),
+        ("The Rake", 4, false),
+        ("Table Limit", 3, true),
+    ]
+    .into_iter()
+    .map(|(name, stack, face_up)| {
+        (
+            Card {
+                name,
+                stack,
+                tell: None,
+            },
+            face_up,
+        )
+    })
+    .collect()
 }
 
 #[cfg(test)]
@@ -610,7 +777,7 @@ mod tests {
         let mut run = RunState::new();
         let base = RisingBlinds {
             every_turns: 3,
-            increase: 2,
+            cards: 1,
         };
         assert_eq!(run.blinds(base), base);
 
@@ -621,7 +788,7 @@ mod tests {
             run.blinds(base),
             RisingBlinds {
                 every_turns: 1,
-                increase: 2
+                cards: 1
             }
         );
     }
@@ -654,6 +821,120 @@ mod tests {
         );
         // The House pays out in an ending, not a perk.
         assert_eq!(RewardOffer::for_encounter(TheHouse), None);
+    }
+
+    #[test]
+    fn an_opposing_card_is_dealt_inside_the_enemys_range() {
+        let deal = Deal {
+            row: 3,
+            low: 4,
+            high: 8,
+            tell_pct: 100,
+            tells: &[Tell::Streak],
+            hidden_pct: 50,
+        };
+        let mut rng = SEED;
+
+        for _ in 0..500 {
+            let card = deal.card(&mut rng);
+            assert!((4..=8).contains(&card.stack), "{} is off the range", card.stack);
+            assert_eq!(card.tell, Some(Tell::Streak));
+            assert!(!card.name.is_empty());
+        }
+    }
+
+    #[test]
+    fn the_tell_odds_are_what_the_enemy_says_they_are() {
+        let never = Deal {
+            tell_pct: 0,
+            ..Enemy::for_encounter(EncounterId::PitBoss).deal
+        };
+        let mut rng = SEED;
+        assert!((0..200).all(|_| never.card(&mut rng).tell.is_none()));
+
+        // An enemy with no Tells listed plays none, whatever the odds say.
+        let none = Deal {
+            tell_pct: 100,
+            tells: &[],
+            ..never
+        };
+        assert!((0..200).all(|_| none.card(&mut rng).tell.is_none()));
+
+        // A third of the deal, near enough, over five hundred cards.
+        let some = Deal {
+            tell_pct: 33,
+            tells: &[Tell::Flop],
+            ..never
+        };
+        let telled = (0..500).filter(|_| some.card(&mut rng).tell.is_some()).count();
+        assert!((120..=210).contains(&telled), "{telled} of 500 carried a Tell");
+    }
+
+    #[test]
+    fn no_enemy_deals_itself_an_all_in() {
+        use EncounterId::*;
+
+        // An enemy has no Draw to burn from, so an All In across the table
+        // would silently be worth its printed Stack and nothing else.
+        for id in [FloorMinion, Slotz, PitMinion, PitBoss, TheHouse, Tutorial] {
+            let deal = Enemy::for_encounter(id).deal;
+            assert!(
+                !deal.tells.contains(&Tell::AllIn),
+                "{id:?} deals itself an All In"
+            );
+        }
+    }
+
+    #[test]
+    fn the_house_is_the_only_one_holding_a_hole_card() {
+        use EncounterId::*;
+
+        assert_eq!(
+            Enemy::for_encounter(TheHouse).hole_card,
+            Some(HoleCard { margin: 1, step: 2 })
+        );
+        for id in [FloorMinion, Slotz, PitMinion, PitBoss, Tutorial] {
+            assert_eq!(Enemy::for_encounter(id).hole_card, None, "{id:?}");
+        }
+    }
+
+    #[test]
+    fn every_enemys_row_is_worth_about_what_its_house_edge_used_to_be() {
+        // The flat Edge each enemy carried before the rows came in (#8).
+        for (id, was) in [
+            (EncounterId::FloorMinion, 18),
+            (EncounterId::Slotz, 21),
+            (EncounterId::PitMinion, 22),
+            (EncounterId::PitBoss, 24),
+        ] {
+            let deal = Enemy::for_encounter(id).deal;
+            let mut rng = SEED;
+            let rows = 400;
+            let dealt: u32 = (0..rows)
+                .map(|_| (0..deal.row).map(|_| deal.card(&mut rng).stack).sum::<u32>())
+                .sum();
+            let mean = dealt / rows;
+            assert!(
+                mean.abs_diff(was) <= 2,
+                "{id:?} deals rows of {mean}, and used to sit behind an Edge of {was}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_arcades_opposing_row_is_twenty_chips_with_eight_of_them_face_down() {
+        let row = tutorial_opposing();
+
+        assert_eq!(row.len(), 5, "one slot per card the script plays");
+        assert_eq!(row.iter().map(|(c, _)| c.stack).sum::<u32>(), 20);
+        let hidden: u32 = row
+            .iter()
+            .filter(|(_, face_up)| !face_up)
+            .map(|(c, _)| c.stack)
+            .sum();
+        assert_eq!(hidden, 8);
+        assert!(row[0].1, "the first Opposing Card is always face up");
+        assert!(row.iter().all(|(c, _)| c.tell.is_none()), "a practice hand");
     }
 
     #[test]

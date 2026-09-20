@@ -50,20 +50,22 @@ tells you, then play what you like.";
 
 /// The gated first turn, one prompt per keypress (#40).
 pub const TUTORIAL_STEPS: [&str; 8] = [
-    "Every card is worth its Stack. Press 1 to play the 8.",
-    "Card 1 is an All In: it burns another card and takes its chips. Press 1 to play it.",
+    "The dealer went first: five Opposing Cards, and only three of them face up. You cover them one for one. Press 1 to put the 8 in the first slot.",
+    "Card 1 is an All In: it burns another card and takes its chips. Press 1 to put it in slot two.",
     "Now press 2 to burn the 2 beside it. Its chips join the All In's.",
-    "Card 1 is a Streak: it doubles if the card before it had a Tell. It did. Press 1 for 6.",
-    "Card 1 is a Streak too, and the card before it had a Tell. Press 1 for 10.",
-    "Last Play. Press 1 to add the 4. That's 32 against a House Edge of 20.",
-    "Press Enter to show your Hand.",
-    "You cleared the Edge by 12: your Payout. Or Push Your Luck: press P and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way. The real one is 45/55.",
+    "Card 1 is a Streak: it doubles if the card in the slot to its left has a Tell. That one does. Press 1 for 6.",
+    "Card 1 is a Streak too, and the slot to its left has a Tell in it. Press 1 for 10.",
+    "Last slot. Press 1 to add the 4. Your row reads 32; theirs shows 12, with 8 more face down.",
+    "Press Enter. Both rows turn over and the Stack Sums are compared.",
+    "Their row was 20. You beat it by 12: your Payout. Or Push Your Luck: press P and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way. The real one is 45/55.",
 ];
 
 pub const TUTORIAL_HINT: &str = "\
-Free play. Lead with a Tell so your Streaks double, and burn your smallest
-card to an All In. In a real duel the Blinds rise every few turns, so
-don't sit here all night.";
+Free play. Lead with a Tell so the Streak beside it doubles, burn your
+smallest card to an All In, and remember a card you've placed can be
+clicked straight back out of the row. In a real duel the Blinds lay another
+Opposing Card down every few turns, and past five you can't cover them all,
+so don't sit here all night.";
 
 pub const TUTORIAL_DONE: &str = "\
 The cabinet spits out a paper ticket that says WINNER and nothing else.
