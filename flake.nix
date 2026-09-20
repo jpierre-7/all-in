@@ -37,6 +37,7 @@
 
         # Exactly the libraries our -sys crates pkg-config-probe:
         # alsa-sys -> alsa, libudev-sys -> libudev, wayland-sys -> wayland-*.
+        # .github/workflows/ci.yml apt-installs the same list -- keep them in sync.
         buildInputs = with pkgs; [
           alsa-lib
           udev

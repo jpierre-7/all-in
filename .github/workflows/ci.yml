@@ -1,0 +1,48 @@
+# Builds and tests every pull request and every push to main. It becomes the
+# merge gate once branch protection on main requires the build-and-test check.
+#
+# The toolchain comes from rust-toolchain.toml via the runner's rustup, not the
+# flake, so the job skips installing Nix. toolchain-pin.yml keeps the two in
+# step. The system libraries are the ones the flake's buildInputs name: the
+# -sys crates that pkg-config-probe at build time.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same PR makes the older run moot.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Debug info is most of the target dir and nothing in CI reads it; dropping it
+  # keeps the cache small enough to restore quickly.
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The flake's buildInputs, as Ubuntu packages -- keep them in sync.
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libasound2-dev libudev-dev libwayland-dev
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Only main writes the cache; PRs restore from it without churning it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - run: cargo build --locked
+      - run: cargo test --locked
