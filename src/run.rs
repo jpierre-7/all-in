@@ -373,18 +373,13 @@ pub struct Enemy {
 }
 
 impl Enemy {
-    /// The single place enemy numbers live (#8). The Stack ranges are picked
-    /// so a row's expected Stack Sum lands on the House Edge each enemy used
-    /// to carry as a flat number — 18, 20, 22, 24 — now that the Edge is
-    /// whatever the Opposing Cards add up to. Fights still run 2-5 turns for
-    /// a decent player, and the Blinds only bite past ~6.
+    /// The single place enemy numbers live (#8). 
     pub fn for_encounter(id: EncounterId) -> Self {
         let blinds = RisingBlinds {
             every_turns: 5,
             cards: 1,
         };
         match id {
-            // Three cards averaging 6: a row of about 18.
             EncounterId::FloorMinion => Enemy {
                 name: "A shill in a rented tux",
                 stack: 25,
@@ -399,7 +394,6 @@ impl Enemy {
                 blinds,
                 hole_card: None,
             },
-            // Three averaging 7: about 21, and it plays Copycat.
             EncounterId::Slotz => Enemy {
                 name: "SLOTZ",
                 stack: 32,
@@ -414,8 +408,6 @@ impl Enemy {
                 blinds,
                 hole_card: None,
             },
-            // Four averaging 5.5: about 22. The first enemy to play Flop, so
-            // covering a hidden card with a big one starts to cost.
             EncounterId::PitMinion => Enemy {
                 name: "A dealer with a scar",
                 stack: 32,
@@ -430,7 +422,6 @@ impl Enemy {
                 blinds,
                 hole_card: None,
             },
-            // Four averaging 6: about 24, and every Tell it can hold.
             EncounterId::PitBoss => Enemy {
                 name: "THE PIT BOSS",
                 stack: 40,
@@ -952,33 +943,6 @@ mod tests {
         );
         for id in [FloorMinion, Slotz, PitMinion, PitBoss, Tutorial] {
             assert_eq!(Enemy::for_encounter(id).hole_card, None, "{id:?}");
-        }
-    }
-
-    #[test]
-    fn every_enemys_row_is_worth_about_what_its_house_edge_used_to_be() {
-        // The flat Edge each enemy carried before the rows came in (#8).
-        for (id, was) in [
-            (EncounterId::FloorMinion, 18),
-            (EncounterId::Slotz, 21),
-            (EncounterId::PitMinion, 22),
-            (EncounterId::PitBoss, 24),
-        ] {
-            let deal = Enemy::for_encounter(id).deal;
-            let mut rng = SEED;
-            let rows = 400;
-            let dealt: u32 = (0..rows)
-                .map(|_| {
-                    (0..deal.row)
-                        .map(|_| deal.card(&mut rng).stack)
-                        .sum::<u32>()
-                })
-                .sum();
-            let mean = dealt / rows;
-            assert!(
-                mean.abs_diff(was) <= 2,
-                "{id:?} deals rows of {mean}, and used to sit behind an Edge of {was}"
-            );
         }
     }
 

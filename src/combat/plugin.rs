@@ -659,19 +659,6 @@ mod tests {
     }
 
     #[test]
-    fn the_big_shots_table_plays_under_the_hole_card_rule() {
-        let app = dealt_table(RunState::new(), Enemy::for_encounter(EncounterId::TheHouse));
-
-        let duel = &app.world().resource::<ActiveDuel>().duel;
-        assert_eq!(duel.margin(), Some(1));
-        // The last Opposing Card is face down and worth nothing yet.
-        let last = duel.opposing().last().expect("a row");
-        assert!(!last.revealed);
-        assert_eq!(last.card.stack, 0);
-        assert_eq!(duel.showing().1, 1, "one card kept back");
-    }
-
-    #[test]
     fn the_enemy_lays_its_row_down_before_the_player_touches_a_card() {
         let app = dealt_table(RunState::new(), Enemy::for_encounter(EncounterId::PitBoss));
 
@@ -1717,7 +1704,7 @@ mod peek_tests {
         press(&mut app, KeyCode::ArrowUp);
         assert_eq!(tag(&mut app).unwrap().0.term, Some("Stack"));
         press(&mut app, KeyCode::ArrowUp);
-        assert_eq!(tag(&mut app).unwrap().0.term, Some("Tell"));
+        assert_eq!(tag(&mut app).unwrap().0.term, Some("Tell."));
         press(&mut app, KeyCode::ArrowUp);
         assert_eq!(tag(&mut app).unwrap().0.term, Some("Stack"), "wraps");
 

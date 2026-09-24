@@ -1,5 +1,5 @@
 //! App builder. Owned by Dev 2. Plugins are added here and nowhere else.
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 
 mod combat;
 #[cfg(debug_assertions)]

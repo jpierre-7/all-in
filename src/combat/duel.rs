@@ -546,6 +546,9 @@ impl Duel {
     /// Answer the prompt with Hold: the turn resolves as normal. `None` when
     /// no prompt is up.
     pub fn hold(&mut self) -> Option<TurnResult> {
+         if self.phase != Phase::PushYourLuck {
+            return None;
+        }
         Some(self.resolve(None))
     }
 
@@ -769,8 +772,7 @@ impl Duel {
 
     /// Confirm the row and Hold.
     pub fn end_turn(&mut self) -> TurnResult {
-        self.confirm();
-        match self.hold() {
+        match self.confirm() {
             Some(result) => result,
             None => self
                 .hold()
@@ -1471,6 +1473,8 @@ mod reveal_tests {
         duel.place(0, None).unwrap();
         duel.place(0, None).unwrap();
 
+        duel.confirm();
+
         assert!(duel.opposing().iter().all(|o| o.revealed));
         assert_eq!(duel.showing(), (4, 0));
         assert_eq!(duel.house_edge(), 4);
@@ -1507,7 +1511,9 @@ mod push_your_luck_tests {
 
     #[test]
     fn beating_the_opposing_cards_offers_push_your_luck_instead_of_resolving() {
-        let duel = hand_of(30, 20);
+        let mut duel = hand_of(30, 20);
+
+        duel.confirm();
 
         assert_eq!(duel.phase(), Phase::PushYourLuck);
         assert_eq!(duel.enemy_stack(), 999, "nothing dealt yet");
