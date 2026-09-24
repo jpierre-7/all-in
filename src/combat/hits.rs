@@ -1,5 +1,5 @@
 //! Damage feedback (#67): when a turn resolves, a "-N" floats up from the
-//! Stack that took the hit and fades. Markers are their own root entities,
+//! Chips that took the hit and fades. Markers are their own root entities,
 //! not part of the table's `CombatScreen`, so the per-change redraw leaves
 //! them alone and they ride out their own clock.
 
@@ -15,7 +15,7 @@ const HIT: Color = Color::srgb(1.0, 0.30, 0.38);
 const LIFETIME: f32 = 0.9;
 /// How far it rises over its life, in px.
 const RISE: f32 = 48.0;
-/// Where the two Stack readouts sit, as a fraction of the window height.
+/// Where the two Chips readouts sit, as a fraction of the window height.
 /// Matches the table's rows: enemy at the top, you at the bottom.
 const ENEMY_ROW: f32 = 0.11;
 const PLAYER_ROW: f32 = 0.86;
@@ -101,7 +101,7 @@ fn spawn_markers(
                 TextFont::from_font_size(56.0),
                 TextColor(HIT),
                 Node {
-                    // Sits just beside the Stack readout, not on top of it.
+                    // Sits just beside the Chips readout, not on top of it.
                     margin: UiRect::left(px(160)),
                     ..default()
                 },

@@ -78,12 +78,12 @@ pub struct Tag {
 /// Peek says about it.
 fn card_at(duel: &Duel, slot: CardSlot) -> Option<Card> {
     match slot.zone {
-        Zone::Draw => duel.draw().get(slot.index).cloned(),
-        Zone::Row => duel.row().get(slot.index).map(|p| p.card.clone()),
+        Zone::Draw => duel.draw().get(slot.slot).cloned(),
+        Zone::Row => duel.row().get(slot.slot).map(|p| p.card.clone()),
         Zone::Opposing => duel
             .opposing()
-            .get(slot.index)
-            .filter(|opposing| opposing.revealed)
+            .get(slot.slot)
+            .filter(|opposing| opposing.face_up)
             .map(|opposing| opposing.card.clone()),
     }
 }
@@ -190,7 +190,7 @@ fn wanted(
     // The keyboard only ever walks the Draw.
     let keyboard = active.pointer.map(|index| CardSlot {
         zone: Zone::Draw,
-        index,
+        slot: index,
     });
     let card = under_mouse
         .or_else(|| {
@@ -210,7 +210,7 @@ fn wanted(
         });
     // Only a card still in the Draw can be burned to a waiting All In.
     let burn = match active.awaiting_sacrifice {
-        Some(all_in) if card.zone == Zone::Draw && all_in != card.index => Some(held.stack),
+        Some(all_in) if card.zone == Zone::Draw && all_in != card.slot => Some(held.face_value),
         _ => None,
     };
     Some(Tag { card, term, burn })
@@ -325,7 +325,7 @@ pub fn show(
                     text(body, "No Tell", 20.0, DIM);
                     text(
                         body,
-                        format!("{} chips, what it says.", held.stack),
+                        format!("{} chips, what it says.", held.face_value),
                         16.0,
                         DIM,
                     );
@@ -335,7 +335,7 @@ pub fn show(
                 text(body, format!("Burn for +{burn}"), 16.0, NEON);
             }
             if let Some(term) = tag.term {
-                nest(body, tag.card.index, term);
+                nest(body, tag.card.slot, term);
             }
         });
     });

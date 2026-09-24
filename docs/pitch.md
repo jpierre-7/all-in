@@ -43,7 +43,7 @@ They press what the prompt says: **1, 1, 2, 1, 1, 1, Enter, P**.
 
 What to say as it happens:
 
-- After the 8: "Every card is worth its Stack. That's your Hand
+- After the 8: "Every card is worth its Face Value. That's your Hand
   building up top."
 - After the burn: "That was an All In. It ate the 2 next to it and took
   its chips."
