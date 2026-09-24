@@ -291,7 +291,7 @@ pub fn show(
                     .with_children(|line| {
                         for piece in tell.rule_text() {
                             if is_keyword(piece) {
-                                let open = tag.term == Some(&piece);
+                                let open = tag.term == Some(piece);
                                 line.spawn((
                                     Text::new(piece),
                                     TextFont::from_font_size(16.0),

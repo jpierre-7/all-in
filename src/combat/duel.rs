@@ -552,7 +552,7 @@ impl Duel {
     /// Answer the prompt with Hold: the turn resolves as normal. `None` when
     /// no prompt is up.
     pub fn hold(&mut self) -> Option<TurnResult> {
-         if self.phase != Phase::PushYourLuck {
+        if self.phase != Phase::PushYourLuck {
             return None;
         }
         Some(self.resolve(None))
@@ -1463,8 +1463,11 @@ mod reveal_tests {
     fn a_flop_across_a_face_down_card_reads_its_own_print_until_the_rows_turn_over() {
         let mut deck = vec![card(1); 17];
         deck.push(flop(3)); // drawn first
-        let mut duel = Duel::new(deck, 40, 5, enemy(999, 3))
-            .with_opposing(vec![(card(9), false), (card(2), true), (card(2), true)]);
+        let mut duel = Duel::new(deck, 40, 5, enemy(999, 3)).with_opposing(vec![
+            (card(9), false),
+            (card(2), true),
+            (card(2), true),
+        ]);
 
         duel.place(0, None).unwrap();
         assert_eq!(duel.hand(), 3, "nothing it can see across, so its own 3");

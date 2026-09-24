@@ -375,7 +375,7 @@ pub struct Enemy {
 }
 
 impl Enemy {
-    /// The single place enemy numbers live (#8). 
+    /// The single place enemy numbers live (#8).
     pub fn for_encounter(id: EncounterId) -> Self {
         let blinds = RisingBlinds {
             every_turns: 5,
