@@ -172,7 +172,7 @@ pub struct Showdown {
 /// about: no card's value depends on another card's value, so the two rows
 /// facing each other can be worked out in either order and a Flop on each
 /// side of the table never chases the other one round in a circle.
-fn resolve_row(row: &[Placed], across: &[Card]) -> Vec<Played> {
+fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
     row.iter()
         .enumerate()
         .map(|(slot, placed)| {
@@ -181,7 +181,10 @@ fn resolve_row(row: &[Placed], across: &[Card]) -> Vec<Played> {
                 Some(Tell::Streak) if slot > 0 && row[slot - 1].card.tell.is_some() => printed * 2,
                 Some(Tell::AllIn) => printed + placed.sacrifice.as_ref().map_or(0, |c| c.stack),
                 Some(Tell::Copycat) => row.get(slot + 1).map_or(printed, |next| next.card.stack),
-                Some(Tell::Flop) => across.get(slot).map_or(printed, |card| card.stack),
+                Some(Tell::Flop) => across
+                    .get(slot)
+                    .and_then(Option::as_ref)
+                    .map_or(printed, |card| card.stack),
                 _ => printed,
             };
             Played {
@@ -376,7 +379,7 @@ impl Duel {
     pub fn hand(&self) -> u32 {
         match &self.showdown {
             Some(showdown) => showdown.hand,
-            None => sum(&resolve_row(&self.row, &self.their_cards())),
+            None => sum(&resolve_row(&self.row, &self.their_face_up_cards())),
         }
     }
 
@@ -421,7 +424,10 @@ impl Duel {
                     _ => printed,
                 },
                 Some(Tell::Copycat) => face_up(slot + 1).map_or(printed, |next| next.stack),
-                Some(Tell::Flop) => across.get(slot).map_or(printed, |card| card.stack),
+                Some(Tell::Flop) => across
+                    .get(slot)
+                    .and_then(Option::as_ref)
+                    .map_or(printed, |card| card.stack),
                 _ => printed,
             };
         }
@@ -635,9 +641,9 @@ impl Duel {
         };
         // Everything the player put down but their last card.
         let seen = self.row.len().saturating_sub(1).min(slot);
-        let across: Vec<Card> = self.opposing[..seen]
+        let across: Vec<Option<Card>> = self.opposing[..seen]
             .iter()
-            .map(|o| o.card.clone())
+            .map(|o| Some(o.card.clone()))
             .collect();
         let read = sum(&resolve_row(&self.row[..seen], &across));
         // What its own cards in front of the blank already make. They can't
@@ -667,13 +673,22 @@ impl Duel {
     }
 
     /// The printed Opposing Cards, for the player's Flops to read across at.
-    fn their_cards(&self) -> Vec<Card> {
-        self.opposing.iter().map(|o| o.card.clone()).collect()
+    fn their_cards(&self) -> Vec<Option<Card>> {
+        self.opposing.iter().map(|o| Some(o.card.clone())).collect()
+    }
+
+    /// The Opposing Cards the player can see. A Flop across a face-down card
+    /// reads nothing across, its own print, until the rows turn over.
+    fn their_face_up_cards(&self) -> Vec<Option<Card>> {
+        self.opposing
+            .iter()
+            .map(|o| o.revealed.then(|| o.card.clone()))
+            .collect()
     }
 
     /// The printed cards in the player's row, for the enemy's Flops.
-    fn your_cards(&self) -> Vec<Card> {
-        self.row.iter().map(|p| p.card.clone()).collect()
+    fn your_cards(&self) -> Vec<Option<Card>> {
+        self.row.iter().map(|p| Some(p.card.clone())).collect()
     }
 
     /// Lay the enemy's row down for the turn ahead.
@@ -1442,6 +1457,20 @@ mod reveal_tests {
 
         assert_eq!(duel.showing(), (5, 1), "the Streak counts as its print");
         assert_eq!(duel.house_edge(), 5 + 10);
+    }
+
+    #[test]
+    fn a_flop_across_a_face_down_card_reads_its_own_print_until_the_rows_turn_over() {
+        let mut deck = vec![card(1); 17];
+        deck.push(flop(3)); // drawn first
+        let mut duel = Duel::new(deck, 40, 5, enemy(999, 3))
+            .with_opposing(vec![(card(9), false), (card(2), true), (card(2), true)]);
+
+        duel.place(0, None).unwrap();
+        assert_eq!(duel.hand(), 3, "nothing it can see across, so its own 3");
+
+        duel.confirm();
+        assert_eq!(duel.hand(), 9, "turned over, the 9 was across");
     }
 
     #[test]
