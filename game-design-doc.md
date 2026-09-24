@@ -10,7 +10,7 @@
 
 *One sentence: what is this game?*
 
-> A text adventure rogue-like where you fight your way through a casino toward the Big Shots table, resolving every encounter as a card-combat duel against the House.
+> A text adventure rogue-like where you fight your way through a casino toward the Big Shots table, resolving every encounter as a card duel where the House deals its row first — half of it face down — and you have to cover it card for card.
 
 ---
 
@@ -38,17 +38,22 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | Term | Definition |
 | --- | --- |
 | **Stack/Chip Stack** | Health/life stat. Player, enemy, and individual cards each have their own Stack. |
-| **The Hand** | The running total built by the cards you play in a turn. |
-| **House Edge** | The enemy's defense threshold. Your Hand must clear it. |
-| **Payout** | Damage dealt to the enemy's Stack when your Hand clears their House Edge. |
-| **Whiff** | A Hand that falls short of the House Edge. The shortfall (House Edge − Hand) is dealt to the player's own Chip Stack. |
-| **Tell** | A single passive keyword on a card that modifies how it resolves. (Balatro/Inscryption-inspired, one per card, no stack/targeting.) |
-| **Streak** | Tell: doubles a card's value if the previous card played shared a Tell. |
-| **All In** | Tell: sacrifice a card from hand to add its value to the current Hand. |
-| **Rising Blinds** | Difficulty/cost escalates as combat goes on (turn-based scaling). +2 to House Edge every 3 turns. |
-| **Plays** | Limited number of cards you may play per turn (Hand of 7 cards, up to 5 can be played by default). |
+| **Opposing Cards** | The enemy's row, laid down before you play. First card always face up, the rest a roll. Your cards go one per slot across from them. |
+| **Slot** | One column of the table: an Opposing Card and whatever you put across from it. |
+| **Stack Sum** | What a row adds up to once its Tells resolve. One per side; the lower one pays the difference. |
+| **The Hand** | Your row, and its Stack Sum. |
+| **House Edge** | The Opposing Cards' Stack Sum. Your Hand must beat it, and you only see part of it before you confirm. |
+| **Payout** | Damage dealt to the enemy's Stack when your Hand beats theirs: the difference. |
+| **Whiff** | A Hand that comes in lower. The difference is dealt to the player's own Chip Stack. |
+| **Tell** | A single passive keyword on a card that modifies how it resolves. (Balatro/Inscryption-inspired, one per card.) Targets by **slot**, and always reads a **printed** Stack. |
+| **Streak** | Tell: doubles this card if the card in the slot to its left has any Tell. |
+| **All In** | Tell: sacrifice a card from the Draw to add its Stack to this card's. |
+| **Copycat** | Tell: worth the printed Stack of the card in the slot to its right; its own if nothing follows. |
+| **Flop** | Tell: worth the printed Stack of the Opposing Card across from it; its own if nothing is across. |
+| **Rising Blinds** | Difficulty escalates as combat goes on: the enemy lays one more Opposing Card every 5 turns. Past your Plays you can't cover them all. |
+| **Plays** | Limited number of cards you may put in your row per turn (Draw of 7, up to 5 placed by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final. Cleared House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Fell short: Push to have the Whiff forgiven, or lose and it doubles. Coin is 45/55 in the House's favor. |
-| **Hole Card** | Against The House only: the player's final Play of the turn, made after the House has locked its Edge on everything played before it. |
+| **Hole Card** | Against The House only: the last card in your row. The House keeps its own last Opposing Card back and fills it in on everything before yours. |
 | **Fight or Fold** | Encounter choice. "Fight" initiates duel; "Fold" abandons the run and returns to the Lobby, resetting all perks, items, and temporary deck upgrades. |
 
 ---
@@ -61,25 +66,27 @@ Before each encounter, the player chooses to:
 - **Fight:** Engage the enemy in card duel combat.
 - **Fold:** Retreat to the Lobby to restart the run. All perks, items, and temporary deck modifications reset.
 
-**Combat Structure:** turn-based, resolved instantly left-to-right (no stack, no targeting, no priority passing).
+**Combat Structure:** turn-based, two rows facing each other. No stack, no priority passing; targeting is by **slot** and nothing else.
 
 **Turn sequence:**
 
 1. Player refills the Draw to 7 cards.
-2. Player plays up to 5 cards (or up to the limit set by perks), one at a time.
-3. Each card resolves immediately, applying its Stack + any Tell effect, adding to The Hand.
-4. Items that modify The Hand apply (Loaded Dice: +5). The Hand is now final.
-5. **Push Your Luck**: the player sees the House Edge and chooses **Push** or **Hold**, whether The Hand cleared it or fell short (PYL on a Whiff, #96).
-   - Hold → step 6 as normal.
+2. **The enemy goes first.** It lays down its Opposing Cards — 3 or 4 to start, depending on the enemy, and one more per Rising Blinds tick. The first is face up; each of the rest is face down on a roll the enemy's own odds set. Enemies play Tells too, at their own configured rate.
+3. Player covers the row: click a card in the Draw to put it in the next empty slot, click a card already in the row to take it (and anything it burned) back out. Up to 5 cards (or the limit set by perks). Nothing resolves yet — a row is worth nothing until it is finished.
+4. Player **confirms**. Both rows turn over.
+5. Each row resolves left to right. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop straight across. All of them read *printed* Stacks, so neither row depends on the other resolving first.
+6. Items that modify The Hand apply (Loaded Dice: +5). Both Stack Sums are now final.
+7. **Push Your Luck**: the player sees the House Edge and chooses **Push** or **Hold**, whether The Hand cleared it or fell short (PYL on a Whiff, #96).
+   - Hold → step 8 as normal.
    - Push → flip the coin (45% player / 55% House by default; Slotz Option 1 makes it best-2-of-3 at 49/51 ≈ 48.5%).
-     - Win → the Payout in step 6 is **doubled**; on a Whiff, the Whiff is **forgiven** (no damage).
-     - Lose → The Hand becomes **0**; step 6 is a full Whiff for the entire House Edge. On a Whiff, it **doubles**.
-6. Compare The Hand to the enemy's House Edge.
-   - Clear it → Payout (excess over House Edge, ×2 if PYL won) is dealt to the enemy's Stack.
-   - Whiff (fall short) → the difference is dealt to the **player's** Stack. Damage = House Edge − The Hand. No Payout.
-7. Enemy turn: nothing (MVP). Enemies are a Stack + House Edge + Rising Blinds.
-8. Rising Blinds check: escalate House Edge +2 every 3 turns (or per active perk modifier).
-9. Repeat until player or enemy Stack hits 0.
+     - Win → the Payout in step 8 is **doubled**; on a Whiff, the Whiff is **forgiven** (no damage).
+     - Lose → The Hand becomes **0**; step 8 is a full Whiff for the entire House Edge. On a Whiff, it **doubles**.
+8. Compare the two Stack Sums. The lower side loses the difference off its Stack.
+   - Yours higher → Payout (the difference, ×2 if PYL won) is dealt to the enemy's Stack.
+   - Yours lower → Whiff: the difference is dealt to the **player's** Stack.
+   - Dead even → nobody pays.
+9. Rising Blinds check: one more Opposing Card every 5 turns (or per active perk modifier). Once the row is longer than your Plays, the slots you can't cover count for the enemy anyway.
+10. Repeat until player or enemy Stack hits 0.
 
 **Loss condition:** player Stack reaches 0 (run ends / back to Lobby).
 **Win condition:** enemy Stack reaches 0 (grants rewards based on enemy type).
@@ -107,7 +114,7 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
   - **Option 2:** Adds 3x "Streak" Tell cards to the player's deck.
 
 - **Boss: Pit Boss (The Pit)**
-  - **Option 1:** You can play up to 6 cards per turn, but Rising Blinds become +2 every turn (3× the base rate). Pays in short fights, punishes long ones.
+  - **Option 1:** You can play up to 6 cards per turn, but Rising Blinds add an Opposing Card every turn (5× the base rate). Pays in short fights, punishes long ones.
   - **Option 2:** Adds 4x random cards to deck (2x with random Tells, 2x normal/vanilla cards).
 
 - **Secret Boss: The Man Who Beat the House (The Back Room)**
@@ -124,12 +131,14 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 - Tell (one keyword, or none)
 - [Flavor text / persona line — stretch goal]
 
-**MVP Tell set (2 only):**
+**Tell set as built:**
 
-- **Streak**
-- **All In**
+- **Streak** — reads the slot to its left
+- **All In** — reads no slot; burns from the Draw
+- **Copycat** — reads the slot to its right
+- **Flop** — reads the Opposing Card across from it
 
-**Stretch Tells (cut if behind schedule):** Echo, Brittle, Copycat (built, #110), [others TBD]
+**Stretch Tells (cut if behind schedule):** Echo, Brittle, Copycat (built, #110), Flop (built, #88), [others TBD]
 
 **Starter deck:** fixed, no deckbuilding meta-layer for MVP. 18 cards, 8 with a Tell (44%). Prototyped on the `prototype/starter-deck` branch: a careless player fires Streak ~1/3 of the time, a careful one ~94%, a 6-chip gap in mean Hand from sequencing alone. Mean Hand ~28 (naive) / ~34 (smart), range 18–52. Whiffs start appearing around House Edge 26.
 
@@ -158,23 +167,30 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 
 ## 7. Enemy Design & Encounters
 
-**MVP scope:** single enemy archetype, House Edge scales with Rising Blinds. No unique per-enemy behavior required for MVP.
+**How an enemy is authored:** an enemy is a Stack, a Rising Blinds schedule, and a **Deal** — six numbers saying how it fills its row. No named decks; regular enemies don't have them.
 
-**Combat numbers** (first pass, tuned on the `prototype/starter-deck` sim with 300 full runs per player model; playtesting adjusts):
+| Deal field | What it does |
+| --- | --- |
+| `row` | Opposing Cards laid down on turn one |
+| `low` / `high` | the Stack range a card is dealt from, inclusive |
+| `tell_pct` | chance in 100 that a dealt card carries a Tell at all |
+| `tells` | which Tells this enemy plays; one is drawn at random when `tell_pct` hits. **Never All In** — an enemy has no Draw to burn from |
+| `hidden_pct` | chance in 100 that a card is face down. The first Opposing Card is always face up |
+
+**Combat numbers.** The ranges no longer land each enemy's row on the flat House Edge it used to carry (18, 20, 22, 24); the expected rows below are measured over 4000 deals, and retuning them waits on the balance sim (#94):
 
 | | Player | Floor minion | Slotz | Pit minion | Pit Boss | The House |
 | --- | --- | --- | --- | --- | --- | --- |
 | Stack | **50** | 25 | 32 | 32 | 40 | 35 |
-| House Edge | | 18 | 20 | 22 | 24 | Hand + margin |
-| Rising Blinds | | +2 / 3 turns | +2 / 3 turns | +2 / 3 turns | +2 / 3 turns | margin +1, +2 / 2 turns |
+| Deal | | 3 × 2–5 | 3 × 3–7 | 4 × 4–7 | 4 × 4–9 | 4 × 1–4, last kept back |
+| Expected row | | ~10.8 | ~15.6 | ~22.8 | ~27 | read + margin |
+| Tells | | 20% Streak | 35% Streak/Copycat | 30% Streak/Flop | 40% Streak/Copycat/Flop | 35% Streak/Flop |
+| Face down | | 50% | 50% | 50% | 55% | 40%, + the Hole Card |
+| Rising Blinds | | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | margin +1, +2 / 2 turns |
 
 What the sim said: a careless player (top five cards, random order) beats the Pit Boss 82% of the time and the House 19%; a player who leads with All In then Streaks beats everything up to the House with a full Stack, then loses to the House every time because that habit makes the hole card a low vanilla card; a player who saves the biggest Tell for last beats the House in ~4 turns. The House inverts the habit the Tutorial teaches, on purpose. Blinds every 2 turns (the earlier draft) made every fight past 6 turns unwinnable; every 3 is the difference.
 
-**Stretch goal — reactive House:** enemy reveals one card from hand each turn (fixed or shuffled sequence). Effects could include:
-
-- Raise their own House Edge
-- Force player to discard
-- Apply a negative Tell to the player's next play
+**Built (#88):** the reactive enemy is no longer a stretch goal — laying the Opposing Cards down *is* the enemy's turn, and House Edge is what they add up to. See `docs/adr/0002-opposing-cards.md`.
 
 **Encounter progression:**
 
@@ -186,12 +202,14 @@ What the sim said: a careless player (top five cards, random order) beats the Pi
 
 **The House (the Hole Card rule):**
 
-- The House does not have a fixed House Edge. When the player has **one Play remaining** (after 4 of 5 Plays, or 5 of 6 with the Pit Boss perk), the House reads The Hand so far and locks House Edge = The Hand + **margin**.
-- The player's final Play is the **Hole Card**: the one card the House can't see. Payout = the Hole Card's resolved value − margin. Streak doubling, All In sacrifice, and Loaded Dice all land after the lock, so they are the whole strategy.
+- The House lays its row down like anyone else, but deals itself scraps (1–4) and keeps its **last Opposing Card** blank and face down.
+- At the showdown it fills that card in so its whole row reads **the player's row minus the player's last card, plus the margin**.
+- The last card in the player's row is the **Hole Card**: the one card The House can't see. Payout = the Hole Card's resolved value − margin. Streak doubling, All In sacrifice, and Loaded Dice all land after it fills in, so they are the whole strategy.
 - Push Your Luck works unchanged: it is offered when the Hole Card beats the margin.
-- Rising Blinds for The House raise the **margin**, not the Edge: margin starts at +1 and rises +2 every 2 turns (1, 1, 3, 3, 5, 5, 7…). The margin is the clock; the House wins by outlasting the deck, not by big Whiffs.
-- Ending the turn with more than one Play unused still locks the Edge at "one Play remaining"; with no Hole Card played, the turn Whiffs by the margin.
-- Intro line hook: "Play four. I'll set the line. Then show me your last card."
+- Rising Blinds for The House raise the **margin**, not the row: margin starts at +1 and rises +2 every 2 turns (1, 1, 3, 3, 5, 5, 7…). The margin is the clock; the House wins by outlasting the deck, not by big Whiffs.
+- Confirming a short row still works the same way: everything but the last card you placed is what it reads. An empty row Whiffs by the margin.
+- The House deals itself no Copycat — that is the one Tell that would have to read the card it hasn't decided on yet.
+- Intro line hook: "Fill your row. I'll fill my last card in after. Then show me the one I couldn't see."
 
 ---
 
@@ -202,7 +220,7 @@ What the sim said: a careless player (top five cards, random order) beats the Pi
 - Deckbuilding/reward layer between encounters.
 - Additional Tells (Echo, Brittle).
 
-*Cut order if behind schedule: deckbuilding layer → PYL on a Whiff → card personas → reactive House deck. Cut from the top of this list first; the reactive House deck is the highest-value addition and should be the last thing dropped.*
+*Cut order if behind schedule: deckbuilding layer → PYL on a Whiff → card personas. Cut from the top of this list first. The reactive enemy deck used to sit at the bottom of this list as the last thing to drop; it landed in #88 and is now the core loop.*
 
 ---
 
@@ -214,7 +232,8 @@ What the sim said: a careless player (top five cards, random order) beats the Pi
 
 - `Card` struct — name, base value, `Tell` enum
 - `Perk` / `Item` structs — active run modifiers and inventory triggers
-- Resolution loop — applies Tells, builds The Hand, compares to House Edge
+- `Deal` struct — how an enemy fills its row of Opposing Cards
+- Resolution loop — one pure pass per row, applying Tells by slot, then compares the two Stack Sums
 - Overworld/text adventure layer — navigation, encounter triggers ("Fight" vs "Fold"), narrative text
 - Combat UI — renders Stack, Plays remaining, The Hand as it builds
 

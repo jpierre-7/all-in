@@ -34,22 +34,33 @@ const GLOSSARY: &[(&str, &str)] = &[
     ),
     (
         "Plays",
-        "How many cards you may play this turn. Five, unless a perk says otherwise.",
+        "How many cards you may put in your row this turn. Five, unless a perk says otherwise.",
+    ),
+    (
+        "Opposing Cards",
+        "The enemy's row, laid down before you play. The first is face up; the rest are a coin toss. Your cards sit one per slot across from them.",
+    ),
+    (
+        "Stack Sum",
+        "What a row adds up to once every Tell in it has resolved. Two of them, one per side of the table, and the bigger one wins.",
     ),
     (
         "The Hand",
-        "The running total of the cards you've played this turn.",
+        "Your row's Stack Sum: the cards you've put across from theirs.",
     ),
-    ("House Edge", "The number The Hand has to reach this turn."),
+    (
+        "House Edge",
+        "The Opposing Cards' Stack Sum. The number The Hand has to beat, and you only ever see part of it before you confirm.",
+    ),
     (
         "Payout",
-        "Clear the Edge and the excess comes off the enemy's Stack.",
+        "Beat the Edge and the difference comes off the enemy's Stack.",
     ),
-    ("Whiff", "Fall short and the shortfall comes off yours."),
+    ("Whiff", "Fall short and the difference comes off yours."),
     ("Tell", "A keyword on a card. One per card, at most."),
     (
         "Streak",
-        "Tell: doubles this card if the card before it had any Tell.",
+        "Tell: doubles this card if the card in the slot to its left has any Tell.",
     ),
     (
         "All In",
@@ -57,7 +68,11 @@ const GLOSSARY: &[(&str, &str)] = &[
     ),
     (
         "Copycat",
-        "Tell: worth the next card's printed Stack, not its Tell. Its own if no card follows.",
+        "Tell: worth the printed Stack of the card in the slot to its right. Its own if nothing follows it.",
+    ),
+    (
+        "Flop",
+        "Tell: worth the printed Stack of the Opposing Card across from it. Its own if nothing is across.",
     ),
     (
         "Push Your Luck",
@@ -65,19 +80,23 @@ const GLOSSARY: &[(&str, &str)] = &[
     ),
     (
         "Rising Blinds",
-        "Every few turns the House Edge climbs. Nobody sits here forever.",
+        "Every few turns the enemy lays another Opposing Card down. Past your Plays you can't cover them all. Nobody sits here forever.",
     ),
     ("Loaded Dice", "Item: +5 to your next two Hands."),
 ];
 
+pub fn get_keywords() -> Vec<&'static str> {
+    GLOSSARY.iter().map(|unit| unit.0).collect()
+}
+
 const BIG_SHOTS: &[(&str, &str)] = &[
     (
         "Margin",
-        "How far above your Hand The House sets its Edge. Rises with the Blinds.",
+        "How far above the row it read The House sets its own. Rises with the Blinds.",
     ),
     (
         "Hole Card",
-        "Your last Play. The House locks its Edge on everything before it, so the Hole Card is the only card it can't see.",
+        "The last card in your row. The House keeps its own last card back and fills it in on everything before yours, so the Hole Card is the only one it can't see.",
     ),
 ];
 

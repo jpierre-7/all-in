@@ -4,15 +4,23 @@
 
 A card-combat roguelike set in a casino. Twenty-five years ago Lucky Jack bet
 everything at the Big Shots Table, lost it, and then bet his son; tonight he
-walks back in to collect. Every encounter is a duel against the House. You draw
-seven cards, play up to five, and the cards you play build up The Hand. Clear
-the enemy's House Edge and the excess comes off their chips — fall short and
-the shortfall comes off yours. Two **Tells** bend that: **Streak** doubles a
-card's Stack if the card before it had any Tell, and **All In** burns another
-card from your Draw and takes its Stack. So the order you play in is the skill.
-Then there is The House itself, which reads your Hand after your fourth card and
-sets its Edge just above it, leaving your fifth card — the Hole Card — as the
-only one it cannot see.
+walks back in to collect.
+
+Every encounter is a duel against the House, and the House deals first. It lays
+down a row of **Opposing Cards** — the first face up, the rest a coin toss — and
+you cover them slot for slot out of a Draw of seven. Confirm, both rows turn
+over, and the side with the lower **Stack Sum** loses the difference off its
+chips. You are always playing against a number you can only half see.
+
+Which card faces which is the whole game, because every **Tell** reads the
+table by position: **Streak** doubles if the card in the slot to its left has a
+Tell, **Copycat** takes the print of the slot to its right, **Flop** takes the
+print of the Opposing Card straight across, and **All In** burns a card from
+your Draw for its chips. Nothing resolves until you confirm, so you can put a
+card down, pull it back out, and re-order the row until it reads the way you
+want. Then there is The House itself, which keeps its own last card blank until
+you have committed and fills it in on everything but your last card — leaving
+that one, the **Hole Card**, as the only card it cannot see.
 
 ## Playing it
 
@@ -99,8 +107,10 @@ Keyboard throughout. Number keys work on the top row or the numpad.
 | **1**–**3** | Lobby and menus | Takes the numbered option. |
 | **Enter** | Lobby | Walks the Floor — the same as **3**. |
 | **Enter** | Fight or Fold | Sits down. The same as **1**, Fight. |
-| **1**–**7**, or **click** | Combat | Plays that card out of your Draw. Clicking a card is the same as pressing its number. |
-| **Enter** | Combat | Shows your Hand and ends the turn. |
+| **1**–**7**, or **click** | Combat | Puts that card from your Draw into the next empty slot of your row. Clicking a card is the same as pressing its number. |
+| **click** | Combat, your row | Takes that card back out. Everything to its right slides left, so the Tells re-read their neighbours. |
+| **Backspace** | Combat | The same, for the last card you placed. |
+| **Enter** | Combat | Confirms the row. Both sides turn over and the Stack Sums are compared. |
 | **P** / **H** | Push Your Luck | **P**ush the coin flip, or **H**old and take the Payout you have. |
 | **I** | Combat, Fight or Fold | The glossary: what every word on screen means. |
 | **Esc** | Glossary | Closes it. |

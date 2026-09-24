@@ -108,8 +108,13 @@ carpet ahead.*
 
 The Arcade is a scripted encounter (#40), not a text screen. It enters
 combat as `EncounterId::Tutorial` against **THE DEMO DEALER** (Stack 30,
-House Edge 20, no Blinds), with a fixed deal and a rigged coin. Esc at
-any point goes back to the Lobby; the run is never touched.
+no Blinds), with a fixed deal on both sides of the table and a rigged
+coin. Esc at any point goes back to the Lobby; the run is never touched.
+
+The cabinet's **Opposing Cards** are fixed too (`run::tutorial_opposing`):
+five slots — 5 face up, 4 face down, 4 face up, 4 face down, 3 face up —
+worth 20 in total, with 12 showing and 8 hidden. The same row comes back
+every turn, so free play is practice rather than a fresh gamble.
 
 ### TUTORIAL_INTRO
 
@@ -126,24 +131,30 @@ Clubs 2 · Hot Streak 3 · Dealer Blinks 5 · Four of Hearts 4 · Cheap Seat 3.
 
 | Step | Constant | Prompt | Key |
 | --- | --- | --- | --- |
-| 1 | `TUTORIAL_STEPS[0]` | Every card is worth its Stack. Press **1** to play the 8. | 1 |
-| 2 | `TUTORIAL_STEPS[1..=2]` | Card 1 is **All In**: it burns another card and takes its chips. Press **1** to play it, then **2** to burn the 2 beside it (the All In stays in slot 1 until the burn is named). | 1, 2 |
-| 3 | `TUTORIAL_STEPS[3]` | Card 1 is a **Streak**: it doubles if the card before it had a Tell. It did. Press **1** for 6. | 1 |
-| 4 | `TUTORIAL_STEPS[4]` | Card 1 is a Streak too, and the card before it had a Tell. Press **1** for 10. | 1 |
-| 5 | `TUTORIAL_STEPS[5]` | Last Play. Press **1** to add the 4. That's 32 against a House Edge of 20. | 1 |
-| 6 | `TUTORIAL_STEPS[6]` | Press **Enter** to show your Hand. | Enter |
-| 7 | `TUTORIAL_STEPS[7]` | You cleared the Edge by 12: that's your **Payout**. Or **Push Your Luck**: press **P** and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way; the real one is 45/55. | P |
+| 1 | `TUTORIAL_STEPS[0]` | The dealer went first: five **Opposing Cards**, only three face up. You cover them one for one. Press **1** to put the 8 in the first slot. | 1 |
+| 2 | `TUTORIAL_STEPS[1..=2]` | Card 1 is **All In**: it burns another card and takes its chips. Press **1** to put it in slot two, then **2** to burn the 2 beside it (the All In waits until the burn is named). | 1, 2 |
+| 3 | `TUTORIAL_STEPS[3]` | Card 1 is a **Streak**: it doubles if the card in the slot to its left has a Tell. That one does. Press **1** for 6. | 1 |
+| 4 | `TUTORIAL_STEPS[4]` | Card 1 is a Streak too, and the slot to its left has a Tell in it. Press **1** for 10. | 1 |
+| 5 | `TUTORIAL_STEPS[5]` | Last slot. Press **1** to add the 4. Your row reads 32; theirs shows 12, with 8 more face down. | 1 |
+| 6 | `TUTORIAL_STEPS[6]` | Press **Enter**. Both rows turn over and the **Stack Sums** are compared. | Enter |
+| 7 | `TUTORIAL_STEPS[7]` | Their row was 20. You beat it by 12: that's your **Payout**. Or **Push Your Luck**: press **P** and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way; the real one is 45/55. | P |
 
-Expected: 8 → +4 → +6 → +10 → +4 = 32. Push wins on the rigged coin.
-Payout 24 leaves the dealer on 6.
+Expected row: 8 · 4 · 6 · 10 · 4 = 32, against their 20. Push wins on the
+rigged coin. Payout 24 leaves the dealer on 6.
 
-### Turn 2: free play, one hint, until the dealer is done (a Hand of 26 finishes it).
+The script's keys are unchanged from the pre-#88 tutorial: the Draw closes
+up after each card, so it is `1` every time, and the sequence still lands
+on 32. Only what the prompts *say* moved.
+
+### Turn 2: free play, one hint, until the dealer is done (beating their 20 by 6 finishes it).
 
 `TUTORIAL_HINT`. Leaving early shows `TUTORIAL_LEFT` instead of `TUTORIAL_DONE`.
 
-> Lead with a Tell so your Streaks double, and burn your smallest card to an
-> All In. In a real duel the **Blinds rise** every few turns, so don't sit
-> here all night.
+> Lead with a Tell so the Streak beside it doubles, burn your smallest card
+> to an All In, and remember a card you've placed can be clicked straight
+> back out of the row. In a real duel the **Blinds** lay another Opposing
+> Card down every few turns, and past five you can't cover them all, so
+> don't sit here all night.
 
 ### TUTORIAL_LEFT
 
