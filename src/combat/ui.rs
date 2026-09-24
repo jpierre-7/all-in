@@ -11,7 +11,9 @@ use std::path::Path;
 
 use bevy::prelude::*;
 
-use super::duel::{Coin, Duel, Opposing, Outcome, Phase, Placed, Push, TurnResult};
+use super::duel::{
+    Coin, Duel, Opposing, Outcome, Phase, Placed, Played, Push, Showdown, TurnResult,
+};
 use super::plugin::ActiveDuel;
 use crate::run::{Card, EncounterId, LOADED_DICE_BONUS, Tell};
 use crate::state::AppState;
@@ -283,8 +285,18 @@ pub fn redraw(
             ..default()
         })
         .with_children(|mid| {
+            let covered = duel.row().len();
             text(mid, format!("The Hand   {}", duel.hand()), 34.0, GOLD);
-
+            text(
+                mid,
+                format!(
+                    "{covered} of {} slots covered   -   {} Plays left",
+                    duel.slots(),
+                    duel.plays_left()
+                ),
+                18.0,
+                DIM,
+            );
             if duel.dice_left() > 0 {
                 let hands = duel.dice_left();
                 let plural = if hands == 1 { "Hand" } else { "Hands" };
@@ -319,7 +331,9 @@ pub fn redraw(
                 text(mid, turn_line(turn), 18.0, INK);
                 // Both rows are off the table by the time this is read, so
                 // the line has to carry what they came to, slot by slot.
-
+                if let Some(showdown) = duel.last_showdown() {
+                    text(mid, showdown_line(showdown), 15.0, DIM);
+                }
                 if turn.blinds_rose {
                     text(mid, blinds_line(duel), 16.0, NEON);
                 }
@@ -406,6 +420,7 @@ fn facing_rows(root: &mut ChildSpawnerCommands, active: &ActiveDuel, art: &Art) 
                 );
             }
         });
+        text(table, "- across from -", 13.0, DIM);
         row(table, JustifyContent::Center, |r| {
             for i in 0..duel.slots() {
                 let placed: Option<&Placed> = duel.row().get(i);
@@ -620,10 +635,30 @@ fn edge_line(parent: &mut ChildSpawnerCommands, duel: &Duel) {
         (1, Some(margin)) => {
             format!("House Edge {showing} + the card it kept back   (your row, +{margin})")
         }
-        (_, None) => format!("House Edge {showing} + ?"),
-        (_, _) => format!("House Edge {showing} + ?"),
+        (1, None) => format!("House Edge {showing} + 1 face down"),
+        (n, _) => format!("House Edge {showing} + {n} face down"),
     };
     text(parent, line, 24.0, INK);
+}
+
+/// The two rows that just turned over, slot by slot. They are cleared and
+/// re-dealt the moment the turn resolves, so without this the player never
+/// sees what the cards they chose actually came to.
+fn showdown_line(showdown: &Showdown) -> String {
+    let side = |row: &[Played]| {
+        if row.is_empty() {
+            return "-".to_string();
+        }
+        row.iter()
+            .map(|played| played.value.to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    format!(
+        "Yours {}   vs   theirs {}",
+        side(&showdown.yours),
+        side(&showdown.theirs)
+    )
 }
 
 /// What the Blinds just did, which is not the same thing for The House.
@@ -666,7 +701,7 @@ fn turn_line(turn: &TurnResult) -> String {
                 turn.hand
             )
         }
-        (_, Outcome::Payout(0)) => format!("Tie. Your Hand was equal to the House Edge"),
+        (_, Outcome::Payout(0)) => "Tie. Your Hand was equal to the House Edge.".into(),
         (_, Outcome::Payout(n)) => format!("{} vs House Edge {edge}: Payout {n}.", turn.hand),
         (_, Outcome::Whiff(n)) => {
             format!("{} against {edge}: Whiff. You lose {n}.", turn.hand)

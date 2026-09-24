@@ -325,7 +325,11 @@ fn take_input(
         && active.awaiting_sacrifice.is_none()
     {
         let notice = match active.duel.lift(slot) {
-            Ok(_card) => format!(""),
+            Ok(card) => format!(
+                "{} back in the Draw. Your row reads {}.",
+                card.name,
+                active.duel.hand()
+            ),
             Err(PlayError::HandIsFinal) => "The rows are down. Push (P) or Hold (H).".into(),
             Err(_) => "Nothing in that slot.".into(),
         };
@@ -376,13 +380,16 @@ fn take_input(
 /// What the table says when a card lands in the row. Nothing resolves until
 /// the rows turn over, so this is what the row reads so far and what is left
 /// to cover — not what the card was "worth", which nothing yet knows.
-fn placed_line(duel: &Duel, _slot: usize) -> String {
+fn placed_line(duel: &Duel, slot: usize) -> String {
     let left = duel.plays_left();
-    let line = format!("Enter to confirm.");
+    let mut line = format!("Slot {}. Your row reads {}.", slot + 1, duel.hand());
     if left == 0 {
-        return line;
+        line.push_str("  Enter to confirm.");
+    } else {
+        let cards = if left == 1 { "card" } else { "cards" };
+        line.push_str(&format!("  {left} more {cards} to cover the row."));
     }
-    return format!("");
+    line
 }
 
 /// Write the Stack back and hand over at `PostCombat` once one Stack is out.
@@ -656,6 +663,20 @@ mod tests {
         app.update();
 
         assert_ne!(first, draw(&app));
+    }
+
+    #[test]
+    fn the_big_shots_table_plays_under_the_hole_card_rule() {
+        let app = dealt_table(RunState::new(), Enemy::for_encounter(EncounterId::TheHouse));
+
+        let duel = &app.world().resource::<ActiveDuel>().duel;
+        assert_eq!(duel.margin(), Some(1));
+        // The last Opposing Card is face down and worth nothing yet.
+        let last = duel.opposing().last().expect("a row");
+        assert!(!last.revealed);
+        assert_eq!(last.card.stack, 0);
+        // The Hole Card is always kept back; the deal may hide more.
+        assert!(duel.showing().1 >= 1, "the Hole Card is kept back");
     }
 
     #[test]
@@ -1771,6 +1792,16 @@ mod row_feedback_tests {
     use super::tests::{press, table_for_run};
     use crate::run::{Card, RunState, Tell};
 
+    const KEYS: [KeyCode; 7] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+    ];
+
     /// A table dealt from Copycats and sixes, half and half.
     fn table() -> App {
         let copycat = Card {
@@ -1795,12 +1826,66 @@ mod row_feedback_tests {
         )
     }
 
+    /// The key for the first card in the Draw with, or without, a Tell.
+    fn key_of(app: &App, tell: Option<Tell>) -> KeyCode {
+        let slot = app
+            .world()
+            .resource::<ActiveDuel>()
+            .duel
+            .draw()
+            .iter()
+            .position(|c| c.tell == tell)
+            .expect("the Draw holds both kinds");
+        KEYS[slot]
+    }
+
     fn notice(app: &App) -> String {
         app.world()
             .resource::<ActiveDuel>()
             .notice
             .clone()
             .unwrap_or_default()
+    }
+
+    /// What the row reads, which is the only number the table can honestly
+    /// give a card as it lands: nothing resolves until the rows turn over,
+    /// and the card to the right of a Copycat hasn't been chosen yet.
+    #[test]
+    fn the_table_says_where_the_card_landed_and_what_the_row_now_reads() {
+        let mut app = table();
+
+        let key = key_of(&app, Some(Tell::Copycat));
+        press(&mut app, key);
+
+        // A Copycat alone at the end of the row is worth its own printed 3.
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 3);
+        assert_eq!(
+            notice(&app),
+            "Slot 1. Your row reads 3.  4 more cards to cover the row."
+        );
+
+        let key = key_of(&app, None);
+        press(&mut app, key);
+
+        // Now a six follows it, so the Copycat takes the six's print too.
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 12);
+        assert_eq!(
+            notice(&app),
+            "Slot 2. Your row reads 12.  3 more cards to cover the row."
+        );
+    }
+
+    #[test]
+    fn the_table_says_what_came_back_when_a_card_is_taken_out_of_the_row() {
+        let mut app = table();
+        let key = key_of(&app, None);
+        press(&mut app, key);
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 6);
+
+        press(&mut app, KeyCode::Backspace);
+
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 0);
+        assert_eq!(notice(&app), "six back in the Draw. Your row reads 0.");
     }
 
     #[test]
@@ -1813,6 +1898,7 @@ mod row_feedback_tests {
         }
 
         let line = notice(&app);
+        assert!(line.starts_with("Slot 5."), "{line}");
         assert!(line.ends_with("Enter to confirm."), "{line}");
         assert_eq!(app.world().resource::<ActiveDuel>().duel.plays_left(), 0);
     }
