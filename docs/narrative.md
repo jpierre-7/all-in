@@ -107,7 +107,7 @@ carpet ahead.*
 ## TUTORIAL
 
 The Arcade is a scripted encounter (#40), not a text screen. It enters
-combat as `EncounterId::Tutorial` against **THE DEMO DEALER** (Stack 30,
+combat as `EncounterId::Tutorial` against **THE DEMO DEALER** (Chips 30,
 no Blinds), with a fixed deal on both sides of the table and a rigged
 coin. Esc at any point goes back to the Lobby; the run is never touched.
 
@@ -136,7 +136,7 @@ Clubs 2 · Hot Streak 3 · Dealer Blinks 5 · Four of Hearts 4 · Cheap Seat 3.
 | 3 | `TUTORIAL_STEPS[3]` | Card 1 is a **Streak**: it doubles if the card in the slot to its left has a Tell. That one does. Press **1** for 6. | 1 |
 | 4 | `TUTORIAL_STEPS[4]` | Card 1 is a Streak too, and the slot to its left has a Tell in it. Press **1** for 10. | 1 |
 | 5 | `TUTORIAL_STEPS[5]` | Last slot. Press **1** to add the 4. Your row reads 32; theirs shows 12, with 8 more face down. | 1 |
-| 6 | `TUTORIAL_STEPS[6]` | Press **Enter**. Both rows turn over and the **Stack Sums** are compared. | Enter |
+| 6 | `TUTORIAL_STEPS[6]` | Press **Enter**. Both rows turn over and **The Hand** meets the **House Edge**. | Enter |
 | 7 | `TUTORIAL_STEPS[7]` | Their row was 20. You beat it by 12: that's your **Payout**. Or **Push Your Luck**: press **P** and a coin flip doubles it, or zeroes your Hand. This coin is rigged your way; the real one is 45/55. | P |
 
 Expected row: 8 · 4 · 6 · 10 · 4 = 32, against their 20. Push wins on the
@@ -233,7 +233,7 @@ Shown with `TUTORIAL_DONE` beneath it, any key to the Lobby.
 > **THE PIT BOSS.** A brass balance scale the height of a man, two pans
 > hanging off a beam that creaks when it turns to look at you. One pan is
 > already piled with chips; the other holds nothing yet. "Jack. Twenty-five
-> years, and you came back with *that* Stack? Put it on the pan. Let's see
+> years, and you came back with *those* Chips? Put it on the pan. Let's see
 > what it's worth."
 
 ### ENC_THE_HOUSE
@@ -275,7 +275,7 @@ Shown with `TUTORIAL_DONE` beneath it, any key to the Lobby.
 
 ### LOSE
 
-> Your Stack hits the felt and stops, and the dealer doesn't bother looking
+> Your last chip hits the felt and stops, and the dealer doesn't bother looking
 > up.
 >
 > "House always wins, pal."

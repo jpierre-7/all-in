@@ -37,19 +37,19 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 
 | Term | Definition |
 | --- | --- |
-| **Stack/Chip Stack** | Health/life stat. Player, enemy, and individual cards each have their own Stack. |
+| **Chips** | Health/life stat. Only the player and the enemy have Chips. |
+| **Face Value** | The number printed on a card: what it adds to its row before its Tell. |
 | **Opposing Cards** | The enemy's row, laid down before you play. First card always face up, the rest a roll. Your cards go one per slot across from them. |
 | **Slot** | One column of the table: an Opposing Card and whatever you put across from it. |
-| **Stack Sum** | What a row adds up to once its Tells resolve. One per side; the lower one pays the difference. |
-| **The Hand** | Your row, and its Stack Sum. |
-| **House Edge** | The Opposing Cards' Stack Sum. Your Hand must beat it, and you only see part of it before you confirm. |
-| **Payout** | Damage dealt to the enemy's Stack when your Hand beats theirs: the difference. |
-| **Whiff** | A Hand that comes in lower. The difference is dealt to the player's own Chip Stack. |
-| **Tell** | A single passive keyword on a card that modifies how it resolves. (Balatro/Inscryption-inspired, one per card.) Targets by **slot**, and always reads a **printed** Stack. |
+| **The Hand** | Your row, and what it adds up to once its Tells resolve. The lower of The Hand and House Edge pays the difference. |
+| **House Edge** | What the Opposing Cards add up to once their Tells resolve. Your Hand must beat it, and you only see part of it before you confirm. |
+| **Payout** | Damage dealt to the enemy's Chips when your Hand beats theirs: the difference. |
+| **Whiff** | A Hand that comes in lower. The difference is dealt to the player's own Chips. |
+| **Tell** | A single passive keyword on a card that modifies how it resolves. (Balatro/Inscryption-inspired, one per card.) Targets by **slot**, and always reads a card's **Face Value**. |
 | **Streak** | Tell: doubles this card if the card in the slot to its left has any Tell. |
-| **All In** | Tell: sacrifice a card from the Draw to add its Stack to this card's. |
-| **Copycat** | Tell: worth the printed Stack of the card in the slot to its right; its own if nothing follows. |
-| **Flop** | Tell: worth the printed Stack of the Opposing Card across from it; its own if nothing is across. |
+| **All In** | Tell: sacrifice a card from the Draw to add its Face Value to this card's. |
+| **Copycat** | Tell: worth the Face Value of the card in the slot to its right; its own if nothing follows. |
+| **Flop** | Tell: worth the Face Value of the Opposing Card across from it; its own if nothing is across. |
 | **Rising Blinds** | Difficulty escalates as combat goes on: the enemy lays one more Opposing Card every 5 turns. Past your Plays you can't cover them all. |
 | **Plays** | Limited number of cards you may put in your row per turn (Draw of 7, up to 5 placed by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final. Cleared House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Fell short: Push to have the Whiff forgiven, or lose and it doubles. Coin is 45/55 in the House's favor. |
@@ -74,22 +74,22 @@ Before each encounter, the player chooses to:
 2. **The enemy goes first.** It lays down its Opposing Cards — 3 or 4 to start, depending on the enemy, and one more per Rising Blinds tick. The first is face up; each of the rest is face down on a roll the enemy's own odds set. Enemies play Tells too, at their own configured rate.
 3. Player covers the row: click a card in the Draw to put it in the next empty slot, click a card already in the row to take it (and anything it burned) back out. Up to 5 cards (or the limit set by perks). Nothing resolves yet — a row is worth nothing until it is finished.
 4. Player **confirms**. Both rows turn over.
-5. Each row resolves left to right. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop straight across. All of them read *printed* Stacks, so neither row depends on the other resolving first.
-6. Items that modify The Hand apply (Loaded Dice: +5). Both Stack Sums are now final.
+5. Each row resolves left to right. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop straight across. All of them read *Face Values*, so neither row depends on the other resolving first.
+6. Items that modify The Hand apply (Loaded Dice: +5). The Hand and House Edge are now final.
 7. **Push Your Luck**: the player sees the House Edge and chooses **Push** or **Hold**, whether The Hand cleared it or fell short (PYL on a Whiff, #96).
    - Hold → step 8 as normal.
    - Push → flip the coin (45% player / 55% House by default; Slotz Option 1 makes it best-2-of-3 at 49/51 ≈ 48.5%).
      - Win → the Payout in step 8 is **doubled**; on a Whiff, the Whiff is **forgiven** (no damage).
      - Lose → The Hand becomes **0**; step 8 is a full Whiff for the entire House Edge. On a Whiff, it **doubles**.
-8. Compare the two Stack Sums. The lower side loses the difference off its Stack.
-   - Yours higher → Payout (the difference, ×2 if PYL won) is dealt to the enemy's Stack.
-   - Yours lower → Whiff: the difference is dealt to the **player's** Stack.
+8. Compare The Hand with House Edge. The lower side loses the difference off its Chips.
+   - Yours higher → Payout (the difference, ×2 if PYL won) is dealt to the enemy's Chips.
+   - Yours lower → Whiff: the difference is dealt to the **player's** Chips.
    - Dead even → nobody pays.
 9. Rising Blinds check: one more Opposing Card every 5 turns (or per active perk modifier). Once the row is longer than your Plays, the slots you can't cover count for the enemy anyway.
-10. Repeat until player or enemy Stack hits 0.
+10. Repeat until the player's or the enemy's Chips hit 0.
 
-**Loss condition:** player Stack reaches 0 (run ends / back to Lobby).
-**Win condition:** enemy Stack reaches 0 (grants rewards based on enemy type).
+**Loss condition:** player's Chips reach 0 (run ends / back to Lobby).
+**Win condition:** enemy's Chips reach 0 (grants rewards based on enemy type).
 
 ---
 
@@ -142,7 +142,7 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 
 **Starter deck:** fixed, no deckbuilding meta-layer for MVP. 18 cards, 8 with a Tell (44%). Prototyped on the `prototype/starter-deck` branch: a careless player fires Streak ~1/3 of the time, a careful one ~94%, a 6-chip gap in mean Hand from sequencing alone. Mean Hand ~28 (naive) / ~34 (smart), range 18–52. Whiffs start appearing around House Edge 26.
 
-| Card Name | Stack | Tell | Notes/Flavor |
+| Card Name | Face Value | Tell | Notes/Flavor |
 | --- | --- | --- | --- |
 | Two of Clubs | 2 | — | |
 | Cheap Seat | 3 | — | |
@@ -167,12 +167,12 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 
 ## 7. Enemy Design & Encounters
 
-**How an enemy is authored:** an enemy is a Stack, a Rising Blinds schedule, and a **Deal** — six numbers saying how it fills its row. No named decks; regular enemies don't have them.
+**How an enemy is authored:** an enemy is its Chips, a Rising Blinds schedule, and a **Deal** — six numbers saying how it fills its row. No named decks; regular enemies don't have them.
 
 | Deal field | What it does |
 | --- | --- |
 | `row` | Opposing Cards laid down on turn one |
-| `low` / `high` | the Stack range a card is dealt from, inclusive |
+| `low` / `high` | the Face Value range a card is dealt from, inclusive |
 | `tell_pct` | chance in 100 that a dealt card carries a Tell at all |
 | `tells` | which Tells this enemy plays; one is drawn at random when `tell_pct` hits. **Never All In** — an enemy has no Draw to burn from |
 | `hidden_pct` | chance in 100 that a card is face down. The first Opposing Card is always face up |
@@ -181,14 +181,14 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 
 | | Player | Floor minion | Slotz | Pit minion | Pit Boss | The House |
 | --- | --- | --- | --- | --- | --- | --- |
-| Stack | **50** | 25 | 32 | 32 | 40 | 35 |
+| Chips | **50** | 25 | 32 | 32 | 40 | 35 |
 | Deal | | 3 × 2–5 | 3 × 3–7 | 4 × 4–7 | 4 × 4–9 | 4 × 1–4, last kept back |
 | Expected row | | ~10.8 | ~15.6 | ~22.8 | ~27 | read + margin |
 | Tells | | 20% Streak | 35% Streak/Copycat | 30% Streak/Flop | 40% Streak/Copycat/Flop | 35% Streak/Flop |
 | Face down | | 50% | 50% | 50% | 55% | 40%, + the Hole Card |
 | Rising Blinds | | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | margin +1, +2 / 2 turns |
 
-What the sim said: a careless player (top five cards, random order) beats the Pit Boss 82% of the time and the House 19%; a player who leads with All In then Streaks beats everything up to the House with a full Stack, then loses to the House every time because that habit makes the hole card a low vanilla card; a player who saves the biggest Tell for last beats the House in ~4 turns. The House inverts the habit the Tutorial teaches, on purpose. Blinds every 2 turns (the earlier draft) made every fight past 6 turns unwinnable; every 3 is the difference.
+What the sim said: a careless player (top five cards, random order) beats the Pit Boss 82% of the time and the House 19%; a player who leads with All In then Streaks beats everything up to the House with full Chips, then loses to the House every time because that habit makes the hole card a low vanilla card; a player who saves the biggest Tell for last beats the House in ~4 turns. The House inverts the habit the Tutorial teaches, on purpose. Blinds every 2 turns (the earlier draft) made every fight past 6 turns unwinnable; every 3 is the difference.
 
 **Built (#88):** the reactive enemy is no longer a stretch goal — laying the Opposing Cards down *is* the enemy's turn, and House Edge is what they add up to. See `docs/adr/0002-opposing-cards.md`.
 
@@ -233,9 +233,9 @@ What the sim said: a careless player (top five cards, random order) beats the Pi
 - `Card` struct — name, base value, `Tell` enum
 - `Perk` / `Item` structs — active run modifiers and inventory triggers
 - `Deal` struct — how an enemy fills its row of Opposing Cards
-- Resolution loop — one pure pass per row, applying Tells by slot, then compares the two Stack Sums
+- Resolution loop — one pure pass per row, applying Tells by slot, then compares The Hand with House Edge
 - Overworld/text adventure layer — navigation, encounter triggers ("Fight" vs "Fold"), narrative text
-- Combat UI — renders Stack, Plays remaining, The Hand as it builds
+- Combat UI — renders Chips, Plays remaining, The Hand as it builds
 
 *TODO: finalize struct definitions, module boundaries, save/state format if needed.*
 
@@ -245,7 +245,7 @@ What the sim said: a careless player (top five cards, random order) beats the Pi
 
 | Role | Owner | Focus |
 | --- | --- | --- |
-| Combat engine + combat UI | Dev 1 | `Card`/`Tell` structs, resolution loop, perks/items; renders combat state (Stack, Plays, The Hand) |
+| Combat engine + combat UI | Dev 1 | `Card`/`Tell` structs, resolution loop, perks/items; renders combat state (Chips, Plays, The Hand) |
 | Overworld / text adventure + shell | Dev 2 | Navigation, encounter triggers ("Fight" / "Fold"), narrative text; app setup, scene/state transitions, input |
 | Art | Artist | Card frames/icons scoped to MVP Tells; casino-themed UI elements |
 

@@ -9,7 +9,7 @@ walks back in to collect.
 Every encounter is a duel against the House, and the House deals first. It lays
 down a row of **Opposing Cards** — the first face up, the rest a coin toss — and
 you cover them slot for slot out of a Draw of seven. Confirm, both rows turn
-over, and the side with the lower **Stack Sum** loses the difference off its
+over, and the side that comes up short loses the difference off its
 chips. You are always playing against a number you can only half see.
 
 Which card faces which is the whole game, because every **Tell** reads the
@@ -110,7 +110,7 @@ Keyboard throughout. Number keys work on the top row or the numpad.
 | **1**–**7**, or **click** | Combat | Puts that card from your Draw into the next empty slot of your row. Clicking a card is the same as pressing its number. |
 | **click** | Combat, your row | Takes that card back out. Everything to its right slides left, so the Tells re-read their neighbours. |
 | **Backspace** | Combat | The same, for the last card you placed. |
-| **Enter** | Combat | Confirms the row. Both sides turn over and the Stack Sums are compared. |
+| **Enter** | Combat | Confirms the row. Both sides turn over and The Hand meets the House Edge. |
 | **P** / **H** | Push Your Luck | **P**ush the coin flip, or **H**old and take the Payout you have. |
 | **I** | Combat, Fight or Fold | The glossary: what every word on screen means. |
 | **Esc** | Glossary | Closes it. |

@@ -9,7 +9,7 @@ compiles are slow the first time (see "Build times" in the README).
 1. **Play the game.** The itch build (linked from the README) or `cargo run
    --release` from the repo root. One full run, Lobby to ending. Everything
    below assumes you have.
-2. **Read `CONTEXT.md`.** It is the game's vocabulary — Stack, The Hand, House
+2. **Read `CONTEXT.md`.** It is the game's vocabulary — Chips, Face Value, The Hand, House
    Edge, Whiff, Tell, and the rest — and it is short. Code, tickets, and
    conversation all use these words exactly; the `_Avoid_` lines are the
    synonyms we do not use. Read it before naming anything.

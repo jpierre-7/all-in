@@ -11,7 +11,7 @@ A fighter's remaining life. Only the player and the enemy have Chips; cards have
 _Avoid_: Stack, HP, health, life
 
 **House Edge**:
-The Opposing Cards' Stack Sum: the number The Hand has to beat this turn. Not a flat number the enemy carries around — it is whatever the enemy actually laid down, and the player only ever sees part of it before confirming.
+What the Opposing Cards add up to once every Tell in them has resolved: the number The Hand has to beat this turn. Not a flat number the enemy carries around — it is whatever the enemy actually laid down, and the player only ever sees part of it before confirming.
 _Avoid_: defense, armor, threshold
 
 **Rising Blinds**:
@@ -40,24 +40,20 @@ _Avoid_: enemy hand, their cards, board
 One column of the table: an Opposing Card and whatever the player put across from it. Which card faces which is what every Tell now reads.
 _Avoid_: position, lane, index
 
-**Stack Sum**:
-What a row adds up to once every Tell in it has resolved. There is one per side of the table, and the side with the lower one loses the difference off its Chips.
-_Avoid_: total, score, sum
-
 **The Hand**:
-The player's row, and its Stack Sum. Built by covering slots, and worth nothing until the rows turn over.
-_Avoid_: score, total
+The player's row, and what it adds up to once every Tell in it has resolved. Built by covering slots, and worth nothing until the rows turn over. Whichever of The Hand and House Edge is lower, that side loses the difference off its Chips.
+_Avoid_: score, total, Stack Sum
 
 **Lift**:
 Taking a card back out of the row before Confirm. It returns to the Draw, and an All In hands back the card it burned.
 _Avoid_: take back, undo, remove
 
 **Confirm**:
-The player saying the row is finished. Both rows turn over, every Tell resolves, and the Stack Sums are compared.
+The player saying the row is finished. Both rows turn over, every Tell resolves, and The Hand meets House Edge.
 _Avoid_: submit, lock in, end turn
 
 **Showdown**:
-The moment the rows turn over on Confirm: every face-down card is shown, every Tell resolves, and the two Stack Sums are compared. What each card came to stays on the table until the next turn.
+The moment the rows turn over on Confirm: every face-down card is shown, every Tell resolves, and The Hand meets House Edge. What each card came to stays on the table until the next turn.
 _Avoid_: reveal, resolution
 
 **Draw**:
@@ -77,11 +73,11 @@ The two answers to Push Your Luck. Hold resolves the turn as normal.
 _Avoid_: yes/no, gamble/pass
 
 **Payout**:
-Damage dealt to the enemy's Chips when The Hand beats House Edge: the difference between the two Stack Sums.
+Damage dealt to the enemy's Chips when The Hand beats House Edge: the difference between them.
 _Avoid_: damage, overflow
 
 **Whiff**:
-A Hand whose Stack Sum is the lower of the two. The difference is dealt to the player's own Chips.
+A Hand lower than House Edge. The difference is dealt to the player's own Chips.
 _Avoid_: miss, fail, bust
 
 ### Cards
