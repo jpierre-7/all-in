@@ -50,7 +50,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | **All In** | Tell: sacrifice a card from the Draw to add its Stack to this card's. |
 | **Copycat** | Tell: worth the printed Stack of the card in the slot to its right; its own if nothing follows. |
 | **Flop** | Tell: worth the printed Stack of the Opposing Card across from it; its own if nothing is across. |
-| **Rising Blinds** | Difficulty escalates as combat goes on: the enemy lays one more Opposing Card every 3 turns. Past your Plays you can't cover them all. |
+| **Rising Blinds** | Difficulty escalates as combat goes on: the enemy lays one more Opposing Card every 5 turns. Past your Plays you can't cover them all. |
 | **Plays** | Limited number of cards you may put in your row per turn (Draw of 7, up to 5 placed by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final. Cleared House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Fell short: Push to have the Whiff forgiven, or lose and it doubles. Coin is 45/55 in the House's favor. |
 | **Hole Card** | Against The House only: the last card in your row. The House keeps its own last Opposing Card back and fills it in on everything before yours. |
@@ -85,7 +85,7 @@ Before each encounter, the player chooses to:
    - Yours higher → Payout (the difference, ×2 if PYL won) is dealt to the enemy's Stack.
    - Yours lower → Whiff: the difference is dealt to the **player's** Stack.
    - Dead even → nobody pays.
-9. Rising Blinds check: one more Opposing Card every 3 turns (or per active perk modifier). Once the row is longer than your Plays, the slots you can't cover count for the enemy anyway.
+9. Rising Blinds check: one more Opposing Card every 5 turns (or per active perk modifier). Once the row is longer than your Plays, the slots you can't cover count for the enemy anyway.
 10. Repeat until player or enemy Stack hits 0.
 
 **Loss condition:** player Stack reaches 0 (run ends / back to Lobby).
@@ -177,16 +177,16 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 | `tells` | which Tells this enemy plays; one is drawn at random when `tell_pct` hits. **Never All In** — an enemy has no Draw to burn from |
 | `hidden_pct` | chance in 100 that a card is face down. The first Opposing Card is always face up |
 
-**Combat numbers.** The ranges are picked so each enemy's *expected* row sum lands on the flat House Edge it used to carry, so the `prototype/starter-deck` tuning below still applies:
+**Combat numbers.** The ranges no longer land each enemy's row on the flat House Edge it used to carry (18, 20, 22, 24); the expected rows below are measured over 4000 deals, and retuning them waits on the balance sim (#94):
 
 | | Player | Floor minion | Slotz | Pit minion | Pit Boss | The House |
 | --- | --- | --- | --- | --- | --- | --- |
 | Stack | **50** | 25 | 32 | 32 | 40 | 35 |
-| Deal | | 3 × 4–8 | 3 × 5–9 | 4 × 4–7 | 4 × 4–8 | 4 × 1–4, last kept back |
-| Expected row | | ~18 | ~21 | ~22 | ~24 | read + margin |
+| Deal | | 3 × 2–5 | 3 × 3–7 | 4 × 4–7 | 4 × 4–9 | 4 × 1–4, last kept back |
+| Expected row | | ~10.8 | ~15.6 | ~22.8 | ~27 | read + margin |
 | Tells | | 20% Streak | 35% Streak/Copycat | 30% Streak/Flop | 40% Streak/Copycat/Flop | 35% Streak/Flop |
 | Face down | | 50% | 50% | 50% | 55% | 40%, + the Hole Card |
-| Rising Blinds | | +1 card / 3 turns | +1 card / 3 turns | +1 card / 3 turns | +1 card / 3 turns | margin +1, +2 / 2 turns |
+| Rising Blinds | | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | margin +1, +2 / 2 turns |
 
 What the sim said: a careless player (top five cards, random order) beats the Pit Boss 82% of the time and the House 19%; a player who leads with All In then Streaks beats everything up to the House with a full Stack, then loses to the House every time because that habit makes the hole card a low vanilla card; a player who saves the biggest Tell for last beats the House in ~4 turns. The House inverts the habit the Tutorial teaches, on purpose. Blinds every 2 turns (the earlier draft) made every fight past 6 turns unwinnable; every 3 is the difference.
 
