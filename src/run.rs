@@ -97,7 +97,7 @@ pub struct Card {
 pub enum Perk {
     /// Slotz option 1: Push Your Luck is best 2-of-3 at 49/51.
     PylBestTwoOfThree,
-    /// Pit Boss option 1: 6 Plays per turn, but Rising Blinds are +2 every turn.
+    /// Pit Boss option 1: 6 Plays per turn, but Rising Blinds add an Opposing Card every turn.
     SixPlaysSteepBlinds,
 }
 
@@ -129,7 +129,7 @@ impl Reward {
             Self::SlotzStreakCards => "Three more Streak cards in the deck.",
             Self::SlotzPylBestTwoOfThree => "Push Your Luck becomes best 2 of 3, at 49/51.",
             Self::PitBossSixPlays => {
-                "A sixth Play every turn - but the Blinds rise every turn, not every third, and each rise is another Opposing Card."
+                "A sixth Play every turn - but the Blinds rise every turn, not every fifth, and each rise is another Opposing Card."
             }
             Self::PitBossRandomCards => {
                 "Four cards off the Pit's table: two with Tells, two plain."

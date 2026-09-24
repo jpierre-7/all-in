@@ -114,7 +114,7 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
   - **Option 2:** Adds 3x "Streak" Tell cards to the player's deck.
 
 - **Boss: Pit Boss (The Pit)**
-  - **Option 1:** You can play up to 6 cards per turn, but Rising Blinds become +2 every turn (3× the base rate). Pays in short fights, punishes long ones.
+  - **Option 1:** You can play up to 6 cards per turn, but Rising Blinds add an Opposing Card every turn (5× the base rate). Pays in short fights, punishes long ones.
   - **Option 2:** Adds 4x random cards to deck (2x with random Tells, 2x normal/vanilla cards).
 
 - **Secret Boss: The Man Who Beat the House (The Back Room)**
