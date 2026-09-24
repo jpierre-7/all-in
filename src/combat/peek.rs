@@ -98,7 +98,7 @@ fn terms(tell: Tell) -> impl Iterator<Item = &'static str> {
 }
 
 fn is_keyword(string: &str) -> bool {
-    get_keywords().contains(&string.trim_end_matches('.'))
+    get_keywords().contains(&string)
 }
 
 /// The key that waves the Peek off and calls it back.
@@ -383,4 +383,23 @@ fn text(parent: &mut ChildSpawnerCommands, s: impl Into<String>, size: f32, colo
         TextFont::from_font_size(size),
         TextColor(color),
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_term_a_tell_leans_on_has_a_glossary_line() {
+        let tells = [Tell::Streak, Tell::AllIn, Tell::Copycat, Tell::Flop];
+        for tell in tells {
+            let found: Vec<_> = terms(tell).collect();
+            assert!(!found.is_empty(), "{} marks no terms", tell.name());
+            for term in found {
+                assert!(info::define(term).is_some(), "{term} has no line");
+            }
+        }
+        assert!(terms(Tell::Streak).any(|t| t == "Tell"));
+        assert!(terms(Tell::AllIn).any(|t| t == "The Hand"));
+    }
 }

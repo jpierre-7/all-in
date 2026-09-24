@@ -38,7 +38,8 @@ impl Tell {
                 "Doubles this card's",
                 "Stack",
                 "if the card in the slot to its left has any",
-                "Tell.",
+                "Tell",
+                ".",
             ],
             Tell::AllIn => vec![
                 "Burns",
@@ -47,7 +48,8 @@ impl Tell {
                 "and adds its",
                 "Stack",
                 "to",
-                "The Hand.",
+                "The Hand",
+                ".",
             ],
             Tell::Copycat => vec![
                 "Takes the printed",

@@ -1704,7 +1704,7 @@ mod peek_tests {
         press(&mut app, KeyCode::ArrowUp);
         assert_eq!(tag(&mut app).unwrap().0.term, Some("Stack"));
         press(&mut app, KeyCode::ArrowUp);
-        assert_eq!(tag(&mut app).unwrap().0.term, Some("Tell."));
+        assert_eq!(tag(&mut app).unwrap().0.term, Some("Tell"));
         press(&mut app, KeyCode::ArrowUp);
         assert_eq!(tag(&mut app).unwrap().0.term, Some("Stack"), "wraps");
 
