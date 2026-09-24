@@ -87,7 +87,7 @@ pub struct Art {
 
 impl Art {
     /// The face at the other side of the table. Only the three bosses sat for
-    /// a portrait; the minions are a name and a Stack, and that is the whole
+    /// a portrait; the minions are a name and their Chips, and that is the whole
     /// of them.
     pub fn portrait(&self, id: EncounterId) -> Option<&Handle<Image>> {
         match id {
@@ -179,7 +179,7 @@ pub struct CombatScreen;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CardSlot {
     pub zone: Zone,
-    pub index: usize,
+    pub slot: usize,
 }
 
 /// The frame art layer inside a card node; hover tints it.
@@ -247,7 +247,7 @@ pub fn redraw(
         // Top: the enemy, and what its row adds up to as far as anyone can see.
         row(root, JustifyContent::SpaceBetween, |r| {
             // Portrait and name are one thing on the left of the row, so
-            // SpaceBetween pushes the Stack and the Edge away from the pair
+            // SpaceBetween pushes the Chips and the Edge away from the pair
             // rather than through the middle of it.
             r.spawn(Node {
                 flex_direction: FlexDirection::Row,
@@ -268,7 +268,7 @@ pub fn redraw(
                 }
                 text(who, active.enemy_name, 26.0, NEON);
             });
-            text(r, format!("Stack {}", duel.enemy_stack()), 24.0, GOLD);
+            text(r, format!("Chips {}", duel.enemy_chips()), 24.0, GOLD);
             edge_line(r, duel);
         });
 
@@ -318,12 +318,12 @@ pub fn redraw(
                     let held = duel.payout(None);
                     let pushed = duel.payout(Some(Push::Won));
                     text(mid, format!("Push Your Luck?   Hold for a Payout of {held}, or {pushed} if the coin lands your way."), 24.0, GOLD);
-                    text(mid, format!("Lose and The Hand is 0: a Whiff of {}, out of your own Stack.", duel.house_edge()), 18.0, NEON);
+                    text(mid, format!("Lose and The Hand is 0: a Whiff of {}, out of your own Chips.", duel.house_edge()), 18.0, NEON);
                 } else {
                     let held = duel.whiff(None);
                     let lost = duel.whiff(Some(Push::Lost));
                     text(mid, format!("Push Your Luck?   Hold and take the Whiff of {held}, or Push: the coin lands your way and it's forgiven."), 24.0, GOLD);
-                    text(mid, format!("Lose and the Whiff doubles to {lost}, out of your own Stack."), 18.0, NEON);
+                    text(mid, format!("Lose and the Whiff doubles to {lost}, out of your own Chips."), 18.0, NEON);
                 }
                 text(mid, coin_line(duel.coin()), 18.0, DIM);
             }
@@ -360,7 +360,7 @@ pub fn redraw(
                         &art,
                         CardSlot {
                             zone: Zone::Draw,
-                            index: i,
+                            slot: i,
                         },
                         Some(card),
                         sacrifice_pending,
@@ -379,7 +379,7 @@ pub fn redraw(
         // Bottom: you.
         row(root, JustifyContent::SpaceBetween, |r| {
             text(r, "Lucky Jack", 24.0, INK);
-            text(r, format!("Stack {}", duel.player_stack()), 24.0, GOLD);
+            text(r, format!("Chips {}", duel.player_chips()), 24.0, GOLD);
             let keys = match duel.phase() {
                 Phase::PushYourLuck => "P: Push   H: Hold   I: Help and Terms",
                 Phase::Playing => {
@@ -408,7 +408,7 @@ fn facing_rows(root: &mut ChildSpawnerCommands, active: &ActiveDuel, art: &Art) 
     .with_children(|table| {
         row(table, JustifyContent::Center, |r| {
             for (i, opposing) in duel.opposing().iter().enumerate() {
-                let value = showdown.and_then(|s| s.theirs.get(i)).map(|p| p.value);
+                let value = showdown.and_then(|s| s.opposing.get(i)).map(|p| p.value);
                 slot_column(
                     r,
                     art,
@@ -424,7 +424,7 @@ fn facing_rows(root: &mut ChildSpawnerCommands, active: &ActiveDuel, art: &Art) 
         row(table, JustifyContent::Center, |r| {
             for i in 0..duel.slots() {
                 let placed: Option<&Placed> = duel.row().get(i);
-                let value = showdown.and_then(|s| s.yours.get(i)).map(|p| p.value);
+                let value = showdown.and_then(|s| s.row.get(i)).map(|p| p.value);
                 // Past the player's Plays there is no slot to fill, only a
                 // card of theirs nobody is covering.
                 let coverable = i < usize::from(duel.plays_left()) + duel.row().len();
@@ -466,7 +466,7 @@ fn slot_column(
             card_node(
                 column,
                 art,
-                CardSlot { zone, index },
+                CardSlot { zone, slot: index },
                 card.as_ref(),
                 false,
                 label,
@@ -481,7 +481,7 @@ fn slot_column(
 /// An Opposing Card as the player is allowed to see it: the card itself when
 /// it is face up, and nothing at all when it isn't.
 fn opposing_face(opposing: &Opposing) -> Option<Card> {
-    opposing.revealed.then(|| opposing.card.clone())
+    opposing.face_up.then(|| opposing.card.clone())
 }
 
 /// One card node. `card` of `None` draws an empty slot — a face-down Opposing
@@ -567,7 +567,7 @@ fn card_node(
                 // (or the Tell, large) in the middle. No name on the face; it
                 // doesn't fit, and the prompts say it when it matters.
                 Some(card) => {
-                    let value = card.stack.to_string();
+                    let value = card.face_value.to_string();
                     let corner = if slot.zone == Zone::Draw { 18.0 } else { 15.0 };
                     corner_row(c, JustifyContent::FlexStart, &value, corner);
                     centre(c, card, art, height * 0.36);
@@ -617,7 +617,7 @@ fn card_node(
         });
 }
 
-/// What the player is allowed to know about the Opposing Cards' Stack Sum.
+/// What the player is allowed to know about what the Opposing Cards add up to.
 fn edge_line(parent: &mut ChildSpawnerCommands, duel: &Duel) {
     // Once the rows are face up the Edge is simply the Edge.
     if duel.phase() == Phase::PushYourLuck {
@@ -656,8 +656,8 @@ fn showdown_line(showdown: &Showdown) -> String {
     };
     format!(
         "Yours {}   vs   theirs {}",
-        side(&showdown.yours),
-        side(&showdown.theirs)
+        side(&showdown.row),
+        side(&showdown.opposing)
     )
 }
 

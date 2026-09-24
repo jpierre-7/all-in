@@ -209,8 +209,8 @@ fn show_fight_or_fold(mut commands: Commands, progress: Res<Progress>, run: Res<
         .option(1, "Fight")
         .option(2, "Fold")
         .footer(format!(
-            "Your Stack: {} — Enter sits down. I: what the words mean.",
-            run.stack
+            "Your Chips: {} — Enter sits down. I: what the words mean.",
+            run.chips
         ))
         .spawn(&mut commands, AppState::FightOrFold);
 }
@@ -572,7 +572,7 @@ mod tests {
     fn the_arcade_is_a_duel_that_comes_back_to_the_lobby() {
         let mut app = opened();
         press(&mut app, KeyCode::Enter);
-        app.world_mut().resource_mut::<RunState>().stack = 7;
+        app.world_mut().resource_mut::<RunState>().chips = 7;
         let before = progress(&app);
 
         press(&mut app, KeyCode::Digit2);
@@ -690,12 +690,12 @@ mod tests {
 
         // Deep enough into the run for a reset to show.
         assert_eq!(progress(&app).encounter(), Some(EncounterId::Slotz));
-        app.world_mut().resource_mut::<RunState>().stack = 7;
+        app.world_mut().resource_mut::<RunState>().chips = 7;
 
         press(&mut app, KeyCode::Digit2); // Fold
         assert_eq!(state(&app), AppState::Lobby);
         assert_eq!(progress(&app).encounter(), Some(EncounterId::FloorMinion));
-        assert_ne!(app.world().resource::<RunState>().stack, 7);
+        assert_ne!(app.world().resource::<RunState>().chips, 7);
     }
 
     #[test]
@@ -758,7 +758,7 @@ mod tests {
         duel(&mut app, false);
 
         assert_eq!(state(&app), AppState::GameOver);
-        assert_eq!(app.world().resource::<RunState>().stack, 0);
+        assert_eq!(app.world().resource::<RunState>().chips, 0);
 
         press(&mut app, KeyCode::Enter);
         assert_eq!(state(&app), AppState::Lobby);
@@ -864,7 +864,7 @@ mod tests {
 
         let encounter = app.world().resource::<Encounter>();
         assert_eq!(encounter.id, EncounterId::FloorMinion);
-        assert!(encounter.enemy.stack > 0);
+        assert!(encounter.enemy.chips > 0);
         assert!(app.world().get_resource::<CombatOutcome>().is_none());
     }
 }

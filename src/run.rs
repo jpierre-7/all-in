@@ -15,18 +15,18 @@ use bevy::prelude::*;
 /// Every Tell reads the row by position, not by the order the cards were
 /// picked up: Streak looks one slot to its left, Copycat one slot to its
 /// right, Flop straight across at the Opposing Card. All of them read
-/// *printed* Stacks, so no Tell ever depends on another Tell resolving first
+/// Face Values, so no Tell ever depends on another Tell resolving first
 /// and the two rows can be worked out in either order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tell {
-    /// Doubles the card's Stack if the card in the slot to its left has any Tell.
+    /// Doubles the card's Face Value if the card in the slot to its left has any Tell.
     Streak,
-    /// Sacrifice another card from the Draw to add its Stack to this card's.
+    /// Sacrifice another card from the Draw to add its Face Value to this card's.
     AllIn,
-    /// Takes the printed Stack of the card in the slot to its right, and none
+    /// Takes the Face Value of the card in the slot to its right, and none
     /// of its Tell; its own if it is the last card in the row.
     Copycat,
-    /// Takes the printed Stack of the Opposing Card across from it; its own
+    /// Takes the Face Value of the Opposing Card across from it; its own
     /// if there is nothing across.
     Flop,
 }
@@ -36,7 +36,7 @@ impl Tell {
         match self {
             Tell::Streak => vec![
                 "Doubles this card's",
-                "Stack",
+                "Face Value",
                 "if the card in the slot to its left has any",
                 "Tell",
                 ".",
@@ -46,21 +46,21 @@ impl Tell {
                 "another card from your",
                 "Draw",
                 "and adds its",
-                "Stack",
+                "Face Value",
                 "to",
                 "The Hand",
                 ".",
             ],
             Tell::Copycat => vec![
-                "Takes the printed",
-                "Stack",
+                "Takes the",
+                "Face Value",
                 "of the card in the slot to its right, and none of its",
                 "Tell",
                 ". Its own if nothing follows it.",
             ],
             Tell::Flop => vec![
-                "Takes the printed",
-                "Stack",
+                "Takes the",
+                "Face Value",
                 "of the",
                 "Opposing Card",
                 "across from it, and none of its",
@@ -83,8 +83,8 @@ impl Tell {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Card {
     pub name: &'static str,
-    /// The chips this card contributes to its row's Stack Sum.
-    pub stack: u32,
+    /// The number printed on the card: what it adds to its row before its Tell.
+    pub face_value: u32,
     pub tell: Option<Tell>,
 }
 
@@ -177,17 +177,17 @@ impl RewardOffer {
 #[derive(Resource, Debug, Clone)]
 pub struct RunState {
     /// The player's chips. Combat mutates this in place; 0 means the run is over.
-    pub stack: u32,
+    pub chips: u32,
     pub deck: Vec<Card>,
     pub perks: Vec<Perk>,
     pub items: Vec<Item>,
 }
 
 impl RunState {
-    /// A fresh run with the fixed starter deck and starting Stack.
+    /// A fresh run with the fixed starter deck and starting Chips.
     pub fn new() -> Self {
         RunState {
-            stack: STARTING_STACK,
+            chips: STARTING_CHIPS,
             deck: starter_deck(),
             perks: Vec::new(),
             items: Vec::new(),
@@ -299,20 +299,20 @@ pub struct RisingBlinds {
 }
 
 /// What an enemy deals its Opposing Cards from. Ordinary enemies keep no
-/// named deck: a Stack range and the odds of a Tell are the whole of them, so
+/// named deck: a Face Value range and the odds of a Tell are the whole of them, so
 /// a new enemy is six numbers rather than eighteen cards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Deal {
     /// Opposing Cards laid down on turn one. Rising Blinds add more.
     pub row: u8,
-    /// The Stack range a card is dealt from, inclusive at both ends.
+    /// The Face Value range a card is dealt from, inclusive at both ends.
     pub low: u32,
     pub high: u32,
     /// Chance in 100 that a dealt card carries a Tell at all.
     pub tell_pct: u32,
     /// The Tells this enemy plays; one is drawn at random when `tell_pct`
     /// hits. **Never All In** — an enemy has no Draw to burn a card from, so
-    /// an All In dealt here would just be worth its printed Stack.
+    /// an All In dealt here would just be worth its Face Value.
     pub tells: &'static [Tell],
     /// Chance in 100 that a card is dealt face down. The first Opposing Card
     /// is always face up whatever this says.
@@ -320,7 +320,7 @@ pub struct Deal {
 }
 
 /// The names the house deals under. Flavour only: an Opposing Card is a
-/// Stack and a Tell, and the name is what the Peek puts at the top of the tag.
+/// Face Value and a Tell, and the name is what the Peek puts at the top of the tag.
 const HOUSE_CARDS: [&str; 10] = [
     "Dealer's Nod",
     "Chip Rack",
@@ -335,17 +335,21 @@ const HOUSE_CARDS: [&str; 10] = [
 ];
 
 impl Deal {
-    /// One Opposing Card off the enemy's table. Rolls the Stack, then whether
+    /// One Opposing Card off the enemy's table. Rolls the Face Value, then whether
     /// it carries a Tell, then which — always in that order, so a change to
-    /// the Tell list doesn't re-deal the Stacks of a pinned seed.
+    /// the Tell list doesn't re-deal the Face Values of a pinned seed.
     pub fn card(&self, rng: &mut u64) -> Card {
         let span = u64::from(self.high.saturating_sub(self.low) + 1);
-        let stack = self.low + (xorshift64(rng) % span) as u32;
+        let face_value = self.low + (xorshift64(rng) % span) as u32;
         let carries = !self.tells.is_empty() && xorshift64(rng) % 100 < u64::from(self.tell_pct);
         let tell =
             carries.then(|| self.tells[(xorshift64(rng) % self.tells.len() as u64) as usize]);
         let name = HOUSE_CARDS[(xorshift64(rng) % HOUSE_CARDS.len() as u64) as usize];
-        Card { name, stack, tell }
+        Card {
+            name,
+            face_value,
+            tell,
+        }
     }
 }
 
@@ -366,7 +370,7 @@ pub struct HoleCard {
 pub struct Enemy {
     pub name: &'static str,
     /// The enemy's chips; 0 means the encounter is won.
-    pub stack: u32,
+    pub chips: u32,
     /// How it fills the row across from the player.
     pub deal: Deal,
     pub blinds: RisingBlinds,
@@ -384,7 +388,7 @@ impl Enemy {
         match id {
             EncounterId::FloorMinion => Enemy {
                 name: "A shill in a rented tux",
-                stack: 25,
+                chips: 25,
                 deal: Deal {
                     row: 3,
                     low: 2,
@@ -398,7 +402,7 @@ impl Enemy {
             },
             EncounterId::Slotz => Enemy {
                 name: "SLOTZ",
-                stack: 32,
+                chips: 32,
                 deal: Deal {
                     row: 3,
                     low: 3,
@@ -412,7 +416,7 @@ impl Enemy {
             },
             EncounterId::PitMinion => Enemy {
                 name: "A dealer with a scar",
-                stack: 32,
+                chips: 32,
                 deal: Deal {
                     row: 4,
                     low: 4,
@@ -426,7 +430,7 @@ impl Enemy {
             },
             EncounterId::PitBoss => Enemy {
                 name: "THE PIT BOSS",
-                stack: 40,
+                chips: 40,
                 deal: Deal {
                     row: 4,
                     low: 4,
@@ -442,7 +446,7 @@ impl Enemy {
             // Blinds. The Arcade overrides the row outright (#40).
             EncounterId::Tutorial => Enemy {
                 name: "THE DEMO DEALER",
-                stack: 30,
+                chips: 30,
                 deal: Deal {
                     row: 5,
                     low: 4,
@@ -464,7 +468,7 @@ impl Enemy {
             // where a Copycat would have to read the blank.
             EncounterId::TheHouse => Enemy {
                 name: "THE HOUSE",
-                stack: 35,
+                chips: 35,
                 deal: Deal {
                     row: 4,
                     low: 1,
@@ -495,7 +499,7 @@ pub struct Encounter {
 }
 
 /// Inserted by combat immediately before `NextState(AppState::PostCombat)`.
-/// `RunState.stack` has already been updated by then. Overworld removes it
+/// `RunState.chips` has already been updated by then. Overworld removes it
 /// once it has routed.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CombatOutcome {
@@ -504,7 +508,7 @@ pub enum CombatOutcome {
 }
 
 /// Lucky Jack sits down with this many chips (#8).
-pub const STARTING_STACK: u32 = 50;
+pub const STARTING_CHIPS: u32 = 50;
 
 /// The one xorshift64 the whole game rolls on: the duel's reshuffle, the
 /// deal into the Draw, the Push Your Luck coin, and the Pit Boss card pack.
@@ -532,14 +536,14 @@ fn streak_reward_cards() -> Vec<Card> {
         .into_iter()
         .map(|name| Card {
             name,
-            stack: 4,
+            face_value: 4,
             tell: Some(Tell::Streak),
         })
         .collect()
 }
 
 /// Pit Boss Option 2 (#12): four cards off the Pit's own table, two with a
-/// random Tell (Streak, All In, Copycat, or Flop) and two plain. Stacks stay
+/// random Tell (Streak, All In, Copycat, or Flop) and two plain. Face Values stay
 /// inside the starter deck's ranges so the pack thickens the deck without
 /// rewriting its maths.
 fn random_cards(seed: u64) -> Vec<Card> {
@@ -575,7 +579,7 @@ fn random_cards(seed: u64) -> Vec<Card> {
         // counts when no card follows, so a low one pushes it into the
         // sequence rather than the last slot. Flop prints low for the same
         // reason — its print only counts opposite an empty slot (#88).
-        let (tell, stack) = match roll(4) {
+        let (tell, face_value) = match roll(4) {
             0 => (Tell::Streak, 3 + roll(4) as u32),
             1 => (Tell::AllIn, 2 + roll(4) as u32),
             2 => (Tell::Copycat, 2 + roll(4) as u32),
@@ -583,14 +587,14 @@ fn random_cards(seed: u64) -> Vec<Card> {
         };
         cards.push(Card {
             name,
-            stack,
+            face_value,
             tell: Some(tell),
         });
     }
     for _ in 0..2 {
         cards.push(Card {
             name: plain.swap_remove(roll(plain.len() as u64) as usize),
-            stack: 2 + roll(7) as u32, // 2..=8, the starter deck's vanilla range
+            face_value: 2 + roll(7) as u32, // 2..=8, the starter deck's vanilla range
             tell: None,
         });
     }
@@ -628,19 +632,19 @@ pub fn starter_deck() -> Vec<Card> {
     ];
     vanilla
         .into_iter()
-        .map(|(name, stack)| Card {
+        .map(|(name, face_value)| Card {
             name,
-            stack,
+            face_value,
             tell: None,
         })
-        .chain(streak.into_iter().map(|(name, stack)| Card {
+        .chain(streak.into_iter().map(|(name, face_value)| Card {
             name,
-            stack,
+            face_value,
             tell: Some(Tell::Streak),
         }))
-        .chain(all_in.into_iter().map(|(name, stack)| Card {
+        .chain(all_in.into_iter().map(|(name, face_value)| Card {
             name,
-            stack,
+            face_value,
             tell: Some(Tell::AllIn),
         }))
         .collect()
@@ -691,11 +695,11 @@ pub fn tutorial_opposing() -> Vec<(Card, bool)> {
         ("Table Limit", 3, true),
     ]
     .into_iter()
-    .map(|(name, stack, face_up)| {
+    .map(|(name, face_value, face_up)| {
         (
             Card {
                 name,
-                stack,
+                face_value,
                 tell: None,
             },
             face_up,
@@ -719,7 +723,7 @@ mod tests {
     fn a_fresh_run_carries_nothing_from_the_last_one() {
         let run = RunState::new();
 
-        assert_eq!(run.stack, STARTING_STACK);
+        assert_eq!(run.chips, STARTING_CHIPS);
         assert_eq!(run.deck.len(), starter_deck().len());
         assert!(run.perks.is_empty());
         assert!(run.items.is_empty());
@@ -793,7 +797,7 @@ mod tests {
         let added = &run.deck[before..];
         assert_eq!(added.len(), 4);
         assert_eq!(tells(added), 2);
-        assert!(added.iter().all(|c| (2..=8).contains(&c.stack)));
+        assert!(added.iter().all(|c| (2..=8).contains(&c.face_value)));
 
         let names: std::collections::HashSet<_> = added.iter().map(|c| c.name).collect();
         assert_eq!(names.len(), 4, "no pack deals the same card twice");
@@ -879,9 +883,9 @@ mod tests {
         for _ in 0..500 {
             let card = deal.card(&mut rng);
             assert!(
-                (4..=8).contains(&card.stack),
+                (4..=8).contains(&card.face_value),
                 "{} is off the range",
-                card.stack
+                card.face_value
             );
             assert_eq!(card.tell, Some(Tell::Streak));
             assert!(!card.name.is_empty());
@@ -925,7 +929,7 @@ mod tests {
         use EncounterId::*;
 
         // An enemy has no Draw to burn from, so an All In across the table
-        // would silently be worth its printed Stack and nothing else.
+        // would silently be worth its Face Value and nothing else.
         for id in [FloorMinion, Slotz, PitMinion, PitBoss, TheHouse, Tutorial] {
             let deal = Enemy::for_encounter(id).deal;
             assert!(
@@ -953,11 +957,11 @@ mod tests {
         let row = tutorial_opposing();
 
         assert_eq!(row.len(), 5, "one slot per card the script plays");
-        assert_eq!(row.iter().map(|(c, _)| c.stack).sum::<u32>(), 20);
+        assert_eq!(row.iter().map(|(c, _)| c.face_value).sum::<u32>(), 20);
         let hidden: u32 = row
             .iter()
             .filter(|(_, face_up)| !face_up)
-            .map(|(c, _)| c.stack)
+            .map(|(c, _)| c.face_value)
             .sum();
         assert_eq!(hidden, 8);
         assert!(row[0].1, "the first Opposing Card is always face up");

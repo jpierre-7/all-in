@@ -25,8 +25,12 @@ pub struct InfoOverlay;
 /// `CONTEXT.md`. The Peek's nested tags read from the same table.
 const GLOSSARY: &[(&str, &str)] = &[
     (
-        "Stack",
-        "Chips. Yours and the enemy's are your lives; a card's is what it adds to The Hand.",
+        "Chips",
+        "Your life, and the enemy's. Run out and the duel is over.",
+    ),
+    (
+        "Face Value",
+        "The number printed on a card: what it adds to The Hand before its Tell.",
     ),
     (
         "Draw",
@@ -34,27 +38,23 @@ const GLOSSARY: &[(&str, &str)] = &[
     ),
     (
         "Plays",
-        "How many cards you may put in your row this turn. Five, unless a perk says otherwise.",
+        "How many cards you may put in your row this turn. Five, unless a perk says otherwise, and never more than the enemy laid down.",
     ),
     (
         "Opposing Cards",
         "The enemy's row, laid down before you play. The first is face up; the rest are a coin toss. Your cards sit one per slot across from them.",
     ),
     (
-        "Stack Sum",
-        "What a row adds up to once every Tell in it has resolved. Two of them, one per side of the table, and the bigger one wins.",
-    ),
-    (
         "The Hand",
-        "Your row's Stack Sum: the cards you've put across from theirs.",
+        "Your row, and what it adds up to once every Tell in it has resolved. The bigger of it and the House Edge wins.",
     ),
     (
         "House Edge",
-        "The Opposing Cards' Stack Sum. The number The Hand has to beat, and you only ever see part of it before you confirm.",
+        "What the Opposing Cards add up to. The number The Hand has to beat, and you only ever see part of it before you confirm.",
     ),
     (
         "Payout",
-        "Beat the Edge and the difference comes off the enemy's Stack.",
+        "Beat the Edge and the difference comes off the enemy's Chips.",
     ),
     ("Whiff", "Fall short and the difference comes off yours."),
     ("Tell", "A keyword on a card. One per card, at most."),
@@ -64,15 +64,15 @@ const GLOSSARY: &[(&str, &str)] = &[
     ),
     (
         "All In",
-        "Tell: burns another card from your Draw and adds its chips.",
+        "Tell: burns another card from your Draw and adds its Face Value.",
     ),
     (
         "Copycat",
-        "Tell: worth the printed Stack of the card in the slot to its right. Its own if nothing follows it.",
+        "Tell: worth the Face Value of the card in the slot to its right. Its own if nothing follows it.",
     ),
     (
         "Flop",
-        "Tell: worth the printed Stack of the Opposing Card across from it. Its own if nothing is across.",
+        "Tell: worth the Face Value of the Opposing Card across from it. Its own if nothing is across.",
     ),
     (
         "Push Your Luck",

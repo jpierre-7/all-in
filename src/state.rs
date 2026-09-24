@@ -28,6 +28,6 @@ pub enum AppState {
     Reward,
     /// The son's reveal. Reached only by beating The House.
     Ending,
-    /// Player Stack hit 0. Back to the Lobby from here.
+    /// Player Chips hit 0. Back to the Lobby from here.
     GameOver,
 }

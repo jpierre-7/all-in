@@ -1,5 +1,5 @@
 //! The Bevy side of combat. Honours the seam in ADR-0001: consumes the
-//! `Encounter`, drives a `Duel`, writes `RunState.stack` back, inserts
+//! `Encounter`, drives a `Duel`, writes `RunState.chips` back, inserts
 //! `CombatOutcome`, and makes the one transition combat may make.
 
 use bevy::prelude::*;
@@ -191,11 +191,11 @@ fn start_duel(
     // rigged, and whatever is left of the Loaded Dice.
     let tutorial = encounter.id == EncounterId::Tutorial;
     let duel = if tutorial {
-        // The Arcade: a fixed deal on both sides of the table, a fresh Stack,
+        // The Arcade: a fixed deal on both sides of the table, fresh Chips,
         // a coin that can't lose, and nothing the run has picked up (#40).
         Duel::new(
             crate::run::tutorial_deal(),
-            crate::run::STARTING_STACK,
+            crate::run::STARTING_CHIPS,
             5,
             encounter.enemy.clone(),
         )
@@ -211,7 +211,7 @@ fn start_duel(
         // nothing to switch on here: The House is the only one carrying one.
         Duel::new(
             shuffled(run.deck.clone(), seed),
-            run.stack,
+            run.chips,
             run.plays(),
             enemy,
         )
@@ -261,12 +261,12 @@ fn take_input(
     // A card out of the Draw, from either the number keys or a click on it
     // (#58). From here on the two are the same thing.
     let digit = card_key(&keys).or_else(|| match click {
-        Some(slot) if slot.zone == Zone::Draw => Some(slot.index as u8 + 1),
+        Some(slot) if slot.zone == Zone::Draw => Some(slot.slot as u8 + 1),
         _ => None,
     });
     // A card out of the row: clicked, or Backspace for the last one placed.
     let lifting = match click {
-        Some(slot) if slot.zone == Zone::Row => Some(slot.index),
+        Some(slot) if slot.zone == Zone::Row => Some(slot.slot),
         _ => keys
             .just_pressed(KeyCode::Backspace)
             .then(|| active.duel.row().len().checked_sub(1))
@@ -392,7 +392,7 @@ fn placed_line(duel: &Duel, slot: usize) -> String {
     line
 }
 
-/// Write the Stack back and hand over at `PostCombat` once one Stack is out.
+/// Write the Chips back and hand over at `PostCombat` once one side's Chips are out.
 /// The only transition combat ever makes (ADR-0001).
 fn finish_if_over(
     commands: &mut Commands,
@@ -405,7 +405,7 @@ fn finish_if_over(
     };
     if active.guide.is_none() {
         // The Arcade never touches the run.
-        run.stack = active.duel.player_stack();
+        run.chips = active.duel.player_chips();
         run.set_loaded_dice(active.duel.dice_left());
     }
     // Hold the table for the last hit marker, then go.
@@ -460,10 +460,10 @@ mod tests {
 
     /// An enemy that deals five Opposing Cards worth nothing at all, so a
     /// test that hasn't laid its own row out is facing an Edge of zero.
-    pub(super) fn shill(stack: u32) -> Enemy {
+    pub(super) fn shill(chips: u32) -> Enemy {
         Enemy {
             name: "shill",
-            stack,
+            chips,
             deal: Deal {
                 row: 5,
                 low: 0,
@@ -483,30 +483,30 @@ mod tests {
     /// Combat on its own: no window, no overworld. The test plays the
     /// overworld's part by inserting the Encounter and entering the state,
     /// then lays a known row across the table worth `edge`.
-    pub(super) fn table(player_stack: u32, enemy_stack: u32, edge: u32) -> App {
-        table_with(player_stack, enemy_stack, edge, Vec::new())
+    pub(super) fn table(player_chips: u32, enemy_chips: u32, edge: u32) -> App {
+        table_with(player_chips, enemy_chips, edge, Vec::new())
     }
 
     pub(super) fn table_with(
-        player_stack: u32,
-        enemy_stack: u32,
+        player_chips: u32,
+        enemy_chips: u32,
         edge: u32,
         perks: Vec<Perk>,
     ) -> App {
         table_for_run(
             RunState {
-                stack: player_stack,
+                chips: player_chips,
                 perks,
                 ..RunState::new()
             },
-            enemy_stack,
+            enemy_chips,
             edge,
         )
     }
 
     /// A table set for a run that has already picked things up.
-    pub(super) fn table_for_run(run: RunState, enemy_stack: u32, edge: u32) -> App {
-        let mut app = dealt_table(run, shill(enemy_stack));
+    pub(super) fn table_for_run(run: RunState, enemy_chips: u32, edge: u32) -> App {
+        let mut app = dealt_table(run, shill(enemy_chips));
         lay_out(&mut app, edge);
         // Laying the row out changed the duel, so the screen is a frame
         // behind it. The mouse tests click on nodes; let them be the right
@@ -544,12 +544,12 @@ mod tests {
     pub(super) fn lay_out(app: &mut App, edge: u32) {
         let mut row = vec![Card {
             name: "the edge",
-            stack: edge,
+            face_value: edge,
             tell: None,
         }];
         row.extend((1..5).map(|_| Card {
             name: "nothing",
-            stack: 0,
+            face_value: 0,
             tell: None,
         }));
         app.world_mut()
@@ -560,7 +560,7 @@ mod tests {
 
     /// The card node for a slot in one of the three rows.
     pub(super) fn node_at(app: &mut App, zone: ui::Zone, index: usize) -> Entity {
-        let wanted = ui::CardSlot { zone, index };
+        let wanted = ui::CardSlot { zone, slot: index };
         app.world_mut()
             .query::<(Entity, &ui::CardSlot)>()
             .iter(app.world())
@@ -673,8 +673,8 @@ mod tests {
         assert_eq!(duel.margin(), Some(1));
         // The last Opposing Card is face down and worth nothing yet.
         let last = duel.opposing().last().expect("a row");
-        assert!(!last.revealed);
-        assert_eq!(last.card.stack, 0);
+        assert!(!last.face_up);
+        assert_eq!(last.card.face_value, 0);
         // The Hole Card is always kept back; the deal may hide more.
         assert!(duel.showing().1 >= 1, "the Hole Card is kept back");
     }
@@ -686,8 +686,8 @@ mod tests {
         let duel = &app.world().resource::<ActiveDuel>().duel;
         assert_eq!(duel.slots(), 4, "the Pit Boss deals four");
         assert!(duel.row().is_empty());
-        assert!(duel.opposing()[0].revealed, "the first is always face up");
-        assert!(duel.opposing().iter().all(|o| o.card.stack >= 4));
+        assert!(duel.opposing()[0].face_up, "the first is always face up");
+        assert!(duel.opposing().iter().all(|o| o.card.face_value >= 4));
     }
 
     #[test]
@@ -702,7 +702,7 @@ mod tests {
         let duel = &app.world().resource::<ActiveDuel>().duel;
         assert_eq!(duel.row().len(), 1);
         assert_eq!(duel.draw().len(), 6);
-        assert_eq!(duel.hand(), held.stack);
+        assert_eq!(duel.hand(), held.face_value);
 
         press(&mut app, KeyCode::Backspace);
         let duel = &app.world().resource::<ActiveDuel>().duel;
@@ -743,14 +743,14 @@ mod tests {
 
         let active = app.world().resource::<ActiveDuel>();
         assert_eq!(active.duel.draw().len(), 7);
-        assert_eq!(active.duel.enemy_stack(), 30);
-        assert_eq!(active.duel.player_stack(), 40);
+        assert_eq!(active.duel.enemy_chips(), 30);
+        assert_eq!(active.duel.player_chips(), 40);
         assert_eq!(state(&app), AppState::Combat);
     }
 
     #[test]
-    fn a_lost_duel_writes_the_stack_back_and_hands_over_at_post_combat() {
-        // Nothing played, House Edge 50 against a 10 Stack: one Whiff ends it.
+    fn a_lost_duel_writes_the_chips_back_and_hands_over_at_post_combat() {
+        // Nothing played, House Edge 50 against 10 Chips: one Whiff ends it.
         let mut app = table(10, 999, 50);
 
         press(&mut app, KeyCode::Enter);
@@ -761,13 +761,13 @@ mod tests {
             *app.world().resource::<CombatOutcome>(),
             CombatOutcome::Lost
         );
-        assert_eq!(app.world().resource::<RunState>().stack, 0);
+        assert_eq!(app.world().resource::<RunState>().chips, 0);
         assert!(app.world().get_resource::<Encounter>().is_none());
         assert!(app.world().get_resource::<ActiveDuel>().is_none());
     }
 
     #[test]
-    fn a_won_duel_reports_won_and_keeps_your_remaining_stack() {
+    fn a_won_duel_reports_won_and_keeps_your_remaining_chips() {
         // House Edge 0 and a 1-chip enemy: any card wins.
         let mut app = table(40, 1, 0);
 
@@ -786,7 +786,7 @@ mod tests {
 
         assert_eq!(state(&app), AppState::PostCombat);
         assert_eq!(*app.world().resource::<CombatOutcome>(), CombatOutcome::Won);
-        assert_eq!(app.world().resource::<RunState>().stack, 40);
+        assert_eq!(app.world().resource::<RunState>().chips, 40);
     }
 }
 
@@ -830,7 +830,7 @@ mod push_your_luck_tests {
         let active = app.world().resource::<ActiveDuel>();
         assert_eq!(active.duel.phase(), Phase::PushYourLuck);
         assert_eq!(active.last_turn, None);
-        assert_eq!(active.duel.enemy_stack(), 999);
+        assert_eq!(active.duel.enemy_chips(), 999);
         assert_eq!(state(&app), AppState::Combat);
     }
 
@@ -849,7 +849,7 @@ mod push_your_luck_tests {
         let active = app.world().resource::<ActiveDuel>();
         assert_eq!(active.duel.phase(), Phase::Playing);
         assert_eq!(active.last_turn.unwrap().kind, Outcome::Whiff(30));
-        assert_eq!(active.duel.player_stack(), 10);
+        assert_eq!(active.duel.player_chips(), 10);
     }
 
     #[test]
@@ -864,7 +864,7 @@ mod push_your_luck_tests {
         let turn = active.last_turn.unwrap();
         assert_eq!(turn.pyl, Some(Push::Won));
         assert_eq!(turn.kind, Outcome::Whiff(0));
-        assert_eq!(active.duel.player_stack(), 40);
+        assert_eq!(active.duel.player_chips(), 40);
     }
 
     #[test]
@@ -879,7 +879,7 @@ mod push_your_luck_tests {
         let turn = active.last_turn.unwrap();
         assert_eq!(turn.pyl, Some(Push::Lost));
         assert_eq!(turn.kind, Outcome::Whiff(60));
-        assert_eq!(active.duel.player_stack(), 40);
+        assert_eq!(active.duel.player_chips(), 40);
     }
 
     #[test]
@@ -894,7 +894,7 @@ mod push_your_luck_tests {
         let turn = active.last_turn.expect("the turn resolved");
         assert_eq!(turn.pyl, None);
         assert_eq!(active.duel.phase(), Phase::Playing);
-        assert_eq!(active.duel.enemy_stack(), 999 - payout(turn.kind));
+        assert_eq!(active.duel.enemy_chips(), 999 - payout(turn.kind));
     }
 
     #[test]
@@ -914,7 +914,7 @@ mod push_your_luck_tests {
 
     #[test]
     fn a_lost_push_whiffs_and_can_end_the_duel() {
-        // Stack 10 against a House Edge of 10: a lost Push is fatal.
+        // Chips 10 against a House Edge of 10: a lost Push is fatal.
         let mut app = table(10, 999, 10);
         play_them_all(&mut app);
         press(&mut app, KeyCode::Enter);
@@ -927,7 +927,7 @@ mod push_your_luck_tests {
             *app.world().resource::<CombatOutcome>(),
             CombatOutcome::Lost
         );
-        assert_eq!(app.world().resource::<RunState>().stack, 0);
+        assert_eq!(app.world().resource::<RunState>().chips, 0);
     }
 
     #[test]
@@ -958,7 +958,7 @@ mod push_your_luck_tests {
 
         let active = app.world().resource::<ActiveDuel>();
         assert_eq!(active.last_turn, None);
-        assert_eq!(active.duel.enemy_stack(), 999);
+        assert_eq!(active.duel.enemy_chips(), 999);
     }
 
     #[test]
@@ -1000,7 +1000,7 @@ mod run_modifier_tests {
         enemy.deal.row = 6;
         dealt_table(
             RunState {
-                stack: 400,
+                chips: 400,
                 perks,
                 ..RunState::new()
             },
@@ -1040,7 +1040,7 @@ mod run_modifier_tests {
     #[test]
     fn loaded_dice_come_to_the_table_and_what_is_left_goes_home() {
         let mut run = RunState {
-            stack: 40,
+            chips: 40,
             ..RunState::new()
         };
         run.apply(Reward::LoadedDice, 1);
@@ -1060,7 +1060,7 @@ mod run_modifier_tests {
     #[test]
     fn the_deck_the_rewards_built_is_the_deck_that_is_dealt() {
         let mut run = RunState {
-            stack: 40,
+            chips: 40,
             ..RunState::new()
         };
         run.deck.clear();
@@ -1082,7 +1082,7 @@ mod tutorial_tests {
     use bevy::state::app::StatesPlugin;
 
     use super::{ActiveDuel, CombatPlugin};
-    use crate::run::{CombatOutcome, Encounter, EncounterId, Enemy, RunState, STARTING_STACK};
+    use crate::run::{CombatOutcome, Encounter, EncounterId, Enemy, RunState, STARTING_CHIPS};
     use crate::state::AppState;
 
     /// The Arcade: the overworld inserts the Tutorial encounter and enters
@@ -1143,7 +1143,7 @@ mod tutorial_tests {
                 "Cheap Seat"
             ]
         );
-        assert_eq!(active(&app).duel.enemy_stack(), 30);
+        assert_eq!(active(&app).duel.enemy_chips(), 30);
         assert_eq!(active(&app).duel.house_edge(), 20);
         assert!(active(&app).guide.is_some());
     }
@@ -1175,8 +1175,8 @@ mod tutorial_tests {
         press(&mut app, KeyCode::Enter); // show: 32 vs 20, PYL prompt
         press(&mut app, KeyCode::KeyP); // rigged coin: Payout 24
 
-        assert_eq!(active(&app).duel.enemy_stack(), 6);
-        assert_eq!(active(&app).duel.player_stack(), STARTING_STACK);
+        assert_eq!(active(&app).duel.enemy_chips(), 6);
+        assert_eq!(active(&app).duel.player_chips(), STARTING_CHIPS);
         // The script is done; free play from here.
         assert!(active(&app).guide.as_ref().unwrap().is_free_play());
         assert_eq!(state(&app), AppState::Combat);
@@ -1186,7 +1186,7 @@ mod tutorial_tests {
     fn escape_leaves_the_arcade_without_touching_the_run() {
         let mut app = arcade();
         press(&mut app, KeyCode::Digit1);
-        app.world_mut().resource_mut::<RunState>().stack = 7;
+        app.world_mut().resource_mut::<RunState>().chips = 7;
 
         press(&mut app, KeyCode::Escape);
 
@@ -1195,12 +1195,12 @@ mod tutorial_tests {
             *app.world().resource::<CombatOutcome>(),
             CombatOutcome::Lost
         );
-        assert_eq!(app.world().resource::<RunState>().stack, 7);
+        assert_eq!(app.world().resource::<RunState>().chips, 7);
         assert!(app.world().get_resource::<Encounter>().is_none());
     }
 
     #[test]
-    fn winning_the_arcade_never_writes_the_run_stack() {
+    fn winning_the_arcade_never_writes_the_run_chips() {
         let mut app = arcade();
         for key in [
             KeyCode::Digit1,
@@ -1214,7 +1214,7 @@ mod tutorial_tests {
         ] {
             press(&mut app, key);
         }
-        app.world_mut().resource_mut::<RunState>().stack = 7;
+        app.world_mut().resource_mut::<RunState>().chips = 7;
         // Free play: the dealer has 6 left; any Hand of 26 clears it. Show whatever is dealt.
         for _ in 0..5 {
             let index = 0;
@@ -1229,7 +1229,7 @@ mod tutorial_tests {
             press(&mut app, KeyCode::KeyH);
         }
 
-        assert_eq!(app.world().resource::<RunState>().stack, 7);
+        assert_eq!(app.world().resource::<RunState>().chips, 7);
     }
 }
 
@@ -1317,11 +1317,11 @@ mod mouse_tests {
             .iter()
             .position(|c| c.tell != Some(crate::run::Tell::AllIn))
             .expect("a deal with a playable card");
-        let stack = active(&app).duel.draw()[slot].stack;
+        let face_value = active(&app).duel.draw()[slot].face_value;
 
         click(&mut app, slot);
 
-        assert_eq!(active(&app).duel.hand(), stack);
+        assert_eq!(active(&app).duel.hand(), face_value);
         assert_eq!(active(&app).duel.draw().len(), 6);
         assert_eq!(active(&app).duel.row().len(), 1);
     }
@@ -1453,7 +1453,7 @@ mod hit_marker_tests {
     }
 
     #[test]
-    fn a_whiff_floats_the_loss_at_the_players_stack() {
+    fn a_whiff_floats_the_loss_at_the_players_chips() {
         // Nothing played, Edge 30: Whiff 30.
         let mut app = table(50, 999, 30);
 
@@ -1464,7 +1464,7 @@ mod hit_marker_tests {
     }
 
     #[test]
-    fn a_payout_floats_the_hit_at_the_enemys_stack() {
+    fn a_payout_floats_the_hit_at_the_enemys_chips() {
         // Edge 1: whatever the shuffle dealt, one card clears it.
         let mut app = table(50, 999, 1);
         press(&mut app, KeyCode::Digit1);
@@ -1531,7 +1531,7 @@ mod peek_tests {
     fn table_of(tell: Option<Tell>) -> App {
         let card = Card {
             name: "test card",
-            stack: 4,
+            face_value: 4,
             tell,
         };
         table_for_run(
@@ -1560,14 +1560,14 @@ mod peek_tests {
             .world()
             .get::<CardSlot>(parent)
             .expect("a tag hangs off a card");
-        Some((tag, slot.index))
+        Some((tag, slot.slot))
     }
 
     /// A card in the Draw, as the Peek's `Tag` names it.
     fn held(index: usize) -> CardSlot {
         CardSlot {
             zone: Zone::Draw,
-            index,
+            slot: index,
         }
     }
 
@@ -1723,11 +1723,11 @@ mod peek_tests {
         assert_eq!(tag(&mut app).unwrap().0.term, None);
 
         press(&mut app, KeyCode::ArrowUp);
-        assert_eq!(tag(&mut app).unwrap().0.term, Some("Stack"));
+        assert_eq!(tag(&mut app).unwrap().0.term, Some("Face Value"));
         press(&mut app, KeyCode::ArrowUp);
         assert_eq!(tag(&mut app).unwrap().0.term, Some("Tell"));
         press(&mut app, KeyCode::ArrowUp);
-        assert_eq!(tag(&mut app).unwrap().0.term, Some("Stack"), "wraps");
+        assert_eq!(tag(&mut app).unwrap().0.term, Some("Face Value"), "wraps");
 
         press(&mut app, KeyCode::ArrowDown);
         assert_eq!(tag(&mut app).unwrap().0.term, None);
@@ -1806,12 +1806,12 @@ mod row_feedback_tests {
     fn table() -> App {
         let copycat = Card {
             name: "copycat",
-            stack: 3,
+            face_value: 3,
             tell: Some(Tell::Copycat),
         };
         let six = Card {
             name: "six",
-            stack: 6,
+            face_value: 6,
             tell: None,
         };
         let mut deck = vec![copycat; 9];

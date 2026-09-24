@@ -49,7 +49,7 @@ pub fn encounter_intro(id: EncounterId) -> &'static str {
     }
 }
 
-/// What the player reads on clearing this encounter's Stack.
+/// What the player reads on clearing this encounter's Chips.
 pub fn win_line(id: EncounterId) -> &'static str {
     match id {
         EncounterId::FloorMinion | EncounterId::PitMinion => narrative::WIN_MINION,
