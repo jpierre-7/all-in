@@ -559,11 +559,7 @@ impl Duel {
         }
         let coin = self.coin;
         let flip = coin.resolve(std::iter::repeat_with(|| (self.next_rng() % 100) as u32));
-        if flip == Push::Lost
-            && let Some(showdown) = self.showdown.as_mut()
-        {
-            showdown.hand = 0;
-        }
+
         Some(self.resolve(Some(flip)))
     }
 
