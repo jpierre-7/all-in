@@ -85,6 +85,10 @@ const GLOSSARY: &[(&str, &str)] = &[
     ("Loaded Dice", "Item: +5 to your next two Hands."),
 ];
 
+pub fn get_keywords() -> Vec<&'static str> {
+    GLOSSARY.iter().map(|unit| unit.0).collect()
+}
+
 const BIG_SHOTS: &[(&str, &str)] = &[
     (
         "Margin",

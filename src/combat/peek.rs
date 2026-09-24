@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
 
 use super::duel::Duel;
-use super::info::{self, InfoOpen};
+use super::info::{self, InfoOpen, get_keywords};
 use super::plugin::ActiveDuel;
 use super::ui::{CardSlot, Zone};
 use crate::run::{Card, Tell};
@@ -92,66 +92,13 @@ fn card_at(duel: &Duel, slot: CardSlot) -> Option<Card> {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Term(pub &'static str);
 
-/// A piece of a Tell's rules text: words, or a term the glossary explains.
-#[derive(Debug, Clone, Copy)]
-enum Piece {
-    Words(&'static str),
-    Term(&'static str),
-}
-
-/// The rules text, in the glossary's words (`CONTEXT.md`), with the terms
-/// it leans on marked. One Tell per card, so one rule per tag.
-fn rule(tell: Tell) -> &'static [Piece] {
-    match tell {
-        Tell::Streak => &[
-            Piece::Words("Doubles this card's"),
-            Piece::Term("Stack"),
-            Piece::Words("if the card in the slot to its left has any"),
-            Piece::Term("Tell"),
-            Piece::Words("."),
-        ],
-        Tell::AllIn => &[
-            Piece::Words("Burns another card from your"),
-            Piece::Term("Draw"),
-            Piece::Words("and adds its"),
-            Piece::Term("Stack"),
-            Piece::Words("to"),
-            Piece::Term("The Hand"),
-            Piece::Words("."),
-        ],
-        Tell::Copycat => &[
-            Piece::Words("Takes the printed"),
-            Piece::Term("Stack"),
-            Piece::Words("of the card in the slot to its right, and none of its"),
-            Piece::Term("Tell"),
-            Piece::Words(". Its own if nothing follows it."),
-        ],
-        Tell::Flop => &[
-            Piece::Words("Takes the printed"),
-            Piece::Term("Stack"),
-            Piece::Words("of the"),
-            Piece::Term("Opposing Card"),
-            Piece::Words("across from it, and none of its"),
-            Piece::Term("Tell"),
-            Piece::Words(". Its own if nothing is across."),
-        ],
-    }
-}
-
-fn tell_name(tell: Tell) -> &'static str {
-    match tell {
-        Tell::Streak => "Streak",
-        Tell::AllIn => "All In",
-        Tell::Copycat => "Copycat",
-        Tell::Flop => "Flop",
-    }
-}
-
 fn terms(tell: Tell) -> impl Iterator<Item = &'static str> {
-    rule(tell).iter().filter_map(|piece| match piece {
-        Piece::Term(term) => Some(*term),
-        Piece::Words(_) => None,
-    })
+    let text = tell.rule_text();
+    text.into_iter().filter(|piece| is_keyword(piece))
+}
+
+fn is_keyword(string: &str) -> bool {
+    get_keywords().contains(&string.trim_end_matches('.'))
 }
 
 /// The key that waves the Peek off and calls it back.
@@ -246,7 +193,10 @@ fn wanted(
         index,
     });
     let card = under_mouse
-        .or_else(|| peek.mouse.filter(|slot| card_at(&active.duel, *slot).is_some()))
+        .or_else(|| {
+            peek.mouse
+                .filter(|slot| card_at(&active.duel, *slot).is_some())
+        })
         .or(keyboard)?;
     let held = card_at(&active.duel, card)?;
     let term = terms_hovered
@@ -329,7 +279,7 @@ pub fn show(
         .with_children(|body| {
             match held.tell {
                 Some(tell) => {
-                    text(body, tell_name(tell), 20.0, GOLD);
+                    text(body, tell.name(), 20.0, GOLD);
                     body.spawn(Node {
                         flex_direction: FlexDirection::Row,
                         flex_wrap: FlexWrap::Wrap,
@@ -339,35 +289,32 @@ pub fn show(
                         ..default()
                     })
                     .with_children(|line| {
-                        for piece in rule(tell) {
-                            match piece {
-                                Piece::Words(words) => {
-                                    for word in words.split_whitespace() {
-                                        // Punctuation closes up to the term before it.
-                                        let closing = word.starts_with(['.', ',']);
-                                        line.spawn((
-                                            Text::new(word),
-                                            TextFont::from_font_size(16.0),
-                                            TextColor(INK),
-                                            Node {
-                                                margin: UiRect::left(px(if closing {
-                                                    -WORD_GAP
-                                                } else {
-                                                    0.0
-                                                })),
-                                                ..default()
-                                            },
-                                        ));
-                                    }
-                                }
-                                Piece::Term(term) => {
-                                    let open = tag.term == Some(*term);
+                        for piece in tell.rule_text() {
+                            if is_keyword(piece) {
+                                let open = tag.term == Some(&piece);
+                                line.spawn((
+                                    Text::new(piece),
+                                    TextFont::from_font_size(16.0),
+                                    TextColor(if open { HOVER } else { GOLD }),
+                                    Button,
+                                    Term(piece),
+                                ));
+                            } else {
+                                for word in piece.split_whitespace() {
+                                    // Punctuation closes up to the term before it.
+                                    let closing = word.starts_with(['.', ',']);
                                     line.spawn((
-                                        Text::new(*term),
+                                        Text::new(word),
                                         TextFont::from_font_size(16.0),
-                                        TextColor(if open { HOVER } else { GOLD }),
-                                        Button,
-                                        Term(term),
+                                        TextColor(INK),
+                                        Node {
+                                            margin: UiRect::left(px(if closing {
+                                                -WORD_GAP
+                                            } else {
+                                                0.0
+                                            })),
+                                            ..default()
+                                        },
                                     ));
                                 }
                             }

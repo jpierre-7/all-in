@@ -6,9 +6,7 @@
 //! rows turn over, each resolves its Tells by position, and the side with the
 //! lower Stack Sum loses the difference off its own Stack.
 
-use crate::run::{
-    Card, CombatOutcome, Enemy, HoleCard, LOADED_DICE_BONUS, Perk, Tell, xorshift64,
-};
+use crate::run::{Card, CombatOutcome, Enemy, HoleCard, LOADED_DICE_BONUS, Perk, Tell, xorshift64};
 
 pub const DRAW_SIZE: usize = 7;
 
@@ -507,9 +505,9 @@ impl Duel {
     /// the Stack Sums are compared. A Hand that beats the Opposing Cards puts
     /// the Push Your Luck prompt up and resolves nothing yet (`None`); a
     /// Whiff, or a tie where nobody pays, resolves on the spot.
-    pub fn confirm(&mut self) {
+    pub fn confirm(&mut self) -> Option<TurnResult> {
         if self.phase == Phase::PushYourLuck {
-            return;
+            return None;
         }
         // The House fills its last Opposing Card now, on everything it can
         // see, which is the player's row but their last card (#5).
@@ -537,13 +535,18 @@ impl Duel {
             house_edge,
         });
 
-        self.phase = Phase::PushYourLuck;
+        if hand as i32 - house_edge as i32 != 0 {
+            self.phase = Phase::PushYourLuck;
+            return None;
+        }
+
+        Some(self.resolve(None))
     }
 
     /// Answer the prompt with Hold: the turn resolves as normal. `None` when
     /// no prompt is up.
     pub fn hold(&mut self) -> Option<TurnResult> {
-        (self.phase == Phase::PushYourLuck).then(|| self.resolve(None))
+        Some(self.resolve(None))
     }
 
     /// Answer the prompt with Push: flip the coin. On a clearing Hand, win
@@ -679,10 +682,11 @@ impl Duel {
         self.opposing.clear();
         match self.fixed.clone() {
             Some(row) => {
-                self.opposing.extend(row.into_iter().map(|(card, face_up)| Opposing {
-                    card,
-                    revealed: face_up,
-                }));
+                self.opposing
+                    .extend(row.into_iter().map(|(card, face_up)| Opposing {
+                        card,
+                        revealed: face_up,
+                    }));
             }
             None => {
                 let deal = self.enemy.deal;
@@ -935,7 +939,8 @@ mod tests {
         let mut seen = (false, false);
 
         for seed in 1..60u64 {
-            let duel = Duel::new(vanilla_deck(18), 40, 5, coin_toss.clone()).with_seed(seed * 2 + 1);
+            let duel =
+                Duel::new(vanilla_deck(18), 40, 5, coin_toss.clone()).with_seed(seed * 2 + 1);
             // Past the first card, which is never a toss.
             for opposing in &duel.opposing()[1..] {
                 if opposing.revealed {
@@ -1007,13 +1012,24 @@ mod tests {
         assert_eq!(row, vec![18, 16], "the 16 slid left into slot 1");
         assert_eq!(duel.hand(), 34);
         assert_eq!(duel.plays_left(), 2);
-        assert!(duel.draw().iter().any(|c| c.stack == 17), "back in the Draw");
+        assert!(
+            duel.draw().iter().any(|c| c.stack == 17),
+            "back in the Draw"
+        );
     }
 
     #[test]
     fn lifting_an_all_in_hands_back_what_it_burned_too() {
         // Drawn first: all_in(2), card(8), ...
-        let deck = vec![card(1), card(1), card(1), card(1), card(1), card(8), all_in(2)];
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(8),
+            all_in(2),
+        ];
         let mut duel = Duel::new(deck, 40, 5, enemy(999, 3));
         duel.place(0, Some(0)).unwrap_err(); // can't burn itself
         duel.place(0, Some(1)).unwrap(); // All In 2 burning the 8
@@ -1036,7 +1052,15 @@ mod tests {
 
     #[test]
     fn illegal_placements_are_refused_and_change_nothing() {
-        let deck = vec![card(1), card(1), card(1), card(1), card(3), card(8), all_in(2)];
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(3),
+            card(8),
+            all_in(2),
+        ];
         let mut duel = Duel::new(deck, 40, 5, enemy(999, 5));
 
         assert_eq!(duel.place(9, None), Err(PlayError::NoSuchCard));
@@ -1088,7 +1112,15 @@ mod tests {
     #[test]
     fn two_rows_that_tie_pay_nobody() {
         // Three 6s across: 18. Cover it with exactly 18.
-        let deck = vec![card(1), card(1), card(1), card(1), card(4), card(6), card(8)];
+        let deck = vec![
+            card(1),
+            card(1),
+            card(1),
+            card(1),
+            card(4),
+            card(6),
+            card(8),
+        ];
         let mut duel = Duel::new(deck, 40, 5, enemy(100, 3));
         for _ in 0..3 {
             duel.place(0, None).unwrap();
@@ -1100,7 +1132,11 @@ mod tests {
         assert_eq!(result.kind, Outcome::Payout(0));
         assert_eq!(duel.player_stack(), 40);
         assert_eq!(duel.enemy_stack(), 100);
-        assert_eq!(duel.phase(), Phase::Playing, "a tie is never offered the coin");
+        assert_eq!(
+            duel.phase(),
+            Phase::Playing,
+            "a tie is never offered the coin"
+        );
     }
 
     #[test]
@@ -1129,7 +1165,9 @@ mod tests {
         assert!(duel.last_showdown().is_none());
         duel.end_turn();
 
-        let showdown = duel.last_showdown().expect("the rows that just turned over");
+        let showdown = duel
+            .last_showdown()
+            .expect("the rows that just turned over");
         assert_eq!(showdown.hand, 35);
         assert_eq!(showdown.house_edge, 12);
         assert_eq!(showdown.yours.len(), 2);
@@ -1436,7 +1474,7 @@ mod reveal_tests {
 
         duel.place(0, None).unwrap();
         duel.place(0, None).unwrap();
-  
+
         assert!(duel.opposing().iter().all(|o| o.revealed));
         assert_eq!(duel.showing(), (4, 0));
         assert_eq!(duel.house_edge(), 4);
@@ -1473,7 +1511,7 @@ mod push_your_luck_tests {
 
     #[test]
     fn beating_the_opposing_cards_offers_push_your_luck_instead_of_resolving() {
-        let mut duel = hand_of(30, 20);
+        let duel = hand_of(30, 20);
 
         assert_eq!(duel.phase(), Phase::PushYourLuck);
         assert_eq!(duel.enemy_stack(), 999, "nothing dealt yet");

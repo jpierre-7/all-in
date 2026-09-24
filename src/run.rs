@@ -31,6 +31,53 @@ pub enum Tell {
     Flop,
 }
 
+impl Tell {
+    pub fn rule_text(&self) -> Vec<&'static str> {
+        match self {
+            Tell::Streak => vec![
+                "Doubles this card's",
+                "Stack",
+                "if the card in the slot to its left has any",
+                "Tell.",
+            ],
+            Tell::AllIn => vec![
+                "Burns",
+                "another card from your",
+                "Draw",
+                "and adds its",
+                "Stack",
+                "to",
+                "The Hand.",
+            ],
+            Tell::Copycat => vec![
+                "Takes the printed",
+                "Stack",
+                "of the card in the slot to its right, and none of its",
+                "Tell",
+                ". Its own if nothing follows it.",
+            ],
+            Tell::Flop => vec![
+                "Takes the printed",
+                "Stack",
+                "of the",
+                "Opposing Card",
+                "across from it, and none of its",
+                "Tell",
+                ". Its own if nothing is across.",
+            ],
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Tell::Streak => "Streak",
+            Tell::AllIn => "All In",
+            Tell::Copycat => "Copycat",
+            Tell::Flop => "Flop",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Card {
     pub name: &'static str,
@@ -293,7 +340,8 @@ impl Deal {
         let span = u64::from(self.high.saturating_sub(self.low) + 1);
         let stack = self.low + (xorshift64(rng) % span) as u32;
         let carries = !self.tells.is_empty() && xorshift64(rng) % 100 < u64::from(self.tell_pct);
-        let tell = carries.then(|| self.tells[(xorshift64(rng) % self.tells.len() as u64) as usize]);
+        let tell =
+            carries.then(|| self.tells[(xorshift64(rng) % self.tells.len() as u64) as usize]);
         let name = HOUSE_CARDS[(xorshift64(rng) % HOUSE_CARDS.len() as u64) as usize];
         Card { name, stack, tell }
     }
@@ -837,7 +885,11 @@ mod tests {
 
         for _ in 0..500 {
             let card = deal.card(&mut rng);
-            assert!((4..=8).contains(&card.stack), "{} is off the range", card.stack);
+            assert!(
+                (4..=8).contains(&card.stack),
+                "{} is off the range",
+                card.stack
+            );
             assert_eq!(card.tell, Some(Tell::Streak));
             assert!(!card.name.is_empty());
         }
@@ -866,8 +918,13 @@ mod tests {
             tells: &[Tell::Flop],
             ..never
         };
-        let telled = (0..500).filter(|_| some.card(&mut rng).tell.is_some()).count();
-        assert!((120..=210).contains(&telled), "{telled} of 500 carried a Tell");
+        let telled = (0..500)
+            .filter(|_| some.card(&mut rng).tell.is_some())
+            .count();
+        assert!(
+            (120..=210).contains(&telled),
+            "{telled} of 500 carried a Tell"
+        );
     }
 
     #[test]
@@ -911,7 +968,11 @@ mod tests {
             let mut rng = SEED;
             let rows = 400;
             let dealt: u32 = (0..rows)
-                .map(|_| (0..deal.row).map(|_| deal.card(&mut rng).stack).sum::<u32>())
+                .map(|_| {
+                    (0..deal.row)
+                        .map(|_| deal.card(&mut rng).stack)
+                        .sum::<u32>()
+                })
                 .sum();
             let mean = dealt / rows;
             assert!(

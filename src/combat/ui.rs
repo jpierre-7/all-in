@@ -11,9 +11,7 @@ use std::path::Path;
 
 use bevy::prelude::*;
 
-use super::duel::{
-    Coin, Duel, Opposing, Outcome, Phase, Placed, Played, Push, Showdown, TurnResult,
-};
+use super::duel::{Coin, Duel, Opposing, Outcome, Phase, Placed, Push, TurnResult};
 use super::plugin::ActiveDuel;
 use crate::run::{Card, EncounterId, LOADED_DICE_BONUS, Tell};
 use crate::state::AppState;
@@ -285,18 +283,8 @@ pub fn redraw(
             ..default()
         })
         .with_children(|mid| {
-            let covered = duel.row().len();
             text(mid, format!("The Hand   {}", duel.hand()), 34.0, GOLD);
-            text(
-                mid,
-                format!(
-                    "{covered} of {} slots covered   -   {} Plays left",
-                    duel.slots(),
-                    duel.plays_left()
-                ),
-                18.0,
-                DIM,
-            );
+
             if duel.dice_left() > 0 {
                 let hands = duel.dice_left();
                 let plural = if hands == 1 { "Hand" } else { "Hands" };
@@ -331,9 +319,7 @@ pub fn redraw(
                 text(mid, turn_line(turn), 18.0, INK);
                 // Both rows are off the table by the time this is read, so
                 // the line has to carry what they came to, slot by slot.
-                if let Some(showdown) = duel.last_showdown() {
-                    text(mid, showdown_line(showdown), 15.0, DIM);
-                }
+
                 if turn.blinds_rose {
                     text(mid, blinds_line(duel), 16.0, NEON);
                 }
@@ -381,9 +367,9 @@ pub fn redraw(
             text(r, "Lucky Jack", 24.0, INK);
             text(r, format!("Stack {}", duel.player_stack()), 24.0, GOLD);
             let keys = match duel.phase() {
-                Phase::PushYourLuck => "P push   H hold   I what the words mean",
+                Phase::PushYourLuck => "P: Push   H: Hold   I: Help and Terms",
                 Phase::Playing => {
-                    "1-7 cover a slot   click your row or Backspace to take one back   Enter confirm   T peek   I what the words mean"
+                    "1-7: Place Card  Backspace/Esc: Cancel  Enter: Confirm  T: Toggle Peek  I: Help and Terms"
                 }
             };
             text(r, keys, 14.0, DIM);
@@ -409,10 +395,17 @@ fn facing_rows(root: &mut ChildSpawnerCommands, active: &ActiveDuel, art: &Art) 
         row(table, JustifyContent::Center, |r| {
             for (i, opposing) in duel.opposing().iter().enumerate() {
                 let value = showdown.and_then(|s| s.theirs.get(i)).map(|p| p.value);
-                slot_column(r, art, Zone::Opposing, i, opposing_face(opposing), value, None);
+                slot_column(
+                    r,
+                    art,
+                    Zone::Opposing,
+                    i,
+                    opposing_face(opposing),
+                    value,
+                    None,
+                );
             }
         });
-        text(table, "- across from -", 13.0, DIM);
         row(table, JustifyContent::Center, |r| {
             for i in 0..duel.slots() {
                 let placed: Option<&Placed> = duel.row().get(i);
@@ -529,9 +522,7 @@ fn card_node(
             BorderColor::all(border),
         ))
         .with_children(|c| {
-            if framed
-                && let Some(frame) = &art.frame
-            {
+            if framed && let Some(frame) = &art.frame {
                 // The frame is its own layer filling the card, so the padding
                 // insets the face content and not the art (an ImageNode on
                 // the padded node is drawn inside the padding).
@@ -629,40 +620,17 @@ fn edge_line(parent: &mut ChildSpawnerCommands, duel: &Duel) {
         (1, Some(margin)) => {
             format!("House Edge {showing} + the card it kept back   (your row, +{margin})")
         }
-        (1, None) => format!("House Edge {showing} + 1 face down"),
-        (n, _) => format!("House Edge {showing} + {n} face down"),
+        (_, None) => format!("House Edge {showing} + ?"),
+        (_, _) => format!("House Edge {showing} + ?"),
     };
     text(parent, line, 24.0, INK);
-}
-
-/// The two rows that just turned over, slot by slot. They are cleared and
-/// re-dealt the moment the turn resolves, so without this the player never
-/// sees what the cards they chose actually came to.
-fn showdown_line(showdown: &Showdown) -> String {
-    let side = |row: &[Played]| {
-        if row.is_empty() {
-            return "-".to_string();
-        }
-        row.iter()
-            .map(|played| played.value.to_string())
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    format!(
-        "Yours {}   vs   theirs {}",
-        side(&showdown.yours),
-        side(&showdown.theirs)
-    )
 }
 
 /// What the Blinds just did, which is not the same thing for The House.
 fn blinds_line(duel: &Duel) -> String {
     match duel.margin() {
         Some(margin) => format!("The Blinds rise. The margin is {margin}."),
-        None => format!(
-            "The Blinds rise. {} Opposing Cards now.",
-            duel.slots()
-        ),
+        None => format!("The Blinds rise. {} Opposing Cards now.", duel.slots()),
     }
 }
 
@@ -698,6 +666,7 @@ fn turn_line(turn: &TurnResult) -> String {
                 turn.hand
             )
         }
+        (_, Outcome::Payout(0)) => format!("Tie. Your Hand was equal to the House Edge"),
         (_, Outcome::Payout(n)) => format!("{} vs House Edge {edge}: Payout {n}.", turn.hand),
         (_, Outcome::Whiff(n)) => {
             format!("{} against {edge}: Whiff. You lose {n}.", turn.hand)
@@ -761,12 +730,7 @@ fn text(parent: &mut ChildSpawnerCommands, s: impl Into<String>, size: f32, colo
 }
 
 /// A corner of the card face: the value, top-left or bottom-right.
-fn corner_row(
-    parent: &mut ChildSpawnerCommands,
-    justify: JustifyContent,
-    value: &str,
-    size: f32,
-) {
+fn corner_row(parent: &mut ChildSpawnerCommands, justify: JustifyContent, value: &str, size: f32) {
     parent
         .spawn(Node {
             width: percent(100),
