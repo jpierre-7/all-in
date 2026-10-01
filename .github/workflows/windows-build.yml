@@ -1,0 +1,44 @@
+# Builds the Windows zip for itch.io on a real Windows machine (#136). Manual
+# only: Actions tab -> windows-build -> Run workflow. The zip is attached to the
+# run as an artifact; uploading it to itch is still a butler push by hand.
+#
+# Same toolchain source as ci.yml: the runner's rustup reads
+# rust-toolchain.toml, so no Nix. The steps are the README's "On Windows".
+name: windows-build
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    runs-on: windows-latest
+    # The first, uncached build compiles all of Bevy on a 4-core runner.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo build --release --locked
+
+      # package.sh is bash and calls python3; Git Bash is on the runner, but
+      # Windows Python only answers to `python`.
+      - name: Package
+        shell: bash
+        run: |
+          command -v python3 >/dev/null || { python3() { python "$@"; }; export -f python3; }
+          tools/package.sh windows target/release/all-in.exe
+
+      # The download from the run page is a zip around this zip: unzip once to
+      # get all-in-windows.zip, which is what butler pushes.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: all-in-windows-${{ github.sha }}
+          path: dist/all-in-windows.zip
+          if-no-files-found: error

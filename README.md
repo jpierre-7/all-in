@@ -81,7 +81,12 @@ in `src/main.rs`), even when you launch it from a terminal. So a crash
 closes the window without printing anything. To see the panic, comment that
 line out locally and run again. Don't commit that change.
 
-To package a zip like the Linux one, run this from Git Bash. Git for Windows
+The easy way to get a Windows zip is not to build one yourself: on GitHub, open
+**Actions → windows-build → Run workflow**. It builds and packages on a Windows
+machine and attaches `all-in-windows.zip` to the run (download it, then unzip
+once).
+
+To package a zip yourself, run this from Git Bash. Git for Windows
 provides `bash`; the script also needs Python 3 on the `PATH` (check that
 `python3 --version` works):
 
