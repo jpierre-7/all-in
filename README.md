@@ -94,8 +94,8 @@ provides `bash`; the script also needs Python 3 on the `PATH` (check that
 tools/package.sh windows target/release/all-in.exe
 ```
 
-That writes `dist/all-in-windows.zip`, with an `all-in.bat` launcher that
-`cd`s into its own folder before starting the game.
+That writes `dist/all-in-windows.zip`. Players unzip it and double-click
+`all-in.exe`: Explorer starts it in its own folder, so it finds `assets/`.
 
 ### A stale `target/` after a pull
 

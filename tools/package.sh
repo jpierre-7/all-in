@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Package a release build for itch.io (#71): the binary, assets/, a launcher,
-# and the licences, zipped as dist/all-in-<platform>.zip.
+# Package a release build for itch.io (#71): the binary, assets/, a launcher on
+# Linux, and the licences, zipped as dist/all-in-<platform>.zip.
 #
 #   tools/package.sh            # linux, from target/release/all-in
 #   tools/package.sh windows target/x86_64-pc-windows-gnu/release/all-in.exe
 #
 # The game finds assets/ relative to its working directory (README: "Run it
-# from the repo root"), so the launcher cd's to its own folder first. Do not
-# run the bare binary from elsewhere.
+# from the repo root"), so the Linux launcher cd's to its own folder first.
+# Windows needs none: double-clicking the exe in Explorer already starts it in
+# its own folder, and a .bat beside it showed up as a second "all-in" (#136).
 set -euo pipefail
 
 platform="${1:-linux}"
@@ -31,9 +32,6 @@ case "$platform" in
 cd "$(dirname "$0")" && exec ./all-in "$@"
 RUN
     chmod +x "$stage/all-in.sh" "$stage/all-in"
-    ;;
-  windows)
-    printf '@echo off\r\ncd /d "%%~dp0"\r\nstart "" all-in.exe\r\n' > "$stage/all-in.bat"
     ;;
 esac
 
