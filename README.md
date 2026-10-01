@@ -57,6 +57,41 @@ Without Nix you need the system libraries winit and wgpu dlopen at runtime —
 Wayland or X11, `libxkbcommon`, a Vulkan loader — plus `alsa-lib` and `udev` to
 build. The devshell exists so you do not have to chase that list.
 
+### On Windows
+
+Build it natively; there is no cross-compile from Linux yet.
+
+1. Install the **Visual Studio Build Tools** with the *Desktop development with
+   C++* workload. Rust's default Windows toolchain links with Microsoft's
+   linker.
+2. Install Rust with [rustup](https://rustup.rs). From the repo, rustup reads
+   `rust-toolchain.toml` and fetches the pinned 1.97.1 on the first build.
+3. From the repo root:
+
+   ```powershell
+   cargo run --release
+   ```
+
+Nothing else is needed: no Nix, and none of the Linux system libraries above.
+The same rule applies, though: **run it from the repo root**, or every image
+goes missing.
+
+The game window opens **with no console** (`#![windows_subsystem = "windows"]`
+in `src/main.rs`), even when you launch it from a terminal. So a crash
+closes the window without printing anything. To see the panic, comment that
+line out locally and run again. Don't commit that change.
+
+To package a zip like the Linux one, run this from Git Bash. Git for Windows
+provides `bash`; the script also needs Python 3 on the `PATH` (check that
+`python3 --version` works):
+
+```sh
+tools/package.sh windows target/release/all-in.exe
+```
+
+That writes `dist/all-in-windows.zip`, with an `all-in.bat` launcher that
+`cd`s into its own folder before starting the game.
+
 ### A stale `target/` after a pull
 
 If a pull lands and the build then fails to *link* — not to compile — the
