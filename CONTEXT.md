@@ -11,29 +11,21 @@ A fighter's remaining life. Only the player and the enemy have Chips; cards have
 _Avoid_: Stack, HP, health, life
 
 **House Edge**:
-What the Opposing Cards add up to once every Tell in them has resolved: the number The Hand has to beat this turn. Not a flat number the enemy carries around — it is whatever the enemy actually laid down, and the player only ever sees part of it before confirming.
+What the Opposing Cards add up to once every Tell in them has resolved: the number The Hand has to beat this turn. Not a flat number the enemy carries around — it is whatever the enemy actually laid down, and the player sees none of it before confirming.
 _Avoid_: defense, armor, threshold
 
-**Rising Blinds**:
-Scheduled escalation as combat goes on: one more Opposing Card for ordinary enemies, the Margin for The House. Past the player's Plays the extra cards cannot be covered at all.
-_Avoid_: scaling, difficulty ramp
-
-**Margin**:
-How far above the row it read The House sets its own. Rises with the Blinds.
-_Avoid_: house cut, spread
-
-**Hole Card**:
-Against The House only: the last card in the player's row. The House keeps its own last Opposing Card back and fills it in on everything the player played before that one, so the Hole Card is the one card it could not see.
-_Avoid_: last card, closer
+**Table Rule**:
+A boss's own rule for its fight: it bends how the duel plays while that boss is at the table, and never leaves it. One per boss.
+_Avoid_: gimmick, mechanic, house rule
 
 ### A turn
 
-**Deal**:
-How an enemy lays its Opposing Cards down: how many, the range of Face Values, the odds of a Tell and which Tells, and the odds of each card after the first being face down. Enemies have a Deal, not a deck.
-_Avoid_: enemy deck, AI
+**Deck**:
+The cards a fighter draws from. Every enemy has one, as the player does: a boss's is written for it and carries its Boss Tell; a minion's is dealt from one standard template when the fight starts.
+_Avoid_: Deal (retired), pool, library
 
 **Opposing Cards**:
-The enemy's row, laid down before the player plays anything. The first is always face up; each of the rest is dealt face down on a roll the enemy's own odds set. The player's cards sit one per slot across from them.
+The enemy's row. The enemy draws and chooses its cards by the same rules as the player, and neither side sees the other's row until Confirm. The player's cards sit one per slot across from them.
 _Avoid_: enemy hand, their cards, board
 
 **Slot**:
@@ -53,16 +45,16 @@ The player saying the row is finished. Both rows turn over, every Tell resolves,
 _Avoid_: submit, lock in, end turn
 
 **Showdown**:
-The moment the rows turn over on Confirm: every face-down card is shown, every Tell resolves, and The Hand meets House Edge. What each card came to stays on the table until the next turn.
+The moment the rows turn over on Confirm: both rows are shown, every Tell resolves, and The Hand meets House Edge. What each card came to stays on the table until the next turn.
 _Avoid_: reveal, resolution
 
 **Draw**:
 The cards the player is holding this turn. Refilled to 7 at the start of each turn.
 _Avoid_: hand (reserved for The Hand), cards in hand
 
-**Plays**:
-The number of cards the player may put in the row in one turn. A row of Opposing Cards longer than this leaves slots the player cannot cover, and what sits in them counts for the enemy anyway.
-_Avoid_: actions, energy, mana
+**Blind**:
+The most cards either side may put in its row in one turn. Set by the floor (2 on The Floor, one more on each floor after it) and the same for both sides; items, perks, and a Table Rule can raise or lower it for one side. Playing fewer is allowed.
+_Avoid_: Plays, Rising Blinds, actions, energy, mana
 
 **Push Your Luck**:
 An optional coin flip offered once The Hand is final, whether it clears House Edge or falls short. On a clearing Hand, push and win: the Payout doubles; push and lose: The Hand becomes 0, a full Whiff. On a Whiff, push and win: the Whiff is forgiven; push and lose: it doubles. The Hand itself is the stake; there is no separate wager.
@@ -102,7 +94,11 @@ Tell: sacrifice another card from the Draw to add its Face Value to this card's.
 Tell: takes the Face Value of the card in the slot to its right, and none of its Tell; its own if nothing follows it.
 
 **Flop**:
-Tell: takes the Face Value of the Opposing Card across from it, and none of its Tell; its own if nothing is across. Until the rows turn over, a face-down card counts as nothing across. Ties its own slot exactly, which makes it worth whatever the enemy kept hidden there.
+Tell: takes the Face Value of the Opposing Card across from it, and none of its Tell; its own if nothing is across. Ties its own slot exactly, which makes it worth whatever the enemy kept hidden there.
+
+**Boss Tell**:
+The Tell a boss's deck is built around. Nobody else has it until that boss is beaten in the run; from then on it can turn up in minions' decks, Packs, and the Cage. Locked again on Fold or death.
+_Avoid_: signature card, unlock
 
 **Peek**:
 The tag that opens beside the card the player points at, mouse or keyboard, and says its Tell. The player can wave it off for the table and call it back.
@@ -118,7 +114,7 @@ _Avoid_: engage/retreat, flee
 A run-long modifier chosen from a pair after beating a boss.
 
 **Item**:
-A run-long modifier dropped after beating a minion. The pool is Loaded Dice alone so far (#12); the drop is random once there is more than one thing in it.
+A run-long modifier. After beating a minion the player is offered either three Items, keeping one, or a Pack; or may take nothing.
 
 **Loaded Dice**:
 Item: +5 to The Hand for the next 2 Hands. Spent as The Hand is shown, and carried between encounters until it runs out.
@@ -137,14 +133,24 @@ _Avoid_: quest, challenge, objective
 **Interest**:
 Cash paid on the Cash the player holds at the end of a won encounter, a fixed amount per block held, up to a cap.
 
-**Comp**:
-The free card after every won encounter: pick one of three to add to the deck, or pass.
-_Avoid_: draft, pick, reward card
-
 **Pack**:
-A sealed set of four random cards; the player opens it and keeps two. A boss reward and sold in the Cage.
-_Avoid_: booster, bundle
+A sealed set of cards; the player keeps some and the rest are gone. After a minion: three cards, keep one. After a boss, the Boss Pack: seven cards, keep two, a set number of them carrying that boss's Boss Tell.
+_Avoid_: booster, bundle, Comp
 
 **The Cage**:
 The shop, where Cash buys cards, Packs, Items, and Chips. One per floor, found by exploring it like any room.
 _Avoid_: store, merchant
+
+### Between runs
+
+**Golden Chips**:
+What beating The House earns, kept from one run to the next, and spent at The Wheel. Always "Golden Chips" in full, never "Chips", which is a fighter's life.
+_Avoid_: gold, tokens, meta currency
+
+**The Wheel**:
+The roulette table where Golden Chips are placed on squares; each square buys a permanent buff for future runs. Opens after The House is first beaten.
+_Avoid_: shop, skill tree, upgrades
+
+**Legacy Perk**:
+A Perk chosen after beating The House that lasts for the next run only.
+_Avoid_: special perk, bonus
