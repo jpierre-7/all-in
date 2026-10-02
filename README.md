@@ -24,8 +24,10 @@ that one, the **Hole Card**, as the only card it cannot see.
 
 ## Playing it
 
-A Linux build is on itch.io: **https://voraciousjp.itch.io/all-in**. Unzip and
-run `all-in.sh`.
+Linux and Windows builds are on itch.io: **https://voraciousjp.itch.io/all-in**.
+Unzip, then run `all-in.sh` on Linux or double-click `all-in.exe` on Windows. On Windows,
+SmartScreen may warn that the app is unrecognised (it isn't signed): choose
+**More info → Run anyway**.
 
 ## Running it
 
