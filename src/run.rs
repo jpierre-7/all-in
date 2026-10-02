@@ -29,6 +29,8 @@ pub enum Tell {
     /// Takes the Face Value of the Opposing Card across from it; its own
     /// if there is nothing across.
     Flop,
+    //Takes the Face Value and Tell of the card before it. If first, behaves like a regular card.
+    Echo,
 }
 
 impl Tell {
@@ -67,6 +69,13 @@ impl Tell {
                 "Tell",
                 ". Its own if nothing is across.",
             ],
+            Tell::Echo => vec![
+                "Takes the",
+                "Face Value",
+                "and",
+                "Tell",
+                "of the card before it."
+            ]
         }
     }
 
@@ -76,6 +85,7 @@ impl Tell {
             Tell::AllIn => "All In",
             Tell::Copycat => "Copycat",
             Tell::Flop => "Flop",
+            Tell::Echo => "Echo",
         }
     }
 }
@@ -86,6 +96,12 @@ pub struct Card {
     /// The number printed on the card: what it adds to its row before its Tell.
     pub face_value: u32,
     pub tell: Option<Tell>,
+}
+
+impl Card {
+    pub fn new(face_value: u32, tell: Option<Tell>) -> Card {
+        Card { name: tell.map_or("card", |tell| tell.name()), face_value, tell }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -630,6 +646,14 @@ pub fn starter_deck() -> Vec<Card> {
         ("Deed to the House", 4),
         ("Firstborn", 5),
     ];
+    let echo = [
+        ("Radio", 3),
+        ("Walkie Talkie", 4),
+        ("Radio", 5),
+        ("Walkie Talkie", 5),
+        ("Radio", 7),
+        ("Walkie Talkie", 7),
+    ];
     vanilla
         .into_iter()
         .map(|(name, face_value)| Card {
@@ -646,6 +670,11 @@ pub fn starter_deck() -> Vec<Card> {
             name,
             face_value,
             tell: Some(Tell::AllIn),
+        }))
+        .chain(echo.into_iter().map(|(name, face_value)| Card {
+            name,
+            face_value,
+            tell: Some(Tell::Echo),
         }))
         .collect()
 }

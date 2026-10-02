@@ -175,28 +175,39 @@ pub struct Showdown {
 fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
     row.iter()
         .enumerate()
-        .map(|(slot, placed)| {
-            let printed = placed.card.face_value;
-            let value = match placed.card.tell {
-                Some(Tell::Streak) if slot > 0 && row[slot - 1].card.tell.is_some() => printed * 2,
-                Some(Tell::AllIn) => {
-                    printed + placed.sacrifice.as_ref().map_or(0, |c| c.face_value)
-                }
-                Some(Tell::Copycat) => row
-                    .get(slot + 1)
-                    .map_or(printed, |next| next.card.face_value),
-                Some(Tell::Flop) => across
-                    .get(slot)
-                    .and_then(Option::as_ref)
-                    .map_or(printed, |card| card.face_value),
-                _ => printed,
-            };
-            Played {
-                card: placed.card.clone(),
-                value,
-            }
-        })
+        .map(|(slot, placed)| effective_value(row, across, slot, placed, None))
         .collect()
+}
+
+fn effective_value(
+    row: &[Placed],
+    across: &[Option<Card>],
+    slot: usize,
+    placed: &Placed,
+    index: Option<usize>,
+) -> Played {
+    let printed = placed.card.face_value;
+    let value = match placed.card.tell {
+        Some(Tell::Streak) if slot > 0 && row[slot - 1].card.tell.is_some() => printed * 2,
+        Some(Tell::AllIn) => printed + placed.sacrifice.as_ref().map_or(0, |c| c.face_value),
+        Some(Tell::Copycat) => row
+            .get(slot + 1)
+            .map_or(printed, |next| next.card.face_value),
+        Some(Tell::Flop) => across
+            .get(slot)
+            .and_then(Option::as_ref)
+            .map_or(printed, |card| card.face_value),
+        //Recursion is necessary if this echo is placed in front of another echo
+        Some(Tell::Echo) if index.unwrap_or(slot) > 0 => {
+            let position = index.unwrap_or(slot);
+            effective_value(row, across, slot, &row[position - 1], Some(position - 1)).value
+        }
+        _ => printed,
+    };
+    Played {
+        card: placed.card.clone(),
+        value,
+    }
 }
 
 pub struct Duel {
@@ -827,39 +838,22 @@ pub(super) mod cards {
     use crate::run::{Card, Deal, Enemy, HoleCard, RisingBlinds, Tell};
 
     pub fn card(face_value: u32) -> Card {
-        Card {
-            name: "card",
-            face_value,
-            tell: None,
-        }
+        Card::new(face_value, None)
     }
     pub fn streak(face_value: u32) -> Card {
-        Card {
-            name: "streak",
-            face_value,
-            tell: Some(Tell::Streak),
-        }
+        Card::new(face_value, Some(Tell::Streak))
     }
     pub fn all_in(face_value: u32) -> Card {
-        Card {
-            name: "all in",
-            face_value,
-            tell: Some(Tell::AllIn),
-        }
+        Card::new(face_value, Some(Tell::AllIn))
     }
     pub fn copycat(face_value: u32) -> Card {
-        Card {
-            name: "copycat",
-            face_value,
-            tell: Some(Tell::Copycat),
-        }
+        Card::new(face_value, Some(Tell::Copycat))
     }
     pub fn flop(face_value: u32) -> Card {
-        Card {
-            name: "flop",
-            face_value,
-            tell: Some(Tell::Flop),
-        }
+        Card::new(face_value, Some(Tell::Flop))
+    }
+    pub fn echo(face_value: u32) -> Card {
+        Card::new(face_value, Some(Tell::Echo))
     }
 
     /// An enemy that deals a row of `row` cards, every one of them a 6 with
@@ -1426,6 +1420,75 @@ mod tell_tests {
         duel.place(0, None).unwrap();
 
         assert_eq!(duel.house_edge(), 5);
+    }
+
+    #[test]
+    fn echo_first_behaves_as_plain() {
+        let mut duel = table(
+            vec![card(2), echo(5), card(3)],
+            vec![card(1), card(1), card(1)],
+        );
+
+        duel.place(1, None).unwrap(); //Place Echo (5)
+        assert_eq!(resolved(&duel), vec![5]);
+        assert_eq!(duel.hand(), 5);
+    }
+
+    #[test]
+    fn echo_takes_value_of_plain_card() {
+        let mut duel = table(
+            vec![card(2), echo(5), card(3)],
+            vec![card(1), card(1), card(1)],
+        );
+
+        duel.place(0, None).unwrap(); //Place plain 2
+        duel.place(0, None).unwrap(); //Place Echo (5)
+
+        assert_eq!(resolved(&duel), vec![2, 2]);
+        assert_eq!(duel.hand(), 4);
+    }
+
+    #[test]
+    fn echo_after_streak_doubles() {
+        let mut duel = table(
+            vec![streak(4), echo(5), card(3)],
+            vec![card(1), card(1), card(1)],
+        );
+
+        duel.place(0, None).unwrap(); //Place Streak (4)
+        duel.place(0, None).unwrap(); //Place Echo (5)
+
+        assert_eq!(resolved(&duel), vec![4, 8]);
+        assert_eq!(duel.hand(), 12);
+    }
+
+    #[test]
+    fn streak_after_echo_doubles() {
+        let mut duel = table(
+            vec![streak(4), echo(5), card(3)],
+            vec![card(1), card(1), card(1)],
+        );
+
+        duel.place(1, None).unwrap(); //Place Echo (5)
+        duel.place(0, None).unwrap(); //Place Streak (4)
+
+        assert_eq!(resolved(&duel), vec![5, 8]);
+        assert_eq!(duel.hand(), 13);
+    }
+
+    #[test]
+    fn echo_after_echo_chains() {
+        let mut duel = table(
+            vec![streak(5), echo(2), echo(2)],
+            vec![card(1), card(1), card(1)],
+        );
+
+        duel.place(0, None).unwrap(); //Place Streak (5)
+        duel.place(0, None).unwrap(); //Place Echo (2)
+        duel.place(0, None).unwrap(); //Place Echo (2)
+
+        assert_eq!(resolved(&duel), vec![5, 10, 10]);
+        assert_eq!(duel.hand(), 25);
     }
 }
 
