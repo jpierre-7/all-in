@@ -94,7 +94,7 @@ Tell: sacrifice another card from the Draw to add its Face Value to this card's.
 Tell: takes the Face Value of the card in the slot to its right, and none of its Tell; its own if nothing follows it.
 
 **Flop**:
-Tell: takes the Face Value of the Opposing Card across from it, and none of its Tell; its own if nothing is across. Ties its own slot exactly, which makes it worth whatever the enemy kept hidden there.
+Tell: takes the Face Values of the Opposing Card across from it and of that card's two neighbours, and none of their Tells; never its own. An empty slot counts as nothing, so it is strong against a long row and weak at the end of one. The House's Boss Tell.
 
 **Boss Tell**:
 The Tell a boss's deck is built around. Nobody else has it until that boss is beaten in the run; from then on it can turn up in minions' decks, Packs, and the Cage. Locked again on Fold or death.

@@ -1610,7 +1610,8 @@ mod peek_tests {
             Tag {
                 card: held(1),
                 term: None,
-                burn: None
+                burn: None,
+                flop: None,
             }
         );
     }
