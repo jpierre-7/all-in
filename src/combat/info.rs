@@ -41,8 +41,8 @@ const GLOSSARY: &[(&str, &str)] = &[
         "How many cards you may put in your row this turn. Five, unless a perk says otherwise, and never more than the enemy laid down.",
     ),
     (
-        "Opposing Cards",
-        "The enemy's row, laid down before you play. The first is face up; the rest are a coin toss. Your cards sit one per slot across from them.",
+        "Opposing Card",
+        "One card of the enemy's row, laid down before you play. The first is face up; the rest are a coin toss. Your cards sit one per slot across from them.",
     ),
     (
         "The Hand",
@@ -51,6 +51,10 @@ const GLOSSARY: &[(&str, &str)] = &[
     (
         "House Edge",
         "What the Opposing Cards add up to. The number The Hand has to beat, and you only ever see part of it before you confirm.",
+    ),
+    (
+        "Confirm",
+        "Enter: your row is finished. Both rows turn over and every Tell resolves.",
     ),
     (
         "Payout",
@@ -73,6 +77,10 @@ const GLOSSARY: &[(&str, &str)] = &[
     (
         "Flop",
         "Tell: worth the Face Value of the Opposing Card across from it. Its own if nothing is across.",
+    ),
+    (
+        "Bluff",
+        "Tell: at Confirm, the lower of it and the Opposing Card across from it loses the difference off that side's Chips. Still adds its own Face Value.",
     ),
     (
         "Push Your Luck",

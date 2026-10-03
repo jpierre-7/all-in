@@ -391,7 +391,13 @@ mod tests {
 
     #[test]
     fn every_term_a_tell_leans_on_has_a_glossary_line() {
-        let tells = [Tell::Streak, Tell::AllIn, Tell::Copycat, Tell::Flop];
+        let tells = [
+            Tell::Streak,
+            Tell::AllIn,
+            Tell::Copycat,
+            Tell::Flop,
+            Tell::Bluff,
+        ];
         for tell in tells {
             let found: Vec<_> = terms(tell).collect();
             assert!(!found.is_empty(), "{} marks no terms", tell.name());
@@ -401,5 +407,7 @@ mod tests {
         }
         assert!(terms(Tell::Streak).any(|t| t == "Tell"));
         assert!(terms(Tell::AllIn).any(|t| t == "The Hand"));
+        assert!(terms(Tell::Bluff).any(|t| t == "Opposing Card"));
+        assert!(terms(Tell::Bluff).any(|t| t == "Confirm"));
     }
 }
