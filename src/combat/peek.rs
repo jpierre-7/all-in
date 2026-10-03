@@ -71,6 +71,8 @@ pub struct Tag {
     pub term: Option<&'static str>,
     /// While an All In waits for its sacrifice: what burning this card adds.
     pub burn: Option<u32>,
+    /// A Flop in the Draw: what it would take in the next empty slot.
+    pub flop: Option<u32>,
 }
 
 /// The card in a slot, as the player is entitled to see it. A face-down
@@ -213,7 +215,16 @@ fn wanted(
         Some(all_in) if card.zone == Zone::Draw && all_in != card.slot => Some(held.face_value),
         _ => None,
     };
-    Some(Tag { card, term, burn })
+    let flop = match held.tell {
+        Some(Tell::Flop) if card.zone == Zone::Draw => active.duel.flop_next(),
+        _ => None,
+    };
+    Some(Tag {
+        card,
+        term,
+        burn,
+        flop,
+    })
 }
 
 /// Keeps the one tag on the table matching what the player points at:
@@ -333,6 +344,9 @@ pub fn show(
             }
             if let Some(burn) = tag.burn {
                 text(body, format!("Burn for +{burn}"), 16.0, NEON);
+            }
+            if let Some(flop) = tag.flop {
+                text(body, format!("Next slot: +{flop}"), 16.0, NEON);
             }
             if let Some(term) = tag.term {
                 nest(body, tag.card.slot, term);

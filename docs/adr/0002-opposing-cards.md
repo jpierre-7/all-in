@@ -4,7 +4,7 @@ _Terms updated by #123: a fighter's Stack is now **Chips**, a card's is its **Fa
 
 The enemy used to do nothing on its turn: it was a pile of Chips, a flat House Edge, and a Rising Blinds schedule, and the player built The Hand against a number that was decided before the duel started. Now the enemy lays a row of **Opposing Cards** down first — the first face up, each of the rest face down on a roll — the player covers that row slot for slot out of the Draw, both rows turn over on **Confirm**, and the side that comes up short loses the difference. House Edge survives as a term but changes meaning: it is whatever the Opposing Cards add up to, not a number the enemy carries.
 
-The consequence that drove the rest of the design: **a Tell targets by slot, not by play order**. Streak reads one slot left, Copycat one slot right, **Flop** reads straight across at the Opposing Card. Cards no longer resolve as they are played — a row is worth nothing until it is finished and every Tell knows its neighbours — so the player can put a card down, take it back out, and rearrange until they confirm.
+The consequence that drove the rest of the design: **a Tell targets by slot, not by play order**. Streak reads one slot left, Copycat one slot right, **Flop** reads across at the Opposing Card and that card's two neighbours (first built reading straight across only; widened in #113). Cards no longer resolve as they are played — a row is worth nothing until it is finished and every Tell knows its neighbours — so the player can put a card down, take it back out, and rearrange until they confirm.
 
 ## Considered Options
 

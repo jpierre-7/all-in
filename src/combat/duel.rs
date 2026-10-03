@@ -163,13 +163,23 @@ pub struct Showdown {
     pub house_edge: u32,
 }
 
+/// What a Flop in `slot` is worth: the Face Values of the card across from it
+/// and that card's two neighbours, never its own. A slot with nothing in it,
+/// or a card it can't see yet, counts as nothing.
+fn flop_value(across: &[Option<Card>], slot: usize) -> u32 {
+    (slot.saturating_sub(1)..=slot + 1)
+        .filter_map(|i| across.get(i)?.as_ref())
+        .map(|card| card.face_value)
+        .sum()
+}
+
 /// Resolve a row left to right against the row across from it, and say what
 /// each card is worth.
 ///
 /// Every Tell reads by position — Streak one slot left, Copycat one slot
-/// right, Flop straight across — and every one of them reads a *printed*
-/// Face Value. That is what keeps this a single pass with no ordering to argue
-/// about: no card's value depends on another card's value, so the two rows
+/// right, Flop across and to either side of that — and every one of them
+/// reads a *printed* Face Value. That is what keeps this a single pass with no
+/// ordering to argue about: no card's value depends on another card's value, so the two rows
 /// facing each other can be worked out in either order and a Flop on each
 /// side of the table never chases the other one round in a circle.
 fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
@@ -185,10 +195,7 @@ fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
                 Some(Tell::Copycat) => row
                     .get(slot + 1)
                     .map_or(printed, |next| next.card.face_value),
-                Some(Tell::Flop) => across
-                    .get(slot)
-                    .and_then(Option::as_ref)
-                    .map_or(printed, |card| card.face_value),
+                Some(Tell::Flop) => flop_value(across, slot),
                 _ => printed,
             };
             Played {
@@ -428,14 +435,18 @@ impl Duel {
                     _ => printed,
                 },
                 Some(Tell::Copycat) => face_up(slot + 1).map_or(printed, |next| next.face_value),
-                Some(Tell::Flop) => across
-                    .get(slot)
-                    .and_then(Option::as_ref)
-                    .map_or(printed, |card| card.face_value),
+                Some(Tell::Flop) => flop_value(&across, slot),
                 _ => printed,
             };
         }
         (total, hidden)
+    }
+
+    /// What a Flop would be worth if it went into the next empty slot right
+    /// now, on the Opposing Cards the player can see. `None` when the row is
+    /// full and it can't go in at all.
+    pub fn flop_next(&self) -> Option<u32> {
+        (self.plays_left() > 0).then(|| flop_value(&self.opposing_face_up_cards(), self.row.len()))
     }
 
     /// How many slots there are to cover: one per Opposing Card.
@@ -681,8 +692,8 @@ impl Duel {
         self.opposing.iter().map(|o| Some(o.card.clone())).collect()
     }
 
-    /// The Opposing Cards the player can see. A Flop across a face-down card
-    /// reads nothing across, its own print, until the rows turn over.
+    /// The Opposing Cards the player can see. A Flop counts a face-down card
+    /// as nothing until the rows turn over.
     fn opposing_face_up_cards(&self) -> Vec<Option<Card>> {
         self.opposing
             .iter()
@@ -1346,7 +1357,7 @@ mod tell_tests {
     }
 
     #[test]
-    fn flop_takes_the_face_value_of_the_opposing_card_across_from_it() {
+    fn flop_takes_the_opposing_card_across_from_it_and_that_cards_neighbours() {
         let mut duel = table(
             vec![flop(2), flop(2), flop(2)],
             vec![card(9), card(3), card(7)],
@@ -1356,8 +1367,9 @@ mod tell_tests {
             duel.place(0, None).unwrap();
         }
 
-        assert_eq!(resolved(&duel), vec![9, 3, 7], "each one ties its own slot");
-        assert_eq!(duel.hand(), duel.house_edge());
+        // The ends of the row have one neighbour across; the middle has two.
+        // The 2 printed on each Flop never counts.
+        assert_eq!(resolved(&duel), vec![9 + 3, 9 + 3 + 7, 3 + 7]);
     }
 
     #[test]
@@ -1366,32 +1378,41 @@ mod tell_tests {
 
         duel.place(0, None).unwrap(); // the 4, in slot 0
         duel.place(0, None).unwrap(); // the Flop, in slot 1, across the 3
-        assert_eq!(resolved(&duel), vec![4, 3]);
+        assert_eq!(resolved(&duel), vec![4, 3 + 9]);
 
         // Lift the 4 and the Flop slides left, across the 9 instead.
         duel.lift(0).unwrap();
-        assert_eq!(resolved(&duel), vec![9]);
+        assert_eq!(resolved(&duel), vec![9 + 3]);
     }
 
     #[test]
-    fn a_flop_with_nothing_across_it_is_worth_its_own_print() {
-        // Two slots, but the player has three Plays and only two can land;
-        // the third slot doesn't exist, so a Flop there would read nothing.
-        let mut duel = table(vec![flop(7)], vec![]);
-        // No Opposing Cards at all: no slots to fill.
-        assert_eq!(duel.slots(), 0);
-        assert_eq!(duel.place(0, None), Err(PlayError::RowIsFull));
+    fn a_flop_with_nothing_across_and_no_neighbours_is_worth_nothing() {
+        // The enemy's Flop in slot 1 reads the player's slots 0 to 2. With
+        // the player's row empty there is nothing there, and its own 5
+        // doesn't count either.
+        let mut duel = table(vec![card(4)], vec![card(1), flop(5)]);
+        assert_eq!(duel.house_edge(), 1);
 
-        // The same card against a row it does reach.
-        let mut duel = table(vec![flop(7), card(1)], vec![card(2), card(2)]);
+        // A 4 in slot 0 is a neighbour of the slot across from it.
         duel.place(0, None).unwrap();
-        assert_eq!(resolved(&duel), vec![2]);
+        assert_eq!(duel.house_edge(), 1 + 4);
+    }
+
+    #[test]
+    fn a_streak_to_the_right_of_a_flop_doubles() {
+        let mut duel = table(vec![flop(1), streak(5)], vec![card(2), card(3)]);
+
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+
+        assert_eq!(resolved(&duel), vec![2 + 3, 10]);
     }
 
     #[test]
     fn the_enemys_tells_resolve_by_the_same_rules() {
         // A Streak in slot 1 doubling off the Copycat in slot 0, and a Flop
-        // in slot 2 reading the player's card across from it.
+        // in slot 2 reading the player's card across from it and the one
+        // beside that.
         let mut duel = table(
             vec![card(4), card(5), card(9)],
             vec![copycat(3), streak(6), flop(1)],
@@ -1402,8 +1423,8 @@ mod tell_tests {
         }
 
         // Copycat takes the Streak's print (6), the Streak doubles after a
-        // Tell (12), the Flop takes the 9 across from it.
-        assert_eq!(duel.house_edge(), 6 + 12 + 9);
+        // Tell (12), the Flop takes the 9 across from it and the 5 beside it.
+        assert_eq!(duel.house_edge(), 6 + 12 + 5 + 9);
     }
 
     #[test]
@@ -1463,20 +1484,51 @@ mod reveal_tests {
     }
 
     #[test]
-    fn a_flop_across_a_face_down_card_reads_its_own_print_until_the_rows_turn_over() {
+    fn a_flop_counts_a_face_down_card_as_nothing_until_the_rows_turn_over() {
         let mut deck = vec![card(1); 17];
         deck.push(flop(3)); // drawn first
         let mut duel = Duel::new(deck, 40, 5, enemy(999, 3)).with_opposing(vec![
-            (card(9), false),
-            (card(2), true),
-            (card(2), true),
+            (card(9), true),
+            (card(2), false),
+            (card(2), false),
         ]);
 
         duel.place(0, None).unwrap();
-        assert_eq!(duel.hand(), 3, "nothing it can see across, so its own 3");
+        assert_eq!(
+            duel.hand(),
+            9,
+            "the 9 across, and nothing it can see beside it"
+        );
 
         duel.confirm();
-        assert_eq!(duel.hand(), 9, "turned over, the 9 was across");
+        assert_eq!(duel.hand(), 9 + 2, "turned over, a 2 was beside it");
+    }
+
+    #[test]
+    fn a_flop_in_the_draw_says_what_it_would_take_in_the_next_slot() {
+        let mut deck = vec![card(1); 16];
+        deck.extend([flop(3), card(4)]); // the 4 drawn first, then the Flop
+        let mut duel = Duel::new(deck, 40, 2, enemy(999, 3)).with_opposing(vec![
+            (card(9), true),
+            (card(5), true),
+            (card(2), false),
+        ]);
+
+        assert_eq!(
+            duel.flop_next(),
+            Some(9 + 5),
+            "slot 0: the 9, and the 5 beside it"
+        );
+
+        duel.place(0, None).unwrap(); // the 4, in slot 0
+        assert_eq!(
+            duel.flop_next(),
+            Some(9 + 5),
+            "slot 1: the face-down 2 is nothing yet"
+        );
+
+        duel.place(0, None).unwrap(); // the Flop: both Plays used
+        assert_eq!(duel.flop_next(), None, "no slot left for it");
     }
 
     #[test]
@@ -1490,12 +1542,14 @@ mod reveal_tests {
     #[test]
     fn a_face_up_flop_reads_your_own_card_so_it_hides_nothing() {
         let mut duel = facing(vec![flop(2), card(3)], &[]);
-        assert_eq!(duel.showing(), (2 + 3, 0), "nothing across it yet");
+        assert_eq!(duel.showing(), (3, 0), "nothing across it yet");
 
         duel.place(0, None).unwrap(); // a 4 in slot 0
-
         assert_eq!(duel.showing(), (4 + 3, 0));
-        assert_eq!(duel.house_edge(), 7);
+
+        duel.place(0, None).unwrap(); // another beside it
+        assert_eq!(duel.showing(), (4 + 4 + 3, 0));
+        assert_eq!(duel.house_edge(), 11);
     }
 
     #[test]

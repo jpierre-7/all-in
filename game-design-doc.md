@@ -49,7 +49,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | **Streak** | Tell: doubles this card if the card in the slot to its left has any Tell. |
 | **All In** | Tell: sacrifice a card from the Draw to add its Face Value to this card's. |
 | **Copycat** | Tell: worth the Face Value of the card in the slot to its right; its own if nothing follows. |
-| **Flop** | Tell: worth the Face Value of the Opposing Card across from it; its own if nothing is across. |
+| **Flop** | Tell: worth the Face Values of the Opposing Card across from it and that card's two neighbours; never its own. |
 | **Rising Blinds** | Difficulty escalates as combat goes on: the enemy lays one more Opposing Card every 5 turns. Past your Plays you can't cover them all. |
 | **Plays** | Limited number of cards you may put in your row per turn (Draw of 7, up to 5 placed by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final. Cleared House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Fell short: Push to have the Whiff forgiven, or lose and it doubles. Coin is 45/55 in the House's favor. |
@@ -74,7 +74,7 @@ Before each encounter, the player chooses to:
 2. **The enemy goes first.** It lays down its Opposing Cards — 3 or 4 to start, depending on the enemy, and one more per Rising Blinds tick. The first is face up; each of the rest is face down on a roll the enemy's own odds set. Enemies play Tells too, at their own configured rate.
 3. Player covers the row: click a card in the Draw to put it in the next empty slot, click a card already in the row to take it (and anything it burned) back out. Up to 5 cards (or the limit set by perks). Nothing resolves yet — a row is worth nothing until it is finished.
 4. Player **confirms**. Both rows turn over.
-5. Each row resolves left to right. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop straight across. All of them read *Face Values*, so neither row depends on the other resolving first.
+5. Each row resolves left to right. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop across and to either side. All of them read *Face Values*, so neither row depends on the other resolving first.
 6. Items that modify The Hand apply (Loaded Dice: +5). The Hand and House Edge are now final.
 7. **Push Your Luck**: the player sees the House Edge and chooses **Push** or **Hold**, whether The Hand cleared it or fell short (PYL on a Whiff, #96).
    - Hold → step 8 as normal.
@@ -136,7 +136,7 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 - **Streak** — reads the slot to its left
 - **All In** — reads no slot; burns from the Draw
 - **Copycat** — reads the slot to its right
-- **Flop** — reads the Opposing Card across from it
+- **Flop** — reads the Opposing Card across from it and that card's neighbours
 
 **Stretch Tells (cut if behind schedule):** Echo, Brittle, Copycat (built, #110), Flop (built, #88), [others TBD]
 

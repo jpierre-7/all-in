@@ -72,7 +72,7 @@ const GLOSSARY: &[(&str, &str)] = &[
     ),
     (
         "Flop",
-        "Tell: worth the Face Value of the Opposing Card across from it. Its own if nothing is across.",
+        "Tell: worth the Opposing Card across from it plus the cards either side of that. Never its own.",
     ),
     (
         "Push Your Luck",

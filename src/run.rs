@@ -14,7 +14,7 @@ use bevy::prelude::*;
 ///
 /// Every Tell reads the row by position, not by the order the cards were
 /// picked up: Streak looks one slot to its left, Copycat one slot to its
-/// right, Flop straight across at the Opposing Card. All of them read
+/// right, Flop across at the Opposing Card and its neighbours. All of them read
 /// Face Values, so no Tell ever depends on another Tell resolving first
 /// and the two rows can be worked out in either order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,8 +26,8 @@ pub enum Tell {
     /// Takes the Face Value of the card in the slot to its right, and none
     /// of its Tell; its own if it is the last card in the row.
     Copycat,
-    /// Takes the Face Value of the Opposing Card across from it; its own
-    /// if there is nothing across.
+    /// Takes the Face Values of the Opposing Card across from it and that
+    /// card's two neighbours, never its own.
     Flop,
 }
 
@@ -63,9 +63,7 @@ impl Tell {
                 "Face Value",
                 "of the",
                 "Opposing Card",
-                "across from it, and none of its",
-                "Tell",
-                ". Its own if nothing is across.",
+                "across from it and of the cards either side of that. Never its own.",
             ],
         }
     }
@@ -577,8 +575,8 @@ fn random_cards(seed: u64) -> Vec<Card> {
         // Each Tell keeps the range the starter deck gives it: Streak 3..=6,
         // All In 2..=5. Copycat prints 2..=5 too (#110): the print only
         // counts when no card follows, so a low one pushes it into the
-        // sequence rather than the last slot. Flop prints low for the same
-        // reason — its print only counts opposite an empty slot (#88).
+        // sequence rather than the last slot. Flop's print never counts for
+        // itself, only for a Copycat or an enemy Flop reading it (#113).
         let (tell, face_value) = match roll(4) {
             0 => (Tell::Streak, 3 + roll(4) as u32),
             1 => (Tell::AllIn, 2 + roll(4) as u32),
