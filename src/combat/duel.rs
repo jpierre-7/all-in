@@ -6,7 +6,9 @@
 //! rows turn over, each resolves its Tells by position, and the side that
 //! comes up short loses the difference off its own Chips.
 
-use crate::run::{Card, CombatOutcome, Enemy, HoleCard, LOADED_DICE_BONUS, Perk, Tell, xorshift64};
+use crate::run::{
+    Card, CombatOutcome, Enemy, HoleCard, LOADED_DICE_BONUS, Perk, RunState, Tell, xorshift64,
+};
 
 pub const DRAW_SIZE: usize = 7;
 
@@ -265,6 +267,27 @@ impl Duel {
         duel.refill();
         duel.deal_opposing();
         duel
+    }
+
+    /// A duel against `enemy` with everything the run has picked up: the
+    /// deck the rewards built, shuffled off `seed`; the Plays and Blinds the
+    /// perks bought; the coin Slotz rigged; whatever is left of the Loaded
+    /// Dice. The game and the balance sim both start here, so the sim plays
+    /// the duel the player does.
+    ///
+    /// The Hole Card rule rides in on the enemy itself (#5), so there is
+    /// nothing to switch on here: The House is the only one carrying one.
+    pub fn for_run(run: &RunState, mut enemy: Enemy, seed: u64) -> Self {
+        enemy.blinds = run.blinds(enemy.blinds);
+        Duel::new(
+            shuffled(run.deck.clone(), seed),
+            run.chips,
+            run.plays(),
+            enemy,
+        )
+        .with_seed(seed.rotate_left(17))
+        .with_coin(Coin::for_perks(&run.perks))
+        .with_loaded_dice(run.loaded_dice())
     }
 
     /// Seeds the reshuffle of the discard pile and the enemy's deal. The
@@ -771,6 +794,15 @@ impl Duel {
     fn next_rng(&mut self) -> u64 {
         xorshift64(&mut self.rng)
     }
+}
+
+/// Fisher-Yates, same as the duel's own reshuffle.
+fn shuffled(mut deck: Vec<Card>, mut rng: u64) -> Vec<Card> {
+    for i in (1..deck.len()).rev() {
+        let j = (xorshift64(&mut rng) % (i as u64 + 1)) as usize;
+        deck.swap(i, j);
+    }
+    deck
 }
 
 /// What a resolved row is worth.

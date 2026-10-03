@@ -60,8 +60,9 @@ pub fn win_line(id: EncounterId) -> &'static str {
     }
 }
 
-/// Every encounter in a run, in order. The whole progression is this list.
-const RUN: [EncounterId; 5] = [
+/// Every encounter in a run, in order. The whole progression is this list;
+/// the balance sim (`tools/sim`) walks it too.
+pub const RUN: [EncounterId; 5] = [
     EncounterId::FloorMinion,
     EncounterId::Slotz,
     EncounterId::PitMinion,

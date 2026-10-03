@@ -3,6 +3,10 @@ name = "all-in"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+# The balance sim (#94): plays the real Duel headless. `cargo run --release -p sim`.
+members = ["tools/sim"]
+
 [dependencies]
 bevy = "0.19.1"
 
