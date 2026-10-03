@@ -96,6 +96,9 @@ Tell: takes the Face Value of the card in the slot to its right, and none of its
 **Flop**:
 Tell: takes the Face Value of the Opposing Card across from it, and none of its Tell; its own if nothing is across. Ties its own slot exactly, which makes it worth whatever the enemy kept hidden there.
 
+**Bluff**:
+Tell: at Confirm, after the rows turn over and before The Hand meets House Edge, its Face Value is set against the Opposing Card across from it and the lower side loses the difference off its Chips, while the card still adds its own Face Value to The Hand.
+
 **Boss Tell**:
 The Tell a boss's deck is built around. Nobody else has it until that boss is beaten in the run; from then on it can turn up in minions' decks, Packs, and the Cage. Locked again on Fold or death.
 _Avoid_: signature card, unlock

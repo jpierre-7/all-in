@@ -12,7 +12,7 @@ use std::path::Path;
 use bevy::prelude::*;
 
 use super::duel::{
-    Coin, Duel, Opposing, Outcome, Phase, Placed, Played, Push, Showdown, TurnResult,
+    Coin, Duel, Opposing, Outcome, Phase, Placed, Played, Push, Showdown, Side, TurnResult,
 };
 use super::plugin::ActiveDuel;
 use crate::run::{Card, EncounterId, LOADED_DICE_BONUS, Tell};
@@ -76,6 +76,7 @@ pub struct Art {
     pub all_in: Option<Handle<Image>>,
     pub copycat: Option<Handle<Image>>,
     pub flop: Option<Handle<Image>>,
+    pub bluff: Option<Handle<Image>>,
     pub backdrop: Option<Handle<Image>>,
     pub slotz: Option<Handle<Image>>,
     pub pit_boss: Option<Handle<Image>>,
@@ -110,6 +111,7 @@ impl Art {
             Tell::AllIn => self.all_in.as_ref(),
             Tell::Copycat => self.copycat.as_ref(),
             Tell::Flop => self.flop.as_ref(),
+            Tell::Bluff => self.bluff.as_ref(),
         }
     }
 }
@@ -164,6 +166,7 @@ pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
         all_in: load("tells/all_in.png"),
         copycat: load("tells/copycat.png"),
         flop: load("tells/flop.png"),
+        bluff: load("tells/bluff.png"),
         backdrop: load("backdrops/combat.png"),
         slotz: load("portraits/slotz.png"),
         pit_boss: load("portraits/pit_boss.png"),
@@ -326,12 +329,24 @@ pub fn redraw(
                     text(mid, format!("Lose and the Whiff doubles to {lost}, out of your own Chips."), 18.0, NEON);
                 }
                 text(mid, coin_line(duel.coin()), 18.0, DIM);
+                if let Some(line) = duel.showdown().and_then(bluff_line) {
+                    text(mid, line, 18.0, NEON);
+                }
             }
             if let Some(turn) = &active.last_turn {
-                text(mid, turn_line(turn), 18.0, INK);
+                // A tie can't end a duel, so a duel that ended on nothing paid
+                // was ended by a Bluff before The Hand met the House Edge.
+                if duel.outcome().is_some() && turn.kind == Outcome::Payout(0) {
+                    text(mid, "The Bluff ended it before The Hand was paid.", 18.0, INK);
+                } else {
+                    text(mid, turn_line(turn), 18.0, INK);
+                }
                 // Both rows are off the table by the time this is read, so
                 // the line has to carry what they came to, slot by slot.
                 if let Some(showdown) = duel.last_showdown() {
+                    if let Some(line) = bluff_line(showdown) {
+                        text(mid, line, 16.0, NEON);
+                    }
                     text(mid, showdown_line(showdown), 15.0, DIM);
                 }
                 if turn.blinds_rose {
@@ -659,6 +674,26 @@ fn showdown_line(showdown: &Showdown) -> String {
         side(&showdown.row),
         side(&showdown.opposing)
     )
+}
+
+/// What the Bluffs did as the rows turned over. `None` when none went off.
+fn bluff_line(showdown: &Showdown) -> Option<String> {
+    let lost = |side: Side| -> u32 {
+        showdown
+            .bluffs
+            .iter()
+            .filter(|hit| hit.loser == side)
+            .map(|hit| hit.amount)
+            .sum()
+    };
+    match (lost(Side::Player), lost(Side::Enemy)) {
+        (0, 0) => None,
+        (0, theirs) => Some(format!("Your Bluff takes {theirs} off their Chips.")),
+        (yours, 0) => Some(format!("Your Bluff is called: {yours} off your Chips.")),
+        (yours, theirs) => Some(format!(
+            "Your Bluffs: {theirs} off their Chips, {yours} off yours."
+        )),
+    }
 }
 
 /// What the Blinds just did, which is not the same thing for The House.

@@ -16,6 +16,7 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `tells/streak.png` | 128×128 | 28×28 node | `ui.rs` — `Art::streak` |
 | `tells/all_in.png` | 128×128 | 28×28 node | `ui.rs` — `Art::all_in` |
 | `tells/copycat.png` | 128×128 | 28×28 node | `ui.rs` — `Art::copycat` |
+| `tells/bluff.png` | 128×128 | 28×28 node | `ui.rs` — `Art::bluff` |
 | `backdrops/combat.png` | 1920×1080 | full screen | `ui.rs` — `Art::backdrop` |
 | `backdrops/lobby.png` | 1920×1080 | every prose screen | `screens.rs` — `OverworldArt::lobby` |
 | `backdrops/title.png` | 1920×1080 | the title screen | `screens.rs` — `OverworldArt::title` — **not drawn yet** |

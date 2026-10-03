@@ -14,8 +14,8 @@ use bevy::prelude::*;
 ///
 /// Every Tell reads the row by position, not by the order the cards were
 /// picked up: Streak looks one slot to its left, Copycat one slot to its
-/// right, Flop straight across at the Opposing Card. All of them read
-/// Face Values, so no Tell ever depends on another Tell resolving first
+/// right, Flop and Bluff straight across at the Opposing Card. All of them
+/// read Face Values, so no Tell ever depends on another Tell resolving first
 /// and the two rows can be worked out in either order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tell {
@@ -29,6 +29,10 @@ pub enum Tell {
     /// Takes the Face Value of the Opposing Card across from it; its own
     /// if there is nothing across.
     Flop,
+    /// At Confirm, compares its Face Value with the Opposing Card across from
+    /// it; the lower side loses the difference off its Chips. Adds its own
+    /// Face Value to The Hand either way. Player only, for now.
+    Bluff,
 }
 
 impl Tell {
@@ -67,6 +71,17 @@ impl Tell {
                 "Tell",
                 ". Its own if nothing is across.",
             ],
+            Tell::Bluff => vec![
+                "At",
+                "Confirm",
+                ", compare its",
+                "Face Value",
+                "with the",
+                "Opposing Card",
+                "across from it. The lower side loses the difference off its",
+                "Chips",
+                ".",
+            ],
         }
     }
 
@@ -76,6 +91,7 @@ impl Tell {
             Tell::AllIn => "All In",
             Tell::Copycat => "Copycat",
             Tell::Flop => "Flop",
+            Tell::Bluff => "Bluff",
         }
     }
 }
@@ -543,7 +559,7 @@ fn streak_reward_cards() -> Vec<Card> {
 }
 
 /// Pit Boss Option 2 (#12): four cards off the Pit's own table, two with a
-/// random Tell (Streak, All In, Copycat, or Flop) and two plain. Face Values stay
+/// random Tell (Streak, All In, Copycat, Flop, or Bluff) and two plain. Face Values stay
 /// inside the starter deck's ranges so the pack thickens the deck without
 /// rewriting its maths.
 fn random_cards(seed: u64) -> Vec<Card> {
@@ -579,11 +595,15 @@ fn random_cards(seed: u64) -> Vec<Card> {
         // counts when no card follows, so a low one pushes it into the
         // sequence rather than the last slot. Flop prints low for the same
         // reason — its print only counts opposite an empty slot (#88).
-        let (tell, face_value) = match roll(4) {
+        // Bluff prints 4..=7 (#112): its print is the whole of it, in The
+        // Hand and in the gap it opens across the table, and anything lower
+        // loses to most of what the enemies deal.
+        let (tell, face_value) = match roll(5) {
             0 => (Tell::Streak, 3 + roll(4) as u32),
             1 => (Tell::AllIn, 2 + roll(4) as u32),
             2 => (Tell::Copycat, 2 + roll(4) as u32),
-            _ => (Tell::Flop, 2 + roll(4) as u32),
+            3 => (Tell::Flop, 2 + roll(4) as u32),
+            _ => (Tell::Bluff, 4 + roll(4) as u32),
         };
         cards.push(Card {
             name,
@@ -801,6 +821,30 @@ mod tests {
 
         let names: std::collections::HashSet<_> = added.iter().map(|c| c.name).collect();
         assert_eq!(names.len(), 4, "no pack deals the same card twice");
+    }
+
+    #[test]
+    fn the_pit_boss_pack_can_deal_a_bluff_and_no_enemy_deals_one() {
+        let bluffs: Vec<u32> = (1..200u64)
+            .flat_map(|seed| random_cards(seed * 2 + 1))
+            .filter(|c| c.tell == Some(Tell::Bluff))
+            .map(|c| c.face_value)
+            .collect();
+        assert!(!bluffs.is_empty(), "the pack deals Bluff");
+        assert!(bluffs.iter().all(|v| (4..=7).contains(v)));
+
+        let ids = [
+            EncounterId::FloorMinion,
+            EncounterId::Slotz,
+            EncounterId::PitMinion,
+            EncounterId::PitBoss,
+            EncounterId::TheHouse,
+            EncounterId::Tutorial,
+        ];
+        for id in ids {
+            let deal = Enemy::for_encounter(id).deal;
+            assert!(!deal.tells.contains(&Tell::Bluff), "{id:?} deals a Bluff");
+        }
     }
 
     #[test]
