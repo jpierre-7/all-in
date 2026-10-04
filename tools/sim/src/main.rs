@@ -13,7 +13,7 @@ use std::thread;
 use all_in::combat::duel::{Duel, Phase};
 use all_in::overworld::progression::RUN;
 use all_in::run::{
-    Card, CombatOutcome, Encounter, Floor, Reward, RewardOffer, RunState, Tell, xorshift64,
+    Card, CombatOutcome, Encounter, Floor, Pack, Reward, RewardOffer, RunState, Tell, xorshift64,
 };
 
 /// A duel still going after this many turns is a stall, counted as a loss.
@@ -298,6 +298,25 @@ fn choose(offer: RewardOffer, pick: Pick, rng: &mut u64) -> Reward {
     }
 }
 
+/// Which cards of a Pack the player keeps. The naive player keeps any of
+/// them; the smart one keeps the highest Face Values, a Tell breaking a tie.
+fn keep(pack: &Pack, player: Player, rng: &mut u64) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..pack.cards.len()).collect();
+    match player {
+        Player::Naive => {
+            for i in (1..order.len()).rev() {
+                order.swap(i, (xorshift64(rng) % (i as u64 + 1)) as usize);
+            }
+        }
+        Player::Smart => order.sort_by_key(|&i| {
+            let card = &pack.cards[i];
+            std::cmp::Reverse((card.face_value, card.tell.is_some()))
+        }),
+    }
+    order.truncate(pack.keep);
+    order
+}
+
 fn play_run(player: Player, pick: Pick, mut rng: u64, stats: &mut Stats) {
     stats.runs += 1;
     let mut run = RunState::new();
@@ -315,6 +334,14 @@ fn play_run(player: Player, pick: Pick, mut rng: u64, stats: &mut Stats) {
             run.beat(boss);
         }
         if let Some(offer) = encounter.reward_offer() {
+            // A boss opens its Pack before the Perk pick, as in the game.
+            if let Some(pack) = encounter.boss_pack(&run, xorshift64(&mut rng)) {
+                let picks = keep(&pack, player, &mut rng);
+                assert!(
+                    run.keep(&pack, &picks),
+                    "the sim keeps what the Pack allows"
+                );
+            }
             let reward = choose(offer, pick, &mut rng);
             run.apply(reward, xorshift64(&mut rng));
         }

@@ -113,8 +113,8 @@ impl PartialEq for Perk {
     }
 }
 
-/// A boss reward that adds cards to the deck. Today's card-giving rewards,
-/// until the Boss Pack replaces them.
+/// A boss reward that adds cards to the deck. Today's card-giving Perks,
+/// until the boss proposals (#146) replace them.
 #[derive(Debug)]
 pub struct CardReward {
     pub label: &'static str,
@@ -170,6 +170,55 @@ pub enum RewardOffer {
     Pick(Reward, Reward),
 }
 
+/// A sealed set of cards: the player keeps `keep` of them and the rest are
+/// gone. After a boss it is the Boss Pack, opened before the Perk pick.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pack {
+    pub cards: Vec<Card>,
+    pub keep: usize,
+}
+
+/// The Boss Pack: seven cards, keep two.
+pub const BOSS_PACK_SIZE: usize = 7;
+pub const BOSS_PACK_KEEP: usize = 2;
+
+/// The Face Values Pack cards are dealt in, and how often one that isn't a
+/// guaranteed Boss Tell carries a Tell. The starter deck's ranges: 2..=8
+/// plain, and 2..=5 for a Boss Tell, which Copycat and Flop both print at
+/// (#110, #113). Untuned: the balance sim sets these.
+const PACK_FACES: std::ops::RangeInclusive<u32> = 2..=8;
+const PACK_TELL_FACES: std::ops::RangeInclusive<u32> = 2..=5;
+const PACK_TELL_PCT: u32 = 40;
+
+impl Pack {
+    /// What beating `boss` deals: `pack_tells` cards carrying its Boss Tell,
+    /// and the rest regular cards off the run's pool, which by now holds
+    /// that Tell too.
+    pub fn boss(boss: &'static Boss, run: &RunState, seed: u64) -> Self {
+        let mut pool = run.tell_pool();
+        if !pool.contains(&boss.tell) {
+            pool.push(boss.tell);
+        }
+        let tells = usize::from(boss.pack_tells).min(BOSS_PACK_SIZE);
+        let mut rng = seed | 1;
+        let mut cards: Vec<Card> = (0..tells)
+            .map(|_| deal_card(PACK_TELL_FACES, 100, &[boss.tell], &mut rng))
+            .collect();
+        cards.extend(
+            (tells..BOSS_PACK_SIZE).map(|_| deal_card(PACK_FACES, PACK_TELL_PCT, &pool, &mut rng)),
+        );
+        // Shuffled, so the Boss Tells aren't always the first keys.
+        for i in (1..cards.len()).rev() {
+            let j = (xorshift64(&mut rng) % (i as u64 + 1)) as usize;
+            cards.swap(i, j);
+        }
+        Pack {
+            cards,
+            keep: BOSS_PACK_KEEP,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Run state
 // ---------------------------------------------------------------------------
@@ -215,6 +264,24 @@ impl RunState {
             Reward::Perk(perk) => self.take_perk(perk),
             Reward::Cards(cards) => self.deck.extend((cards.cards)(seed)),
         }
+    }
+
+    /// Keep the cards of `pack` at `picks` and let the rest go. Takes
+    /// exactly as many as the Pack allows, each once, or nothing at all.
+    pub fn keep(&mut self, pack: &Pack, picks: &[usize]) -> bool {
+        let mut seen = Vec::with_capacity(picks.len());
+        for &i in picks {
+            if i >= pack.cards.len() || seen.contains(&i) {
+                return false;
+            }
+            seen.push(i);
+        }
+        if picks.len() != pack.keep.min(pack.cards.len()) {
+            return false;
+        }
+        self.deck
+            .extend(picks.iter().map(|&i| pack.cards[i].clone()));
+        true
     }
 
     /// Record a boss beaten, which unlocks its Boss Tell for the rest of the run.
@@ -357,6 +424,16 @@ impl Encounter {
         }
     }
 
+    /// The Boss Pack beating it deals, opened before its Perk pick. `None`
+    /// for a minion and the Arcade. The House has one, its Flop Pack, but
+    /// its win goes to the ending, so nothing opens it yet.
+    pub fn boss_pack(self, run: &RunState, seed: u64) -> Option<Pack> {
+        match self {
+            Self::Boss { boss, .. } => Some(Pack::boss(boss, run, seed)),
+            Self::Minion { .. } | Self::Practice => None,
+        }
+    }
+
     /// What beating it pays. `None` for The House, which pays in an ending,
     /// and for the Arcade.
     pub fn reward_offer(self) -> Option<RewardOffer> {
@@ -399,7 +476,7 @@ const HOUSE_CARDS: [&str; 10] = [
 /// uniformly from `pool` `tell_pct` times in 100. Rolls the Face Value, then
 /// whether it carries a Tell, then which, always in that order, so a change
 /// to the pool doesn't re-deal the Face Values of a pinned seed. Minion decks
-/// are dealt with it, and Packs will be.
+/// and Packs are dealt with it.
 pub fn deal_card(
     faces: std::ops::RangeInclusive<u32>,
     tell_pct: u32,
@@ -479,8 +556,8 @@ pub enum CombatOutcome {
 pub const STARTING_CHIPS: u32 = 50;
 
 /// The one xorshift64 the whole game rolls on: the duel's reshuffle, the
-/// deal into the Draw, the Push Your Luck coin, minion decks, and the Pit Boss
-/// card pack.
+/// deal into the Draw, the Push Your Luck coin, minion decks, Packs, and the
+/// Pit Boss's card Perk.
 /// Not cryptography - it is a card game, and one stream is easier to reason
 /// about than three.
 pub fn xorshift64(state: &mut u64) -> u64 {
@@ -788,6 +865,102 @@ mod tests {
         // The House pays out in an ending, not a perk, and the Arcade in nothing.
         assert_eq!(boss(&THE_HOUSE).reward_offer(), None);
         assert_eq!(Encounter::Practice.reward_offer(), None);
+    }
+
+    fn slotz_pack(run: &RunState, seed: u64) -> Pack {
+        Encounter::Boss {
+            boss: &SLOTZ,
+            floor: Floor::TheFloor,
+        }
+        .boss_pack(run, seed)
+        .expect("a boss deals a Boss Pack")
+    }
+
+    #[test]
+    fn a_boss_pack_is_seven_cards_keep_two() {
+        let pack = slotz_pack(&RunState::new(), SEED);
+
+        assert_eq!(pack.cards.len(), 7);
+        assert_eq!(pack.keep, 2);
+    }
+
+    #[test]
+    fn a_boss_pack_carries_at_least_its_share_of_the_boss_tell() {
+        for seed in 1..200 {
+            let pack = slotz_pack(&RunState::new(), seed);
+            let copycats = pack
+                .cards
+                .iter()
+                .filter(|c| c.tell == Some(Tell::Copycat))
+                .count();
+            assert!(copycats >= usize::from(SLOTZ.pack_tells), "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn the_rest_of_a_boss_pack_comes_off_the_runs_pool() {
+        let mut run = RunState::new();
+        run.beat(&SLOTZ);
+
+        let dealt: Vec<Card> = (1..200)
+            .flat_map(|seed| slotz_pack(&run, seed).cards)
+            .collect();
+
+        assert!(dealt.iter().any(|c| c.tell.is_none()), "some regular cards");
+        assert!(dealt.iter().any(|c| c.tell == Some(Tell::Streak)));
+        assert!(
+            dealt.iter().all(|c| c.tell != Some(Tell::Flop)),
+            "The House isn't beaten, so its Boss Tell stays locked"
+        );
+        assert!(dealt.iter().all(|c| (2..=8).contains(&c.face_value)));
+    }
+
+    #[test]
+    fn a_boss_pack_is_dealt_off_its_seed() {
+        let run = RunState::new();
+
+        assert_eq!(slotz_pack(&run, SEED), slotz_pack(&run, SEED));
+        assert_ne!(slotz_pack(&run, SEED), slotz_pack(&run, SEED ^ 0xffff));
+    }
+
+    #[test]
+    fn only_a_boss_deals_a_boss_pack() {
+        let run = RunState::new();
+
+        assert_eq!(
+            Encounter::Minion {
+                floor: Floor::TheFloor
+            }
+            .boss_pack(&run, SEED),
+            None
+        );
+        assert_eq!(Encounter::Practice.boss_pack(&run, SEED), None);
+    }
+
+    #[test]
+    fn keeping_two_adds_those_two_and_lets_the_rest_go() {
+        let mut run = RunState::new();
+        let pack = slotz_pack(&run, SEED);
+        let before = run.deck.len();
+
+        assert!(run.keep(&pack, &[4, 1]));
+
+        assert_eq!(
+            run.deck[before..],
+            [pack.cards[4].clone(), pack.cards[1].clone()]
+        );
+    }
+
+    #[test]
+    fn a_pack_takes_exactly_its_keep_each_card_once_or_nothing() {
+        let mut run = RunState::new();
+        let pack = slotz_pack(&run, SEED);
+        let deck = run.deck.clone();
+
+        for picks in [&[][..], &[0], &[0, 1, 2], &[3, 3], &[0, 7]] {
+            assert!(!run.keep(&pack, picks), "{picks:?}");
+        }
+        assert_eq!(run.deck, deck);
     }
 
     #[test]

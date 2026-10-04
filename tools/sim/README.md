@@ -32,8 +32,10 @@ the floor's Blind, the Perks and Loaded Dice come from the `RunState` exactly
 as they would in play, and the enemy commits its row the way it does in play.
 Between encounters the run takes its reward through `Encounter::reward_offer`
 and `RunState::apply`, and a beaten boss unlocks its Boss Tell. A minion's
-drop is automatic, and `--pick` decides which side of a boss's 1-of-2 the
-player takes (the first is the perk: Slotz's coin, the Pit Boss's +1 Blind).
+drop is automatic. A boss opens its Boss Pack first (`Encounter::boss_pack`,
+`RunState::keep`): naive keeps two at random, smart the two highest Face
+Values. Then `--pick` decides which side of the boss's 1-of-2 the player
+takes (the first is the perk: Slotz's coin, the Pit Boss's +1 Blind).
 
 Two players, after the starter-deck prototype:
 
