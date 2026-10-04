@@ -28,11 +28,12 @@ against the baseline is the change you made and nothing else.
 A run is `overworld::progression::RUN`, the five encounters the game walks:
 the Floor minion, Slotz, the Pit minion, the Pit Boss, The House. Each duel
 starts at `Duel::for_run`, the same function the game calls, so the deck,
-Plays, Blinds, coin and Loaded Dice come from the `RunState` exactly as they
-would in play. Between encounters the run takes its reward through
-`RewardOffer::for_encounter` and `RunState::apply`. A minion's drop is
-automatic, and `--pick` decides which side of a boss's 1-of-2 the player takes
-(the first is the perk: Slotz's coin, the Pit Boss's sixth Play).
+the floor's Blind, the Perks and Loaded Dice come from the `RunState` exactly
+as they would in play, and the enemy commits its row the way it does in play.
+Between encounters the run takes its reward through `Encounter::reward_offer`
+and `RunState::apply`, and a beaten boss unlocks its Boss Tell. A minion's
+drop is automatic, and `--pick` decides which side of a boss's 1-of-2 the
+player takes (the first is the perk: Slotz's coin, the Pit Boss's +1 Blind).
 
 Two players, after the starter-deck prototype:
 

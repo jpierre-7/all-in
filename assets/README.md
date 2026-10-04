@@ -109,9 +109,8 @@ so they have to hold up down to ~90px — check any redraw at that size. The
 node is square and the image is stretched to fill it, so a non-square source
 will distort; keep new files at 256×256.
 
-Only the three bosses have one. `Art::portrait` maps `EncounterId::Slotz`,
-`PitBoss` and `TheHouse` to their handles and `FloorMinion` and `PitMinion` to
-`None` — the same state a missing file gets, which is why a minion's row is
+Only the bosses have one. Each boss names its portrait's path in its own file
+under `src/boss/`, and `Art::portrait` maps a minion to `None` — the same state a missing file gets, which is why a minion's row is
 just a name and a Stack.
 
 ## Fonts

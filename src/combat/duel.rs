@@ -1,20 +1,26 @@
 //! The pure combat model: one duel, no Bevy. Vocabulary follows `CONTEXT.md`.
 //!
-//! A turn is two rows facing each other. The enemy lays its Opposing Cards
-//! down first, some face up and some face down; the player fills the row
-//! across from them out of the Draw, one card per slot, and confirms. Both
-//! rows turn over, each resolves its Tells by position, and the side that
-//! comes up short loses the difference off its own Chips.
+//! Both sides play the same turn (ADR-0003). Each draws up to 7 from its own
+//! Deck; the enemy commits up to its Blind face down, by its strategy; the
+//! player fills the row across from it out of the Draw, up to their own
+//! Blind, and confirms. Both rows turn over, each resolves its Tells by slot,
+//! and the side that comes up short loses the difference off its own Chips.
+//!
+//! Anything that bends the duel (a boss's Table Rule, a Perk) does it through
+//! the hooks in [`crate::modifier`].
 
+use std::fmt;
+
+use crate::modifier::{Modifier, Rows, Side};
 use crate::run::{
-    Card, CombatOutcome, Enemy, HoleCard, LOADED_DICE_BONUS, Perk, RunState, Tell, xorshift64,
+    Card, CombatOutcome, Encounter, Enemy, LOADED_DICE_BONUS, RunState, Tell, xorshift64,
 };
 
 pub const DRAW_SIZE: usize = 7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayError {
-    /// Every slot the player can cover is already covered.
+    /// The player's row already holds their Blind.
     RowIsFull,
     NoSuchCard,
     /// An All In card was played without naming a card to sacrifice.
@@ -40,8 +46,8 @@ pub enum Push {
     Lost,
 }
 
-/// The Push Your Luck coin. House-favoured by default, so Slotz Option 1 is
-/// worth taking.
+/// The Push Your Luck coin. House-favoured by default, so a Perk that
+/// bends it is worth taking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Coin {
     /// The player's chance of taking one flip, in percent.
@@ -56,19 +62,6 @@ impl Coin {
         player_pct: 45,
         best_of: 1,
     };
-    /// Slotz Option 1: best 2-of-3 at 49/51, which is 3p2 - 2p3 =~ 48.5%.
-    pub const SLOTZ: Coin = Coin {
-        player_pct: 49,
-        best_of: 3,
-    };
-
-    pub fn for_perks(perks: &[Perk]) -> Coin {
-        if perks.contains(&Perk::PylBestTwoOfThree) {
-            Coin::SLOTZ
-        } else {
-            Coin::BASE
-        }
-    }
 
     /// `rolls` yields flips; the player takes one when `roll % 100` is under
     /// `player_pct`. Stops as soon as one side has the majority, so a decided
@@ -109,8 +102,6 @@ pub struct TurnResult {
     pub kind: Outcome,
     /// The flip, if the player Pushed. `None` means Hold, or no prompt.
     pub pyl: Option<Push>,
-    /// Whether Rising Blinds ticked at the end of this turn.
-    pub blinds_rose: bool,
 }
 
 /// A card in a row and what it resolved to.
@@ -121,9 +112,9 @@ pub struct Played {
     pub value: u32,
 }
 
-/// A card the player has put in the row, with whatever it burned to get there.
-/// The burned card only reaches the discard when the turn resolves, so lifting
-/// the All In back out of the row hands its sacrifice back too.
+/// A card put in a row, with whatever it burned to get there. The burned
+/// card only reaches the discard when the turn resolves, so lifting the All
+/// In back out of the row hands its sacrifice back too.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Placed {
     pub card: Card,
@@ -132,9 +123,8 @@ pub struct Placed {
 }
 
 impl Placed {
-    /// A card with nothing burned for it: every Opposing Card, and every
-    /// player card that isn't an All In.
-    fn plain(card: Card) -> Self {
+    /// A card with nothing burned for it: every card that isn't an All In.
+    pub fn plain(card: Card) -> Self {
         Placed {
             card,
             sacrifice: None,
@@ -142,12 +132,13 @@ impl Placed {
     }
 }
 
-/// One of the enemy's cards, and whether the player can see it yet. The first
-/// Opposing Card of a row is always face up; the rest are a coin toss at the
-/// odds the enemy's `Deal` sets.
+/// One of the enemy's cards, and whether the player can see it yet. Every
+/// one is committed face down; only a reveal, or Confirm, turns it over.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opposing {
     pub card: Card,
+    /// What an All In burned to get here.
+    pub sacrifice: Option<Card>,
     pub face_up: bool,
 }
 
@@ -163,6 +154,125 @@ pub struct Showdown {
     pub hand: u32,
     /// The House Edge: what the Opposing Cards came to.
     pub house_edge: u32,
+}
+
+/// What a Flop in the player's next slot would take, as far as the player
+/// can tell: the revealed Opposing Cards it would read, and how many it
+/// would read that are still face down. An empty slot adds nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlopPeek {
+    pub seen: u32,
+    pub hidden: usize,
+}
+
+/// `+N`, then `+ ?` for each card it can't see yet.
+impl fmt::Display for FlopPeek {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "+{}", self.seen)?;
+        for _ in 0..self.hidden {
+            write!(f, " + ?")?;
+        }
+        Ok(())
+    }
+}
+
+/// One card an enemy commits: its place in the Draw, and for an All In the
+/// place of the card it burns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pick {
+    pub card: usize,
+    pub sacrifice: Option<usize>,
+}
+
+/// The default strategy (ADR-0003): the row that resolves highest this turn.
+///
+/// It tries every ordered pick of up to `blind` cards from `draw`, every All
+/// In with every sacrifice, and keeps the best; a tie goes to the pick that
+/// comes first in Draw order. It can't see the player's row, so a Flop is
+/// scored as `player_average` (the average Face Value of the player's whole
+/// Deck) for each slot it reads that the player could fill under
+/// `player_blind`. That estimate only steers the choice: at the Showdown a
+/// Flop still reads the real cards across from it.
+pub fn greedy(draw: &[Card], blind: u8, player_average: u32, player_blind: u8) -> Vec<Pick> {
+    let imagined: Vec<Option<Card>> = (0..usize::from(player_blind))
+        .map(|_| {
+            Some(Card {
+                name: "an average card",
+                face_value: player_average,
+                tell: None,
+            })
+        })
+        .collect();
+    let mut search = Greedy {
+        draw,
+        blind: usize::from(blind),
+        imagined,
+        used: vec![false; draw.len()],
+        picks: Vec::new(),
+        row: Vec::new(),
+        best: (0, Vec::new()),
+    };
+    search.walk();
+    search.best.1
+}
+
+/// The depth-first walk behind [`greedy`], in Draw order, so the first row
+/// to reach a score is the one that keeps it.
+struct Greedy<'a> {
+    draw: &'a [Card],
+    blind: usize,
+    imagined: Vec<Option<Card>>,
+    used: Vec<bool>,
+    picks: Vec<Pick>,
+    row: Vec<Placed>,
+    best: (u32, Vec<Pick>),
+}
+
+impl Greedy<'_> {
+    fn walk(&mut self) {
+        let score = row_value(&resolve_row(&self.row, &self.imagined));
+        if score > self.best.0 {
+            self.best = (score, self.picks.clone());
+        }
+        if self.row.len() >= self.blind {
+            return;
+        }
+        for card in 0..self.draw.len() {
+            if self.used[card] {
+                continue;
+            }
+            if self.draw[card].tell == Some(Tell::AllIn) {
+                for burned in 0..self.draw.len() {
+                    if burned != card && !self.used[burned] {
+                        self.try_pick(card, Some(burned));
+                    }
+                }
+            } else {
+                self.try_pick(card, None);
+            }
+        }
+    }
+
+    fn try_pick(&mut self, card: usize, sacrifice: Option<usize>) {
+        self.used[card] = true;
+        if let Some(s) = sacrifice {
+            self.used[s] = true;
+        }
+        self.picks.push(Pick { card, sacrifice });
+        self.row.push(Placed {
+            card: self.draw[card].clone(),
+            sacrifice: sacrifice.map(|s| self.draw[s].clone()),
+        });
+
+        self.walk();
+
+        self.row.pop();
+        self.picks.pop();
+        self.used[card] = false;
+        if let Some(s) = sacrifice {
+            self.used[s] = false;
+        }
+    }
 }
 
 /// What a Flop in `slot` is worth: the Face Values of the card across from it
@@ -184,7 +294,7 @@ fn flop_value(across: &[Option<Card>], slot: usize) -> u32 {
 /// ordering to argue about: no card's value depends on another card's value, so the two rows
 /// facing each other can be worked out in either order and a Flop on each
 /// side of the table never chases the other one round in a circle.
-fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
+pub fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
     row.iter()
         .enumerate()
         .map(|(slot, placed)| {
@@ -208,18 +318,30 @@ fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
         .collect()
 }
 
-pub struct Duel {
+/// One side's cards: what it draws from, what it holds, and what it has
+/// spent. The player and the enemy each have one.
+#[derive(Debug, Clone, Default)]
+struct Pile {
+    /// Drawn off the end.
     deck: Vec<Card>,
     draw: Vec<Card>,
     discard: Vec<Card>,
-    /// The enemy's row this turn, laid down before the player builds theirs.
+}
+
+pub struct Duel {
+    player: Pile,
+    enemy_cards: Pile,
+    /// The enemy's row this turn, committed before the player builds theirs.
     opposing: Vec<Opposing>,
     /// The player's row. Slot `i` sits across from Opposing Card `i`.
     row: Vec<Placed>,
-    /// The most cards the player may put in the row.
-    plays: u8,
-    /// How many Opposing Cards the enemy lays down. Rising Blinds grow it.
-    row_size: u8,
+    /// The floor's Blind, before anything bends it.
+    blind: u8,
+    /// The Table Rule, then Perks in the order taken.
+    modifiers: Vec<&'static dyn Modifier>,
+    /// The average Face Value of the player's whole Deck, which is all the
+    /// enemy's strategy knows about the player's row.
+    player_average: u32,
     player_chips: u32,
     enemy: Enemy,
     turn: u32,
@@ -227,10 +349,8 @@ pub struct Duel {
     coin: Coin,
     /// Hands still carrying the Loaded Dice bonus, carried in from the run.
     dice_left: u8,
-    /// The House's live margin (#5). `None` for an ordinary enemy.
-    hole_card: Option<HoleCard>,
-    /// The Arcade's fixed row (#40), dealt again every turn. `None` in a real
-    /// duel, where the enemy rolls its own.
+    /// The Arcade's fixed row (#40), laid again every turn instead of one the
+    /// enemy chose. `None` in a real duel.
     fixed: Option<Vec<(Card, bool)>>,
     /// Set when the rows turn over; taken when the turn resolves.
     showdown: Option<Showdown>,
@@ -240,75 +360,91 @@ pub struct Duel {
 }
 
 impl Duel {
-    /// `deck` is taken in draw order (last element drawn first); shuffling is
-    /// the caller's job so the model stays deterministic. The enemy's first
-    /// row is dealt here and re-dealt by [`Duel::with_seed`].
-    pub fn new(deck: Vec<Card>, player_chips: u32, plays: u8, enemy: Enemy) -> Self {
+    /// `deck` and `enemy.deck` are taken in draw order (last element drawn
+    /// first); shuffling is the caller's job so the model stays
+    /// deterministic. `blind` is the floor's. The enemy's Table Rule is the
+    /// only modifier; see [`Duel::modified`] for more.
+    pub fn new(deck: Vec<Card>, player_chips: u32, blind: u8, enemy: Enemy) -> Self {
+        Duel::modified(deck, player_chips, blind, enemy, Vec::new())
+    }
+
+    /// [`Duel::new`] with `perks` applied after the enemy's Table Rule, in
+    /// the order given. The enemy commits its first row here.
+    pub fn modified(
+        deck: Vec<Card>,
+        player_chips: u32,
+        blind: u8,
+        mut enemy: Enemy,
+        perks: Vec<&'static dyn Modifier>,
+    ) -> Self {
+        let modifiers: Vec<&'static dyn Modifier> =
+            enemy.table_rule.into_iter().chain(perks).collect();
+        let coin = modifiers.iter().fold(Coin::BASE, |coin, m| m.coin(coin));
+        let player_average = average_face_value(&deck);
         let mut duel = Duel {
-            deck,
-            draw: Vec::new(),
-            discard: Vec::new(),
+            player: Pile {
+                deck,
+                ..Pile::default()
+            },
+            enemy_cards: Pile {
+                deck: std::mem::take(&mut enemy.deck),
+                ..Pile::default()
+            },
             opposing: Vec::new(),
             row: Vec::new(),
-            plays,
-            row_size: enemy.deal.row,
+            blind,
+            modifiers,
+            player_average,
             player_chips,
-            hole_card: enemy.hole_card,
             enemy,
             turn: 1,
             phase: Phase::Playing,
-            coin: Coin::BASE,
+            coin,
             dice_left: 0,
             fixed: None,
             showdown: None,
             last: None,
             rng: 0x5eed_cafe_f00d_d1ce,
         };
-        duel.refill();
-        duel.deal_opposing();
+        duel.start_turn();
         duel
     }
 
-    /// A duel against `enemy` with everything the run has picked up: the
-    /// deck the rewards built, shuffled off `seed`; the Plays and Blinds the
-    /// perks bought; the coin Slotz rigged; whatever is left of the Loaded
-    /// Dice. The game and the balance sim both start here, so the sim plays
-    /// the duel the player does.
-    ///
-    /// The Hole Card rule rides in on the enemy itself (#5), so there is
-    /// nothing to switch on here: The House is the only one carrying one.
-    pub fn for_run(run: &RunState, mut enemy: Enemy, seed: u64) -> Self {
-        enemy.blinds = run.blinds(enemy.blinds);
-        Duel::new(
+    /// A duel against `encounter` with everything the run has picked up: the
+    /// deck the rewards built and the enemy's, each shuffled off `seed`; the
+    /// floor's Blind; the Perks taken, in order; whatever is left of the
+    /// Loaded Dice. The game and the balance sim both start here, so the sim
+    /// plays the duel the player does.
+    pub fn for_run(run: &RunState, encounter: Encounter, seed: u64) -> Self {
+        let mut enemy = encounter.enemy(run, seed.rotate_left(29));
+        enemy.deck = shuffled(enemy.deck, seed.rotate_left(41));
+        Duel::modified(
             shuffled(run.deck.clone(), seed),
             run.chips,
-            run.plays(),
+            encounter.blind(),
             enemy,
+            run.perks.iter().map(|perk| perk.modifier).collect(),
         )
         .with_seed(seed.rotate_left(17))
-        .with_coin(Coin::for_perks(&run.perks))
         .with_loaded_dice(run.loaded_dice())
     }
 
-    /// Seeds the reshuffle of the discard pile and the enemy's deal. The
-    /// initial deck order is still the caller's, but the Opposing Cards are
-    /// dealt again off the real seed: they were rolled in `new` before the
-    /// caller got a chance to hand one over.
+    /// Seeds the reshuffle of either discard pile and the coin.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.rng = seed | 1;
-        self.deal_opposing();
         self
     }
 
     /// The Arcade's fixed Opposing Cards (#40): the same row, the same face
-    /// up and face down, every turn. Nothing about a practice hand is rolled.
+    /// up and face down, every turn. Nothing about a practice hand is chosen.
     pub fn with_opposing(mut self, row: Vec<(Card, bool)>) -> Self {
         self.fixed = Some(row);
-        self.deal_opposing();
+        self.take_back_opposing();
+        self.lay_opposing();
         self
     }
 
-    /// The coin Push Your Luck is flipped with; Slotz Option 1 swaps it.
+    /// The coin Push Your Luck is flipped with, whatever the modifiers said.
     pub fn with_coin(mut self, coin: Coin) -> Self {
         self.coin = coin;
         self
@@ -321,13 +457,13 @@ impl Duel {
         self
     }
 
-    /// The House's current margin; `None` for an ordinary enemy.
-    pub fn margin(&self) -> Option<u32> {
-        self.hole_card.map(|h| h.margin)
-    }
-
     pub fn coin(&self) -> Coin {
         self.coin
+    }
+
+    /// Who is across the table.
+    pub fn enemy_name(&self) -> &'static str {
+        self.enemy.name
     }
 
     /// Hands still to come with the dice on them.
@@ -337,6 +473,15 @@ impl Duel {
 
     pub fn phase(&self) -> Phase {
         self.phase
+    }
+
+    /// The most cards `side` may put in its row this turn: the floor's
+    /// Blind, bent by every modifier in order, and never below 1.
+    pub fn blind(&self, side: Side) -> u8 {
+        self.modifiers
+            .iter()
+            .fold(self.blind, |blind, m| m.blind(side, blind))
+            .max(1)
     }
 
     /// The Payout The Hand would deal right now: its excess over the House
@@ -381,7 +526,13 @@ impl Duel {
     }
 
     pub fn draw(&self) -> &[Card] {
-        &self.draw
+        &self.player.draw
+    }
+
+    /// The player's whole Deck this duel: what is left to draw, the Draw,
+    /// the row, and the discard.
+    pub fn deck_size(&self) -> usize {
+        self.player.deck.len() + self.player.draw.len() + self.player.discard.len()
     }
 
     /// The Opposing Cards this turn, left to right.
@@ -407,9 +558,9 @@ impl Duel {
         self.showdown.as_ref()
     }
 
-    /// The Hand: the player's row resolved against the Opposing Cards.
-    /// Once the rows have turned over this is the settled number, Loaded Dice
-    /// and a lost Push included.
+    /// The Hand: the player's row resolved against the Opposing Cards it can
+    /// see. Once the rows have turned over this is the settled number, Loaded
+    /// Dice and a lost Push included.
     pub fn hand(&self) -> u32 {
         match &self.showdown {
             Some(showdown) => showdown.hand,
@@ -465,25 +616,44 @@ impl Duel {
         (total, hidden)
     }
 
-    /// What a Flop would be worth if it went into the next empty slot right
-    /// now, on the Opposing Cards the player can see. `None` when the row is
+    /// What a Flop would take if it went into the next empty slot right now,
+    /// on the Opposing Cards the player can see. `None` when the row is
     /// full and it can't go in at all.
-    pub fn flop_next(&self) -> Option<u32> {
-        (self.plays_left() > 0).then(|| flop_value(&self.opposing_face_up_cards(), self.row.len()))
+    pub fn flop_next(&self) -> Option<FlopPeek> {
+        if self.plays_left() == 0 {
+            return None;
+        }
+        let slot = self.row.len();
+        let read = || (slot.saturating_sub(1)..=slot + 1).filter_map(|i| self.opposing.get(i));
+        Some(FlopPeek {
+            seen: read()
+                .filter(|o| o.face_up)
+                .map(|o| o.card.face_value)
+                .sum(),
+            hidden: read().filter(|o| !o.face_up).count(),
+        })
     }
 
-    /// How many slots there are to cover: one per Opposing Card.
+    /// How many slots the table has: as many as the larger Blind. A slot
+    /// nobody filled is worth nothing to either side.
     pub fn slots(&self) -> usize {
-        self.opposing.len()
+        usize::from(self.blind(Side::Player).max(self.blind(Side::Enemy))).max(self.opposing.len())
     }
 
-    /// How many more cards the player may put in the row. An enemy row longer
-    /// than the player's Plays can't be covered slot for slot, and whatever
-    /// is left uncovered is free chips for the enemy — which is what the
-    /// Rising Blinds now buy.
+    /// How many more cards the player may put in the row this turn.
     pub fn plays_left(&self) -> u8 {
-        let cover = usize::from(self.plays).min(self.slots());
-        cover.saturating_sub(self.row.len()) as u8
+        self.blind(Side::Player)
+            .saturating_sub(self.row.len() as u8)
+    }
+
+    /// Turn the Opposing Cards in `slots` face up for the rest of this turn.
+    /// An empty slot has nothing to turn over.
+    pub fn reveal(&mut self, slots: &[usize]) {
+        for &slot in slots {
+            if let Some(opposing) = self.opposing.get_mut(slot) {
+                opposing.face_up = true;
+            }
+        }
     }
 
     /// Put the card at `card` in the Draw into the next empty slot of the
@@ -498,23 +668,16 @@ impl Duel {
         if self.plays_left() == 0 {
             return Err(PlayError::RowIsFull);
         }
-        let played = self.draw.get(card).ok_or(PlayError::NoSuchCard)?.clone();
+        let draw = &mut self.player.draw;
+        let played = draw.get(card).ok_or(PlayError::NoSuchCard)?.clone();
         let sacrificed = match (played.tell, sacrifice) {
             (Some(Tell::AllIn), None) => return Err(PlayError::AllInNeedsSacrifice),
             (Some(Tell::AllIn), Some(i)) if i == card => return Err(PlayError::NoSuchCard),
-            (Some(Tell::AllIn), Some(i)) => {
-                Some(self.draw.get(i).ok_or(PlayError::NoSuchCard)?.clone())
-            }
+            (Some(Tell::AllIn), Some(i)) => Some(draw.get(i).ok_or(PlayError::NoSuchCard)?.clone()),
             (_, Some(_)) => return Err(PlayError::NotAllIn),
             (_, None) => None,
         };
-
-        // Remove the higher index first so the lower one stays valid.
-        let mut gone: Vec<usize> = sacrifice.into_iter().chain([card]).collect();
-        gone.sort_unstable_by(|a, b| b.cmp(a));
-        for i in gone {
-            self.draw.remove(i);
-        }
+        remove_both(draw, card, sacrifice);
 
         self.row.push(Placed {
             card: played,
@@ -539,38 +702,42 @@ impl Duel {
         }
         let placed = self.row.remove(slot);
         if let Some(burned) = placed.sacrifice {
-            self.draw.push(burned);
+            self.player.draw.push(burned);
         }
-        self.draw.push(placed.card.clone());
+        self.player.draw.push(placed.card.clone());
         Ok(placed.card)
     }
 
-    /// Confirm the row. Both sides turn over, each resolves its Tells, and
-    /// The Hand meets the House Edge. A Hand that beats the Opposing Cards puts
-    /// the Push Your Luck prompt up and resolves nothing yet (`None`); a
-    /// Whiff, or a tie where nobody pays, resolves on the spot.
+    /// Confirm the row. Both sides turn over, the modifiers bend them, each
+    /// resolves its Tells, and The Hand meets the House Edge. Anything but a
+    /// tie puts the Push Your Luck prompt up and resolves nothing yet
+    /// (`None`); a tie, where nobody pays, resolves on the spot.
     pub fn confirm(&mut self) -> Option<TurnResult> {
         if self.phase == Phase::PushYourLuck {
             return None;
         }
-        // The House fills its last Opposing Card now, on everything it can
-        // see, which is the player's row but their last card (#5).
-        self.house_sets_its_hole_card();
         for opposing in &mut self.opposing {
             opposing.face_up = true;
         }
-
-        let row = resolve_row(&self.row, &self.opposing_cards());
-        let opposing = resolve_row(&self.opposing_row(), &self.row_cards());
+        let mut rows = Rows {
+            player: self.row.clone(),
+            enemy: self.opposing_row(),
+        };
+        for modifier in &self.modifiers {
+            modifier.before_showdown(&mut rows);
+        }
+        let printed = |row: &[Placed]| -> Vec<Option<Card>> {
+            row.iter().map(|p| Some(p.card.clone())).collect()
+        };
+        let row = resolve_row(&rows.player, &printed(&rows.enemy));
+        let opposing = resolve_row(&rows.enemy, &printed(&rows.player));
         let mut hand = row_value(&row);
         let house_edge = row_value(&opposing);
-        // The items that modify The Hand land here, after every card is down
-        // and after The House has set the card it set on what it could see.
+        // The items that modify The Hand land here, after every card is down.
         if self.dice_left > 0 {
             self.dice_left -= 1;
             hand += LOADED_DICE_BONUS;
         }
-        self.last = self.showdown.clone();
 
         self.showdown = Some(Showdown {
             row,
@@ -579,7 +746,7 @@ impl Duel {
             house_edge,
         });
 
-        if hand as i32 - house_edge as i32 != 0 {
+        if hand != house_edge {
             self.phase = Phase::PushYourLuck;
             return None;
         }
@@ -610,9 +777,8 @@ impl Duel {
         Some(self.resolve(Some(flip)))
     }
 
-    /// Deal the Payout or the Whiff, tick Rising Blinds, clear both rows, and
-    /// deal the next turn's Opposing Cards. The enemy does nothing else on
-    /// its turn: laying the row down *was* its turn.
+    /// Deal the Payout or the Whiff, send each side's row to its own discard,
+    /// and start the next turn.
     fn resolve(&mut self, pyl: Option<Push>) -> TurnResult {
         let hand = self.hand();
         let house_edge = self.house_edge();
@@ -627,92 +793,98 @@ impl Duel {
             Outcome::Whiff(n) => self.player_chips = self.player_chips.saturating_sub(n),
         }
 
-        let every = u32::from(self.enemy.blinds.every_turns.max(1));
-        let blinds_rose = self.turn.is_multiple_of(every);
-        if blinds_rose {
-            match self.hole_card.as_mut() {
-                // The House's Blinds raise the margin, not the row: it wins
-                // by outlasting the deck, not by laying more cards down.
-                Some(hole) => hole.margin += hole.step,
-                None => self.row_size = self.row_size.saturating_add(self.enemy.blinds.cards),
-            }
-        }
-
         self.turn += 1;
         self.phase = Phase::Playing;
-        // The row and everything it burned go to the discard. The Opposing
-        // Cards came off no deck and go nowhere.
         for placed in std::mem::take(&mut self.row) {
-            if let Some(burned) = placed.sacrifice {
-                self.discard.push(burned);
+            self.player.discard.extend(placed.sacrifice);
+            self.player.discard.push(placed.card);
+        }
+        // A fixed row came off no deck and goes nowhere.
+        let opposing = std::mem::take(&mut self.opposing);
+        if self.fixed.is_none() {
+            for o in opposing {
+                self.enemy_cards.discard.extend(o.sacrifice);
+                self.enemy_cards.discard.push(o.card);
             }
-            self.discard.push(placed.card);
         }
         self.last = self.showdown.take();
-        self.refill();
-        self.deal_opposing();
+        self.start_turn();
 
         TurnResult {
             hand,
             house_edge,
             kind,
             pyl,
-            blinds_rose,
         }
     }
 
-    /// The House sets the card it kept back so that its row reads the
-    /// player's row — everything but the player's last card — plus the
-    /// margin. The player's last card is the Hole Card, and the Payout is
-    /// whatever it is worth over the margin.
-    ///
-    /// The cards it already dealt itself are part of that total, not on top
-    /// of it, so the Hole Card is the remainder. When they have already made
-    /// more than the margin asks for, the Hole Card is worth nothing and the
-    /// row is simply what The House dealt — it cannot un-deal a card to come
-    /// back down. That only happens against a row with almost nothing in it,
-    /// which is why The House deals itself scraps.
-    fn house_sets_its_hole_card(&mut self) {
-        let Some(hole) = self.hole_card else { return };
-        let Some(slot) = self.opposing.len().checked_sub(1) else {
-            return;
-        };
-        // Everything the player put down but their last card.
-        let seen = self.row.len().saturating_sub(1).min(slot);
-        let across: Vec<Option<Card>> = self.opposing[..seen]
-            .iter()
-            .map(|o| Some(o.card.clone()))
-            .collect();
-        let read = row_value(&resolve_row(&self.row[..seen], &across));
-        // What its own cards in front of the blank already make. They can't
-        // move once the blank is filled: The House deals itself no Copycat,
-        // which is the one Tell that would have to read the card it hasn't
-        // decided on yet.
-        let mine: Vec<Placed> = self.opposing[..slot]
-            .iter()
-            .map(|o| Placed::plain(o.card.clone()))
-            .collect();
-        let opposing = row_value(&resolve_row(&mine, &self.row_cards()));
-
-        self.opposing[slot].card = Card {
-            name: "The House's Hole Card",
-            face_value: (read + hole.margin).saturating_sub(opposing),
-            tell: None,
-        };
+    /// Both sides draw up to 7, and the enemy commits its row.
+    fn start_turn(&mut self) {
+        let mut rng = self.rng;
+        refill(&mut self.player, &mut rng);
+        refill(&mut self.enemy_cards, &mut rng);
+        self.rng = rng;
+        self.lay_opposing();
     }
 
-    /// The Opposing Cards as a row that [`resolve_row`] can read. Nothing
-    /// across the table ever burns a card, so none of them carry a sacrifice.
+    /// The enemy commits its row face down: the Arcade's fixed one, or what
+    /// its strategy picks out of its Draw.
+    fn lay_opposing(&mut self) {
+        if let Some(row) = &self.fixed {
+            self.opposing = row
+                .iter()
+                .map(|(card, face_up)| Opposing {
+                    card: card.clone(),
+                    sacrifice: None,
+                    face_up: *face_up,
+                })
+                .collect();
+            return;
+        }
+        let picks = greedy(
+            &self.enemy_cards.draw,
+            self.blind(Side::Enemy),
+            self.player_average,
+            self.blind(Side::Player),
+        );
+        let draw = &self.enemy_cards.draw;
+        self.opposing = picks
+            .iter()
+            .map(|pick| Opposing {
+                card: draw[pick.card].clone(),
+                sacrifice: pick.sacrifice.map(|s| draw[s].clone()),
+                face_up: false,
+            })
+            .collect();
+        // Out of the Draw, highest place first so the lower ones stay put.
+        let mut gone: Vec<usize> = picks
+            .iter()
+            .flat_map(|p| std::iter::once(p.card).chain(p.sacrifice))
+            .collect();
+        gone.sort_unstable_by(|a, b| b.cmp(a));
+        for i in gone {
+            self.enemy_cards.draw.remove(i);
+        }
+    }
+
+    /// Hand the committed row back to the enemy's Draw, for a row laid on top
+    /// of it instead.
+    fn take_back_opposing(&mut self) {
+        for o in std::mem::take(&mut self.opposing) {
+            self.enemy_cards.draw.extend(o.sacrifice);
+            self.enemy_cards.draw.push(o.card);
+        }
+    }
+
+    /// The Opposing Cards as a row that [`resolve_row`] can read.
     fn opposing_row(&self) -> Vec<Placed> {
         self.opposing
             .iter()
-            .map(|o| Placed::plain(o.card.clone()))
+            .map(|o| Placed {
+                card: o.card.clone(),
+                sacrifice: o.sacrifice.clone(),
+            })
             .collect()
-    }
-
-    /// The printed Opposing Cards, for the player's Flops to read across at.
-    fn opposing_cards(&self) -> Vec<Option<Card>> {
-        self.opposing.iter().map(|o| Some(o.card.clone())).collect()
     }
 
     /// The Opposing Cards the player can see. A Flop counts a face-down card
@@ -729,74 +901,46 @@ impl Duel {
         self.row.iter().map(|p| Some(p.card.clone())).collect()
     }
 
-    /// Lay the enemy's row down for the turn ahead.
-    fn deal_opposing(&mut self) {
-        self.opposing.clear();
-        match self.fixed.clone() {
-            Some(row) => {
-                self.opposing.extend(
-                    row.into_iter()
-                        .map(|(card, face_up)| Opposing { card, face_up }),
-                );
-            }
-            None => {
-                let deal = self.enemy.deal;
-                for slot in 0..usize::from(self.row_size) {
-                    let card = deal.card(&mut self.rng);
-                    let hidden = self.next_rng() % 100 < u64::from(deal.hidden_pct);
-                    self.opposing.push(Opposing {
-                        card,
-                        // The first Opposing Card is always face up: the
-                        // player is owed one thing to read the rest against.
-                        face_up: slot == 0 || !hidden,
-                    });
-                }
-            }
-        }
-        // The House deals its last card blank and face down. It isn't decided
-        // until the showdown, and the screen says so rather than lying about
-        // a zero (#5).
-        if self.hole_card.is_some()
-            && let Some(last) = self.opposing.last_mut()
-        {
-            last.card = Card {
-                name: "The House's Hole Card",
-                face_value: 0,
-                tell: None,
-            };
-            last.face_up = false;
-        }
-    }
-
-    fn refill(&mut self) {
-        while self.draw.len() < DRAW_SIZE {
-            if self.deck.is_empty() {
-                if self.discard.is_empty() {
-                    break;
-                }
-                self.deck = std::mem::take(&mut self.discard);
-                self.shuffle_deck();
-            }
-            let card = self.deck.pop().expect("deck was just checked non-empty");
-            self.draw.push(card);
-        }
-    }
-
-    /// Fisher-Yates over the run's xorshift64; the same stream the coin is
-    /// flipped from and the enemy deals off.
-    fn shuffle_deck(&mut self) {
-        for i in (1..self.deck.len()).rev() {
-            let j = (self.next_rng() % (i as u64 + 1)) as usize;
-            self.deck.swap(i, j);
-        }
-    }
-
     fn next_rng(&mut self) -> u64 {
         xorshift64(&mut self.rng)
     }
 }
 
-/// Fisher-Yates, same as the duel's own reshuffle.
+/// Take a card and, if there is one, its sacrifice out of a Draw, the higher
+/// place first so the lower one stays valid.
+fn remove_both(draw: &mut Vec<Card>, card: usize, sacrifice: Option<usize>) {
+    let mut gone: Vec<usize> = sacrifice.into_iter().chain([card]).collect();
+    gone.sort_unstable_by(|a, b| b.cmp(a));
+    for i in gone {
+        draw.remove(i);
+    }
+}
+
+/// Draw up to 7. When the deck runs dry the discard is shuffled back in; a
+/// side with neither plays with what it has.
+fn refill(pile: &mut Pile, rng: &mut u64) {
+    while pile.draw.len() < DRAW_SIZE {
+        if pile.deck.is_empty() {
+            if pile.discard.is_empty() {
+                break;
+            }
+            pile.deck = shuffled(std::mem::take(&mut pile.discard), xorshift64(rng));
+        }
+        let card = pile.deck.pop().expect("deck was just checked non-empty");
+        pile.draw.push(card);
+    }
+}
+
+/// The average Face Value of a deck, to the nearest whole number.
+fn average_face_value(deck: &[Card]) -> u32 {
+    let n = deck.len() as u32;
+    if n == 0 {
+        return 0;
+    }
+    (deck.iter().map(|c| c.face_value).sum::<u32>() + n / 2) / n
+}
+
+/// Fisher-Yates over the run's xorshift64.
 fn shuffled(mut deck: Vec<Card>, mut rng: u64) -> Vec<Card> {
     for i in (1..deck.len()).rev() {
         let j = (xorshift64(&mut rng) % (i as u64 + 1)) as usize;
@@ -806,7 +950,7 @@ fn shuffled(mut deck: Vec<Card>, mut rng: u64) -> Vec<Card> {
 }
 
 /// What a resolved row is worth.
-fn row_value(row: &[Played]) -> u32 {
+pub fn row_value(row: &[Played]) -> u32 {
     row.iter().map(|p| p.value).sum()
 }
 
@@ -835,15 +979,13 @@ impl Duel {
     pub fn end_turn(&mut self) -> TurnResult {
         match self.confirm() {
             Some(result) => result,
-            None => self
-                .hold()
-                .expect("a Hand that beats the row puts the prompt up"),
+            None => self.hold().expect("anything but a tie puts the prompt up"),
         }
     }
 
     /// Lay a known row down across the table, all of it face up, so a test
-    /// can say what the player is up against without rolling for it. Fixed,
-    /// so the same row comes back every turn.
+    /// can say what the player is up against without the enemy choosing it.
+    /// Fixed, so the same row comes back every turn.
     pub fn facing(mut self, cards: Vec<Card>) -> Self {
         self.lay_out(cards);
         self
@@ -853,7 +995,20 @@ impl Duel {
     /// Bevy-side tests get a known Edge across the table.
     pub fn lay_out(&mut self, cards: Vec<Card>) {
         self.fixed = Some(cards.into_iter().map(|c| (c, true)).collect());
-        self.deal_opposing();
+        self.take_back_opposing();
+        self.lay_opposing();
+    }
+
+    /// The floor's Blind, set outright, with the enemy's row committed again
+    /// under it. The Bevy-side tests use it for room to play.
+    pub fn set_blind(&mut self, blind: u8) {
+        self.blind = blind;
+        self.take_back_opposing();
+        self.lay_opposing();
+    }
+
+    pub fn set_enemy_chips(&mut self, chips: u32) {
+        self.enemy.chips = chips;
     }
 
     /// Turn one Opposing Card back over, for the tests that are about what
@@ -866,8 +1021,9 @@ impl Duel {
 }
 
 #[cfg(test)]
-pub(super) mod cards {
-    use crate::run::{Card, Deal, Enemy, HoleCard, RisingBlinds, Tell};
+pub(crate) mod cards {
+    use crate::modifier::{Modifier, Side};
+    use crate::run::{Card, Enemy, Tell};
 
     pub fn card(face_value: u32) -> Card {
         Card {
@@ -905,41 +1061,36 @@ pub(super) mod cards {
         }
     }
 
-    /// An enemy that deals a row of `row` cards, every one of them a 6 with
-    /// no Tell and face up, so a test that isn't about the deal can ignore
-    /// it. Most tests lay their own row down with `Duel::facing`.
-    pub fn enemy(chips: u32, row: u8) -> Enemy {
+    /// An enemy whose Deck is nothing but plain 6s, so whatever it commits is
+    /// worth 6 a card. Most tests lay their own row down with `Duel::facing`.
+    pub fn enemy(chips: u32) -> Enemy {
+        enemy_with(chips, vec![card(6); 30])
+    }
+
+    /// An enemy drawing from exactly `deck`, last card first.
+    pub fn enemy_with(chips: u32, deck: Vec<Card>) -> Enemy {
         Enemy {
             name: "shill",
             chips,
-            deal: Deal {
-                row,
-                low: 6,
-                high: 6,
-                tell_pct: 0,
-                tells: &[],
-                hidden_pct: 0,
-            },
-            blinds: RisingBlinds {
-                every_turns: 2,
-                cards: 1,
-            },
-            hole_card: None,
+            deck,
+            table_rule: None,
         }
     }
 
-    /// The House: it keeps its last card back and the Blinds raise its
-    /// margin. Its own dealt cards are 1s, so the Hole Card carries the row.
-    pub fn the_house(chips: u32, margin: u32) -> Enemy {
-        Enemy {
-            hole_card: Some(HoleCard { margin, step: 2 }),
-            deal: Deal {
-                low: 1,
-                high: 1,
-                ..enemy(chips, 5).deal
-            },
-            ..enemy(chips, 5)
+    /// A modifier that sets one side's Blind outright, for tests that want
+    /// the two Blinds apart.
+    #[derive(Debug)]
+    pub struct SetBlind(pub Side, pub u8);
+
+    impl Modifier for SetBlind {
+        fn blind(&self, side: Side, blind: u8) -> u8 {
+            if side == self.0 { self.1 } else { blind }
         }
+    }
+
+    /// `modifier`, leaked for the `'static` the duel holds its modifiers by.
+    pub fn leak(modifier: impl Modifier + 'static) -> &'static dyn Modifier {
+        Box::leak(Box::new(modifier))
     }
 }
 
@@ -947,15 +1098,28 @@ pub(super) mod cards {
 mod tests {
     use super::cards::*;
     use super::*;
+    use crate::modifier::Side;
 
     /// A deck of vanilla cards 1..=n, so card n is drawn first.
     fn vanilla_deck(n: u32) -> Vec<Card> {
         (1..=n).map(card).collect()
     }
 
-    /// A duel facing a row of `n` sixes: the plain case, worth 6n.
+    /// A duel at a Blind of 5 against an enemy that commits `n` sixes: the
+    /// plain case, worth 6n.
     fn duel_facing_sixes(n: u8) -> Duel {
-        Duel::new(vanilla_deck(18), 40, 5, enemy(999, n))
+        sixes(vanilla_deck(18), 40, 999, n)
+    }
+
+    /// `deck` against `enemy_chips` worth of an enemy held to `n` sixes.
+    fn sixes(deck: Vec<Card>, chips: u32, enemy_chips: u32, n: u8) -> Duel {
+        Duel::modified(
+            deck,
+            chips,
+            5,
+            enemy(enemy_chips),
+            vec![leak(SetBlind(Side::Enemy, n))],
+        )
     }
 
     #[test]
@@ -968,49 +1132,77 @@ mod tests {
     }
 
     #[test]
-    fn the_enemy_lays_its_row_down_before_the_player_plays_a_card() {
+    fn the_enemy_commits_its_row_face_down_before_the_player_plays_a_card() {
         let duel = duel_facing_sixes(4);
 
         assert_eq!(duel.opposing().len(), 4);
-        assert_eq!(duel.slots(), 4);
+        assert!(duel.opposing().iter().all(|o| !o.face_up));
         assert!(duel.row().is_empty());
+        assert_eq!(duel.showing(), (0, 4), "nothing to read but four backs");
         assert_eq!(duel.house_edge(), 24);
     }
 
     #[test]
-    fn the_first_opposing_card_is_always_face_up() {
-        // Every card after the first is dealt face down, so only the rule
-        // that the first one isn't can put a card face up.
-        let mut hidden = enemy(999, 5);
-        hidden.deal.hidden_pct = 100;
+    fn the_enemy_keeps_what_it_did_not_commit_and_draws_back_up_to_seven() {
+        // Drawn first: 9, 8, then five 1s; then two 7s wait in its Deck.
+        let mut deck = vec![card(7), card(7)];
+        deck.extend(vec![card(1); 5]);
+        deck.extend([card(8), card(9)]);
+        let mut duel = Duel::new(vanilla_deck(18), 40, 2, enemy_with(999, deck));
+        assert_eq!(duel.house_edge(), 17, "the 9 and the 8");
 
-        for seed in 1..40u64 {
-            let duel = Duel::new(vanilla_deck(18), 40, 5, hidden.clone()).with_seed(seed * 2 + 1);
-            let face_up: Vec<bool> = duel.opposing().iter().map(|o| o.face_up).collect();
-            assert_eq!(face_up, vec![true, false, false, false, false]);
-        }
+        duel.end_turn();
+
+        // Five 1s carried over, and the two 7s drawn on top of them.
+        assert_eq!(duel.house_edge(), 14);
     }
 
     #[test]
-    fn a_middling_deal_turns_some_cards_over_and_leaves_others_down() {
-        let mut coin_toss = enemy(999, 6);
-        coin_toss.deal.hidden_pct = 50;
-        let mut seen = (false, false);
+    fn the_enemy_reshuffles_its_discard_when_its_deck_runs_dry() {
+        // Exactly seven cards: all of them in the first Draw.
+        let deck = vec![
+            card(1),
+            card(2),
+            card(3),
+            card(4),
+            card(5),
+            card(8),
+            card(9),
+        ];
+        let mut duel = Duel::new(vanilla_deck(18), 40, 2, enemy_with(999, deck));
+        assert_eq!(duel.house_edge(), 17);
 
-        for seed in 1..60u64 {
-            let duel =
-                Duel::new(vanilla_deck(18), 40, 5, coin_toss.clone()).with_seed(seed * 2 + 1);
-            // Past the first card, which is never a toss.
-            for opposing in &duel.opposing()[1..] {
-                if opposing.face_up {
-                    seen.0 = true;
-                } else {
-                    seen.1 = true;
-                }
-            }
-        }
+        duel.end_turn();
 
-        assert_eq!(seen, (true, true), "the deal lands on both faces");
+        // Five left in the Draw, the Deck empty, so the 9 and the 8 come
+        // back off the discard.
+        assert_eq!(duel.house_edge(), 17);
+    }
+
+    #[test]
+    fn an_enemy_with_nothing_left_plays_what_it_has() {
+        let mut duel = Duel::new(vanilla_deck(18), 40, 3, enemy_with(999, vec![card(5)]));
+        assert_eq!(duel.opposing().len(), 1, "one card, short of its Blind");
+        duel.end_turn();
+
+        // The 5 came back off the discard; running out never loses on its own.
+        assert_eq!(duel.opposing().len(), 1);
+        assert_eq!(duel.house_edge(), 5);
+
+        let empty = Duel::new(vanilla_deck(18), 40, 3, enemy_with(999, Vec::new()));
+        assert!(empty.opposing().is_empty());
+        assert_eq!(empty.house_edge(), 0);
+    }
+
+    #[test]
+    fn the_enemys_all_in_burns_a_card_from_its_own_draw() {
+        let deck = vec![card(1), card(9), all_in(2)];
+        let duel = Duel::new(vanilla_deck(18), 40, 1, enemy_with(999, deck));
+
+        let committed = &duel.opposing()[0];
+        assert_eq!(committed.card, all_in(2));
+        assert_eq!(committed.sacrifice, Some(card(9)));
+        assert_eq!(duel.house_edge(), 11);
     }
 
     #[test]
@@ -1023,14 +1215,14 @@ mod tests {
         let row: Vec<u32> = duel.row().iter().map(|p| p.card.face_value).collect();
         assert_eq!(row, vec![18, 17]);
         assert_eq!(duel.hand(), 35);
-        assert_eq!(duel.plays_left(), 1);
+        assert_eq!(duel.plays_left(), 3);
         assert_eq!(duel.draw().len(), 5);
     }
 
     #[test]
-    fn the_row_is_as_long_as_the_enemys_and_no_longer() {
-        let mut duel = duel_facing_sixes(2);
-        assert_eq!(duel.plays_left(), 2, "two Opposing Cards, two slots");
+    fn the_player_plays_up_to_their_own_blind() {
+        let mut duel = Duel::new(vanilla_deck(18), 40, 2, enemy(999));
+        assert_eq!(duel.plays_left(), 2);
 
         duel.place(0, None).unwrap();
         duel.place(0, None).unwrap();
@@ -1040,20 +1232,33 @@ mod tests {
     }
 
     #[test]
-    fn a_row_longer_than_your_plays_leaves_slots_you_cannot_cover() {
-        // Seven Opposing Cards against five Plays: two slots go uncovered,
-        // and what sits in them is free chips for the enemy.
-        let mut duel = Duel::new(vanilla_deck(18), 40, 5, enemy(999, 7));
-        assert_eq!(duel.slots(), 7);
-        assert_eq!(duel.plays_left(), 5);
+    fn the_table_is_as_wide_as_the_larger_blind() {
+        // The enemy's Blind is 4 and the player's 2: four slots, two of
+        // them the player can't reach, and all four still count.
+        let mut duel = Duel::modified(
+            vanilla_deck(18),
+            40,
+            2,
+            enemy(999),
+            vec![leak(SetBlind(Side::Enemy, 4))],
+        );
+        assert_eq!(duel.slots(), 4);
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+        assert_eq!(duel.house_edge(), 24);
 
-        for _ in 0..5 {
-            duel.place(0, None).unwrap();
-        }
-
-        assert_eq!(duel.plays_left(), 0);
-        assert_eq!(duel.row().len(), 5);
-        assert_eq!(duel.house_edge(), 42, "all seven still count for them");
+        // The other way round, the enemy's row is short and the slots past
+        // it are empty, worth nothing.
+        let duel = Duel::modified(
+            vanilla_deck(18),
+            40,
+            4,
+            enemy(999),
+            vec![leak(SetBlind(Side::Enemy, 2))],
+        );
+        assert_eq!(duel.slots(), 4);
+        assert_eq!(duel.opposing().len(), 2);
+        assert_eq!(duel.plays_left(), 4);
     }
 
     #[test]
@@ -1070,7 +1275,7 @@ mod tests {
         let row: Vec<u32> = duel.row().iter().map(|p| p.card.face_value).collect();
         assert_eq!(row, vec![18, 16], "the 16 slid left into slot 1");
         assert_eq!(duel.hand(), 34);
-        assert_eq!(duel.plays_left(), 2);
+        assert_eq!(duel.plays_left(), 3);
         assert!(
             duel.draw().iter().any(|c| c.face_value == 17),
             "back in the Draw"
@@ -1089,7 +1294,7 @@ mod tests {
             card(8),
             all_in(2),
         ];
-        let mut duel = Duel::new(deck, 40, 5, enemy(999, 3));
+        let mut duel = Duel::new(deck, 40, 5, enemy(999));
         duel.place(0, Some(0)).unwrap_err(); // can't burn itself
         duel.place(0, Some(1)).unwrap(); // All In 2 burning the 8
         assert_eq!(duel.hand(), 10);
@@ -1120,7 +1325,7 @@ mod tests {
             card(8),
             all_in(2),
         ];
-        let mut duel = Duel::new(deck, 40, 5, enemy(999, 5));
+        let mut duel = Duel::new(deck, 40, 5, enemy(999));
 
         assert_eq!(duel.place(9, None), Err(PlayError::NoSuchCard));
         assert_eq!(duel.place(0, None), Err(PlayError::AllInNeedsSacrifice));
@@ -1134,7 +1339,7 @@ mod tests {
     #[test]
     fn the_higher_row_takes_the_difference_off_the_other_sides_chips() {
         // Three 6s across: 18. The player covers them with 18, 17 and 16.
-        let mut duel = Duel::new(vanilla_deck(18), 40, 5, enemy(100, 3));
+        let mut duel = sixes(vanilla_deck(18), 40, 100, 3);
         for _ in 0..3 {
             duel.place(0, None).unwrap();
         }
@@ -1148,7 +1353,6 @@ mod tests {
                 house_edge: 18,
                 kind: Outcome::Payout(33),
                 pyl: None,
-                blinds_rose: false,
             }
         );
         assert_eq!(duel.enemy_chips(), 67);
@@ -1158,7 +1362,7 @@ mod tests {
     #[test]
     fn falling_short_takes_the_difference_out_of_your_own_chips() {
         // Five 6s across: 30, against one card of 18.
-        let mut duel = Duel::new(vanilla_deck(18), 40, 5, enemy(100, 5));
+        let mut duel = Duel::new(vanilla_deck(18), 40, 5, enemy(100));
         duel.place(0, None).unwrap();
 
         let result = duel.end_turn();
@@ -1180,7 +1384,7 @@ mod tests {
             card(6),
             card(8),
         ];
-        let mut duel = Duel::new(deck, 40, 5, enemy(100, 3));
+        let mut duel = sixes(deck, 40, 100, 3);
         for _ in 0..3 {
             duel.place(0, None).unwrap();
         }
@@ -1200,7 +1404,7 @@ mod tests {
 
     #[test]
     fn confirming_clears_both_rows_and_deals_the_next_ones() {
-        let mut duel = Duel::new(vanilla_deck(18), 40, 5, enemy(999, 3));
+        let mut duel = duel_facing_sixes(3);
         for _ in 0..3 {
             duel.place(0, None).unwrap();
         }
@@ -1208,7 +1412,8 @@ mod tests {
 
         assert!(duel.row().is_empty());
         assert_eq!(duel.opposing().len(), 3, "a fresh row across the table");
-        assert_eq!(duel.plays_left(), 3);
+        assert!(duel.opposing().iter().all(|o| !o.face_up));
+        assert_eq!(duel.plays_left(), 5);
         assert_eq!(duel.draw().len(), 7);
         // The four unplayed cards carried over, then three fresh ones.
         let face_values: Vec<u32> = duel.draw().iter().map(|c| c.face_value).collect();
@@ -1217,7 +1422,7 @@ mod tests {
 
     #[test]
     fn the_showdown_is_kept_for_the_screen_after_the_turn_is_over() {
-        let mut duel = Duel::new(vanilla_deck(18), 40, 5, enemy(999, 2));
+        let mut duel = duel_facing_sixes(2);
         duel.place(0, None).unwrap();
         duel.place(0, None).unwrap();
 
@@ -1234,24 +1439,20 @@ mod tests {
     }
 
     #[test]
-    fn rising_blinds_lay_another_opposing_card_down_every_two_turns() {
-        let mut duel = Duel::new(vanilla_deck(40), 999, 5, enemy(9999, 3));
+    fn both_sides_start_at_the_floors_blind_and_it_stays_there() {
+        let mut duel = Duel::new(vanilla_deck(40), 999, 3, enemy(9999));
 
-        assert_eq!(duel.slots(), 3);
-        let t1 = duel.end_turn();
-        assert!(!t1.blinds_rose);
-        assert_eq!(duel.slots(), 3);
-        let t2 = duel.end_turn();
-        assert!(t2.blinds_rose);
-        assert_eq!(duel.slots(), 4, "the enemy lays one more");
-        duel.end_turn();
-        duel.end_turn();
-        assert_eq!(duel.slots(), 5);
+        for _ in 0..4 {
+            assert_eq!(duel.blind(Side::Player), 3);
+            assert_eq!(duel.blind(Side::Enemy), 3);
+            assert_eq!(duel.opposing().len(), 3);
+            duel.end_turn();
+        }
     }
 
     #[test]
     fn the_duel_is_won_when_the_enemy_chips_hit_zero() {
-        let mut duel = Duel::new(vanilla_deck(18), 40, 5, enemy(30, 3));
+        let mut duel = sixes(vanilla_deck(18), 40, 30, 3);
         for _ in 0..3 {
             duel.place(0, None).unwrap();
         }
@@ -1265,7 +1466,7 @@ mod tests {
     #[test]
     fn the_duel_is_lost_when_your_chips_hit_zero() {
         // Five 6s across and nothing covering them: a Whiff of 30.
-        let mut duel = Duel::new(vanilla_deck(18), 10, 5, enemy(50, 5));
+        let mut duel = Duel::new(vanilla_deck(18), 10, 5, enemy(50));
 
         duel.end_turn();
 
@@ -1278,7 +1479,7 @@ mod tests {
         // 9 cards: 7 dealt, 2 in the deck. After a turn of 5 cards there are
         // 2 left in the Draw, 2 come from the deck, and 3 must come back
         // from the discard.
-        let mut duel = Duel::new(vanilla_deck(9), 40, 5, enemy(999, 5));
+        let mut duel = Duel::new(vanilla_deck(9), 40, 5, enemy(999));
         for _ in 0..5 {
             duel.place(0, None).unwrap();
         }
@@ -1299,7 +1500,9 @@ mod tell_tests {
 
     /// What the player's row resolved to, slot by slot.
     fn resolved(duel: &Duel) -> Vec<u32> {
-        resolve_row(&duel.row, &duel.opposing_cards())
+        let across: Vec<Option<Card>> =
+            duel.opposing.iter().map(|o| Some(o.card.clone())).collect();
+        resolve_row(&duel.row, &across)
             .iter()
             .map(|p| p.value)
             .collect()
@@ -1310,7 +1513,7 @@ mod tell_tests {
         let plays = draw.len() as u8;
         // `Duel` draws off the end, so the first card of `draw` goes last.
         let deck: Vec<Card> = draw.into_iter().rev().collect();
-        Duel::new(deck, 40, plays, enemy(999, 1)).facing(across)
+        Duel::new(deck, 40, plays, enemy(999)).facing(across)
     }
 
     #[test]
@@ -1457,6 +1660,8 @@ mod tell_tests {
         // Copycat takes the Streak's print (6), the Streak doubles after a
         // Tell (12), the Flop takes the 9 across from it and the 5 beside it.
         assert_eq!(duel.house_edge(), 6 + 12 + 5 + 9);
+        // And at the Showdown, which is where it counts.
+        assert_eq!(duel.end_turn().house_edge, 6 + 12 + 5 + 9);
     }
 
     #[test]
@@ -1469,16 +1674,6 @@ mod tell_tests {
 
         assert_eq!(duel.hand(), 6, "yours took their print");
         assert_eq!(duel.house_edge(), 4, "theirs took yours");
-    }
-
-    #[test]
-    fn an_all_in_across_the_table_is_worth_its_print_and_nothing_else() {
-        // No enemy deals itself an All In, but nothing in the model breaks if
-        // a reward or a future enemy ever puts one there.
-        let mut duel = table(vec![card(4)], vec![all_in(5)]);
-        duel.place(0, None).unwrap();
-
-        assert_eq!(duel.house_edge(), 5);
     }
 }
 
@@ -1494,7 +1689,7 @@ mod reveal_tests {
             .enumerate()
             .map(|(i, card)| (card, !hidden.contains(&i)))
             .collect();
-        Duel::new(vec![card(4); 18], 40, 5, enemy(999, 3)).with_opposing(row)
+        Duel::new(vec![card(4); 18], 40, 5, enemy(999)).with_opposing(row)
     }
 
     #[test]
@@ -1519,7 +1714,7 @@ mod reveal_tests {
     fn a_flop_counts_a_face_down_card_as_nothing_until_the_rows_turn_over() {
         let mut deck = vec![card(1); 17];
         deck.push(flop(3)); // drawn first
-        let mut duel = Duel::new(deck, 40, 5, enemy(999, 3)).with_opposing(vec![
+        let mut duel = Duel::new(deck, 40, 5, enemy(999)).with_opposing(vec![
             (card(9), true),
             (card(2), false),
             (card(2), false),
@@ -1540,27 +1735,68 @@ mod reveal_tests {
     fn a_flop_in_the_draw_says_what_it_would_take_in_the_next_slot() {
         let mut deck = vec![card(1); 16];
         deck.extend([flop(3), card(4)]); // the 4 drawn first, then the Flop
-        let mut duel = Duel::new(deck, 40, 2, enemy(999, 3)).with_opposing(vec![
+        let mut duel = Duel::new(deck, 40, 2, enemy(999)).with_opposing(vec![
             (card(9), true),
             (card(5), true),
             (card(2), false),
         ]);
 
+        let next = duel.flop_next().expect("a slot for it");
         assert_eq!(
-            duel.flop_next(),
-            Some(9 + 5),
+            next,
+            FlopPeek {
+                seen: 9 + 5,
+                hidden: 0
+            }
+        );
+        assert_eq!(
+            next.to_string(),
+            "+14",
             "slot 0: the 9, and the 5 beside it"
         );
 
         duel.place(0, None).unwrap(); // the 4, in slot 0
+        let next = duel.flop_next().expect("a slot for it");
         assert_eq!(
-            duel.flop_next(),
-            Some(9 + 5),
-            "slot 1: the face-down 2 is nothing yet"
+            next,
+            FlopPeek {
+                seen: 9 + 5,
+                hidden: 1
+            }
         );
+        assert_eq!(next.to_string(), "+14 + ?", "slot 1: the 2 is face down");
 
-        duel.place(0, None).unwrap(); // the Flop: both Plays used
+        duel.place(0, None).unwrap(); // the Flop: the Blind is used up
         assert_eq!(duel.flop_next(), None, "no slot left for it");
+    }
+
+    #[test]
+    fn a_flop_peek_adds_nothing_for_an_empty_slot() {
+        // One Opposing Card on a table two wide: slot 1 reads slot 0 and
+        // two empty slots.
+        let mut duel =
+            Duel::new(vec![card(4); 18], 40, 2, enemy(999)).with_opposing(vec![(card(9), false)]);
+        duel.place(0, None).unwrap();
+
+        assert_eq!(duel.flop_next(), Some(FlopPeek { seen: 0, hidden: 1 }));
+        assert_eq!(duel.flop_next().unwrap().to_string(), "+0 + ?");
+    }
+
+    #[test]
+    fn a_reveal_turns_chosen_opposing_cards_face_up_for_this_turn() {
+        let enemy = enemy_with(999, vec![card(2), card(3), card(7)]);
+        let mut duel = Duel::new(vec![card(4); 18], 40, 3, enemy);
+        assert_eq!(duel.showing(), (0, 3));
+
+        duel.reveal(&[0, 2, 7]); // slot 7 is off the table: nothing to turn
+
+        let face_up: Vec<bool> = duel.opposing().iter().map(|o| o.face_up).collect();
+        assert_eq!(face_up, vec![true, false, true]);
+        assert_eq!(duel.showing(), (7 + 2, 1));
+        assert_eq!(duel.flop_next(), Some(FlopPeek { seen: 7, hidden: 1 }));
+
+        duel.end_turn();
+        assert_eq!(duel.showing().1, 3, "the next row comes down face down");
     }
 
     #[test]
@@ -1617,13 +1853,20 @@ mod reveal_tests {
 mod push_your_luck_tests {
     use super::cards::*;
     use super::*;
-    use crate::run::Perk;
+    use crate::boss::SLOTZ;
+    use crate::run::Reward;
+
+    /// The Slotz Perk's coin: best 2 of 3, at 49/51.
+    const BEST_OF_THREE: Coin = Coin {
+        player_pct: 49,
+        best_of: 3,
+    };
 
     /// One card of `hand` against a row that adds up to `edge`.
     fn hand_of(hand: u32, edge: u32) -> Duel {
         let mut deck = vec![card(1); 6];
         deck.push(card(hand));
-        let mut duel = Duel::new(deck, 40, 5, enemy(999, 1))
+        let mut duel = Duel::new(deck, 40, 5, enemy(999))
             .facing(vec![card(edge)])
             .with_coin(Coin::SURE_THING);
         duel.place(0, None).unwrap();
@@ -1710,7 +1953,7 @@ mod push_your_luck_tests {
     fn a_doubled_whiff_can_end_the_duel() {
         let mut deck = vec![card(1); 6];
         deck.push(card(10));
-        let mut duel = Duel::new(deck, 15, 5, enemy(999, 20)).with_coin(Coin::RIGGED);
+        let mut duel = Duel::new(deck, 15, 5, enemy(999)).with_coin(Coin::RIGGED);
         duel.place(0, None).unwrap();
         duel.confirm();
 
@@ -1734,7 +1977,6 @@ mod push_your_luck_tests {
                 house_edge: 20,
                 kind: Outcome::Payout(10),
                 pyl: None,
-                blinds_rose: false,
             }
         );
         assert_eq!(duel.enemy_chips(), 989);
@@ -1818,40 +2060,38 @@ mod push_your_luck_tests {
     }
 
     #[test]
-    fn slotz_option_one_is_best_two_of_three_at_49_51() {
-        assert_eq!(
-            Coin::SLOTZ,
-            Coin {
-                player_pct: 49,
-                best_of: 3
-            }
-        );
-        assert_eq!(Coin::SLOTZ.resolve([10, 90, 10].into_iter()), Push::Won);
-        assert_eq!(Coin::SLOTZ.resolve([90, 10, 10].into_iter()), Push::Won);
-        assert_eq!(Coin::SLOTZ.resolve([90, 10, 90].into_iter()), Push::Lost);
-        assert_eq!(Coin::SLOTZ.resolve([48, 48].into_iter()), Push::Won);
-        assert_eq!(Coin::SLOTZ.resolve([49, 49].into_iter()), Push::Lost);
+    fn best_two_of_three_at_49_51_takes_the_majority() {
+        assert_eq!(BEST_OF_THREE.resolve([10, 90, 10].into_iter()), Push::Won);
+        assert_eq!(BEST_OF_THREE.resolve([90, 10, 10].into_iter()), Push::Won);
+        assert_eq!(BEST_OF_THREE.resolve([90, 10, 90].into_iter()), Push::Lost);
+        assert_eq!(BEST_OF_THREE.resolve([48, 48].into_iter()), Push::Won);
+        assert_eq!(BEST_OF_THREE.resolve([49, 49].into_iter()), Push::Lost);
     }
 
     #[test]
     fn a_decided_best_of_three_stops_flipping() {
         let mut rolls = [10, 10, 10].into_iter();
-        assert_eq!(Coin::SLOTZ.resolve(rolls.by_ref()), Push::Won);
+        assert_eq!(BEST_OF_THREE.resolve(rolls.by_ref()), Push::Won);
         assert_eq!(rolls.count(), 1, "the third coin is never tossed");
     }
 
     #[test]
     fn the_slotz_perk_is_what_swaps_the_coin() {
-        assert_eq!(Coin::for_perks(&[]), Coin::BASE);
-        assert_eq!(Coin::for_perks(&[Perk::SixPlaysSteepBlinds]), Coin::BASE);
-        assert_eq!(Coin::for_perks(&[Perk::PylBestTwoOfThree]), Coin::SLOTZ);
+        let Some([Reward::Perk(perk), _]) = SLOTZ.rewards else {
+            panic!("Slotz offers its Perk first");
+        };
+        let plain = Duel::new(vec![card(4); 18], 40, 2, enemy(999));
+        let slotz = Duel::modified(vec![card(4); 18], 40, 2, enemy(999), vec![perk.modifier]);
+
+        assert_eq!(plain.coin(), Coin::BASE);
+        assert_eq!(slotz.coin(), BEST_OF_THREE);
     }
 
     #[test]
-    fn slotz_option_one_is_worth_about_48_point_5_percent() {
-        assert_eq!(wins_over_every_roll(Coin::SLOTZ), 485_002);
+    fn best_two_of_three_is_worth_about_48_point_5_percent() {
+        assert_eq!(wins_over_every_roll(BEST_OF_THREE), 485_002);
         assert!(
-            wins_over_every_roll(Coin::SLOTZ) > wins_over_every_roll(Coin::BASE),
+            wins_over_every_roll(BEST_OF_THREE) > wins_over_every_roll(Coin::BASE),
             "the perk is worth taking"
         );
     }
@@ -1861,8 +2101,6 @@ mod push_your_luck_tests {
         let mut seen = (false, false);
         for seed in 1..200u64 {
             let mut duel = hand_of(30, 20).with_seed(seed * 2 + 1);
-            // `with_seed` re-deals the row, and this one is fixed, so the
-            // card the test placed is still sitting across a 20.
             duel.set_coin(Coin::BASE);
             duel.confirm();
             match duel.push().unwrap().pyl {
@@ -1887,7 +2125,7 @@ mod loaded_dice_tests {
 
     /// A duel facing a single card worth `edge`.
     fn facing(edge: u32) -> Duel {
-        Duel::new(deck(), 40, 5, enemy(999, 1)).facing(vec![card(edge)])
+        Duel::new(deck(), 40, 5, enemy(999)).facing(vec![card(edge)])
     }
 
     #[test]
@@ -1905,8 +2143,7 @@ mod loaded_dice_tests {
         let mut duel = facing(0).with_loaded_dice(2);
         duel.place(0, None).unwrap(); // 18
 
-        // Nothing on The Hand until the showdown: The House reads what it can
-        // see, and the dice land after that (the Hole Card rule).
+        // Nothing on The Hand until the showdown.
         assert_eq!(duel.hand(), 18);
         let turn = duel.end_turn();
 
@@ -1950,32 +2187,30 @@ mod loaded_dice_tests {
 mod the_house_tests {
     use super::cards::*;
     use super::*;
+    use crate::boss::HoleCard;
 
     fn vanilla_deck(n: u32) -> Vec<Card> {
         (1..=n).map(card).collect()
     }
 
-    /// The House, dealing itself 1s in every slot but the one it keeps back.
-    fn table(chips: u32, margin: u32) -> Duel {
-        Duel::new(vanilla_deck(18), 50, 5, the_house(chips, margin))
+    /// The House holding nothing but `face_value`s, with the Hole Card as its
+    /// Table Rule.
+    fn the_house(face_value: u32, margin: u32) -> Enemy {
+        Enemy {
+            table_rule: Some(leak(HoleCard { margin })),
+            ..enemy_with(100, vec![card(face_value); 30])
+        }
     }
 
-    #[test]
-    fn the_house_deals_its_last_card_blank_and_face_down() {
-        let duel = table(35, 1);
-
-        assert_eq!(duel.slots(), 5);
-        let last = duel.opposing().last().expect("a row");
-        assert!(!last.face_up);
-        assert_eq!(last.card.face_value, 0, "not decided yet");
-        // Four 1s showing, and the one it kept back.
-        assert_eq!(duel.showing(), (4, 1));
-        assert_eq!(duel.margin(), Some(1));
+    /// The House at a Blind of 5, committing 1s in every slot; the last one
+    /// becomes the Hole Card at Confirm.
+    fn table(margin: u32) -> Duel {
+        Duel::new(vanilla_deck(18), 50, 5, the_house(1, margin))
     }
 
     #[test]
     fn the_house_sets_its_hole_card_to_the_row_it_read_plus_the_margin() {
-        let mut duel = table(35, 1);
+        let mut duel = table(1);
         // Draw: 18,17,16,15,14. The first four are all The House sees: 66.
         for _ in 0..5 {
             duel.place(0, None).unwrap();
@@ -1987,12 +2222,13 @@ mod the_house_tests {
         assert_eq!(result.hand, 80);
         // The Hole Card was the 14, and it pays its value over the margin.
         assert_eq!(result.kind, Outcome::Payout(13));
-        assert_eq!(duel.enemy_chips(), 22);
+        let shown = duel.last_showdown().expect("the rows that turned over");
+        assert_eq!(shown.opposing[4].card.name, "The House's Hole Card");
     }
 
     #[test]
     fn a_short_row_still_keeps_only_its_last_card_from_the_house() {
-        let mut duel = table(35, 1);
+        let mut duel = table(1);
         duel.place(0, None).unwrap();
         duel.place(0, None).unwrap(); // 18 and 17, three slots left empty
 
@@ -2005,14 +2241,14 @@ mod the_house_tests {
     }
 
     #[test]
-    fn a_row_of_nothing_at_all_loses_to_what_the_house_dealt_itself() {
-        let mut duel = table(35, 1);
+    fn a_row_of_nothing_at_all_loses_to_what_the_house_committed() {
+        let mut duel = table(1);
 
         let result = duel.end_turn();
 
         // Nothing to read, so the Hole Card is worth nothing and the row is
-        // just the four 1s The House dealt itself. It can't un-deal them to
-        // come down to the margin.
+        // just the four 1s in front of it. It can't take them back to come
+        // down to the margin.
         assert_eq!(result.house_edge, 4);
         assert_eq!(result.kind, Outcome::Whiff(4));
         assert_eq!(duel.player_chips(), 46);
@@ -2020,12 +2256,9 @@ mod the_house_tests {
 
     #[test]
     fn the_hole_card_is_worth_nothing_rather_than_less_than_nothing() {
-        // The House deals itself 9s here, so its own cards are already past
-        // anything a one-card row plus the margin could ask for.
-        let mut rich = the_house(35, 1);
-        rich.deal.low = 9;
-        rich.deal.high = 9;
-        let mut duel = Duel::new(vanilla_deck(18), 50, 5, rich);
+        // Four 9s in front of it are already past anything a one-card row
+        // plus the margin could ask for.
+        let mut duel = Duel::new(vanilla_deck(18), 50, 5, the_house(9, 1));
 
         duel.place(0, None).unwrap(); // an 18, and it is the Hole Card
         let result = duel.end_turn();
@@ -2035,20 +2268,8 @@ mod the_house_tests {
     }
 
     #[test]
-    fn the_blinds_raise_the_margin_and_not_the_row() {
-        let mut duel = Duel::new(vanilla_deck(40), 999, 5, the_house(9999, 1));
-
-        assert_eq!(duel.margin(), Some(1));
-        assert_eq!(duel.slots(), 5);
-        duel.end_turn(); // turn 1
-        duel.end_turn(); // turn 2: the Blinds tick
-        assert_eq!(duel.margin(), Some(3));
-        assert_eq!(duel.slots(), 5, "the row stayed where it was");
-    }
-
-    #[test]
     fn the_loaded_dice_land_after_the_house_has_read_the_row() {
-        let mut duel = table(35, 1).with_loaded_dice(1);
+        let mut duel = table(1).with_loaded_dice(1);
         for _ in 0..5 {
             duel.place(0, None).unwrap();
         }
@@ -2074,7 +2295,7 @@ mod the_house_tests {
             card(10),
             card(10),
         ];
-        let mut duel = Duel::new(deck, 50, 5, the_house(100, 1));
+        let mut duel = Duel::new(deck, 50, 5, the_house(1, 1));
         for _ in 0..5 {
             duel.place(0, None).unwrap();
         }
@@ -2085,12 +2306,183 @@ mod the_house_tests {
         assert_eq!(result.hand, 43, "the Copycat at the end took its own 3");
         assert_eq!(result.kind, Outcome::Payout(2));
     }
+}
+
+#[cfg(test)]
+mod greedy_tests {
+    use super::cards::*;
+    use super::*;
+
+    fn pick(card: usize) -> Pick {
+        Pick {
+            card,
+            sacrifice: None,
+        }
+    }
 
     #[test]
-    fn ordinary_enemies_keep_no_hole_card() {
-        let duel = Duel::new(vanilla_deck(18), 40, 5, enemy(30, 3));
+    fn greedy_plays_its_biggest_cards_up_to_its_blind() {
+        let draw = [card(3), card(9), card(1), card(7)];
 
-        assert_eq!(duel.margin(), None);
-        assert_eq!(duel.showing(), (18, 0), "nothing kept back");
+        assert_eq!(greedy(&draw, 2, 4, 2), vec![pick(1), pick(3)]);
+        assert_eq!(greedy(&draw, 1, 4, 2), vec![pick(1)]);
+    }
+
+    #[test]
+    fn greedy_orders_its_row_for_the_tells() {
+        // 4 then a doubled 5 is 14; 5 then a doubled 4 is only 13.
+        let draw = [streak(5), streak(4)];
+
+        assert_eq!(greedy(&draw, 2, 4, 2), vec![pick(1), pick(0)]);
+    }
+
+    #[test]
+    fn greedy_burns_for_an_all_in_when_it_pays() {
+        // The 9 alone is 9; the All In burning it is 11.
+        let draw = [all_in(2), card(9), card(3)];
+
+        assert_eq!(
+            greedy(&draw, 1, 4, 2),
+            vec![Pick {
+                card: 0,
+                sacrifice: Some(1)
+            }]
+        );
+    }
+
+    #[test]
+    fn greedy_scores_a_flop_on_the_players_average_for_each_slot_they_can_fill() {
+        let draw = [flop(1), card(5)];
+
+        // In slot 0 a Flop reads slots 0 and 1. Both fillable: 4 + 4 beats 5.
+        assert_eq!(greedy(&draw, 1, 4, 2), vec![pick(0)]);
+        // Only slot 0 fillable: 4 loses to the 5.
+        assert_eq!(greedy(&draw, 1, 4, 1), vec![pick(1)]);
+    }
+
+    #[test]
+    fn a_tie_goes_to_the_earliest_pick_in_draw_order() {
+        let draw = [card(5), card(2), card(5)];
+
+        assert_eq!(greedy(&draw, 1, 4, 2), vec![pick(0)]);
+    }
+
+    #[test]
+    fn greedy_commits_nothing_from_an_empty_draw() {
+        assert_eq!(greedy(&[], 3, 4, 3), Vec::new());
+    }
+}
+
+#[cfg(test)]
+mod modifier_tests {
+    use super::cards::*;
+    use super::*;
+    use crate::boss::{PIT_BOSS, SLOTZ};
+    use crate::modifier::Side;
+    use crate::run::{Encounter, Floor, Reward, RunState};
+
+    /// A modifier that adds to one side's Blind.
+    #[derive(Debug)]
+    struct AddBlind(Side, u8);
+
+    impl Modifier for AddBlind {
+        fn blind(&self, side: Side, blind: u8) -> u8 {
+            if side == self.0 {
+                blind + self.1
+            } else {
+                blind
+            }
+        }
+    }
+
+    #[test]
+    fn the_table_rule_bends_first_and_each_modifier_sees_the_last_answer() {
+        let enemy = Enemy {
+            table_rule: Some(leak(SetBlind(Side::Player, 4))),
+            ..enemy(999)
+        };
+        // Set to 4 by the Table Rule, then +1 by the Perk: 5. Applied the
+        // other way round it would be 4.
+        let duel = Duel::modified(
+            vec![card(4); 18],
+            40,
+            2,
+            enemy,
+            vec![leak(AddBlind(Side::Player, 1))],
+        );
+
+        assert_eq!(duel.blind(Side::Player), 5);
+        assert_eq!(duel.blind(Side::Enemy), 2);
+    }
+
+    #[test]
+    fn a_blind_never_drops_below_one() {
+        let duel = Duel::modified(
+            vec![card(4); 18],
+            40,
+            2,
+            enemy(999),
+            vec![
+                leak(SetBlind(Side::Player, 0)),
+                leak(SetBlind(Side::Enemy, 0)),
+            ],
+        );
+
+        assert_eq!(duel.blind(Side::Player), 1);
+        assert_eq!(duel.blind(Side::Enemy), 1);
+        assert_eq!(duel.opposing().len(), 1);
+    }
+
+    #[test]
+    fn a_run_duel_starts_at_its_floors_blind() {
+        let run = RunState::new();
+        let pit = Duel::for_run(
+            &run,
+            Encounter::Minion {
+                floor: Floor::ThePit,
+            },
+            7,
+        );
+
+        assert_eq!(pit.blind(Side::Player), 3);
+        assert_eq!(pit.blind(Side::Enemy), 3);
+    }
+
+    #[test]
+    fn the_pit_boss_perk_raises_only_the_players_blind() {
+        let Some([Reward::Perk(_), _]) = PIT_BOSS.rewards else {
+            panic!("the Pit Boss offers its Perk first");
+        };
+        let mut run = RunState::new();
+        run.apply(PIT_BOSS.rewards.unwrap()[0], 1);
+
+        let duel = Duel::for_run(
+            &run,
+            Encounter::Minion {
+                floor: Floor::TheFloor,
+            },
+            7,
+        );
+
+        assert_eq!(duel.blind(Side::Player), 3);
+        assert_eq!(duel.blind(Side::Enemy), 2);
+    }
+
+    #[test]
+    fn a_boss_plays_out_of_its_own_deck() {
+        let mut duel = Duel::for_run(
+            &RunState::new(),
+            Encounter::Boss {
+                boss: &SLOTZ,
+                floor: Floor::TheFloor,
+            },
+            7,
+        );
+
+        for _ in 0..5 {
+            assert_eq!(duel.opposing().len(), 2);
+            assert!(duel.opposing().iter().all(|o| SLOTZ.deck.contains(&o.card)));
+            duel.end_turn();
+        }
     }
 }

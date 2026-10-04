@@ -37,12 +37,12 @@ const GLOSSARY: &[(&str, &str)] = &[
         "The seven cards you're holding. Refilled at the start of every turn.",
     ),
     (
-        "Plays",
-        "How many cards you may put in your row this turn. Five, unless a perk says otherwise, and never more than the enemy laid down.",
+        "Blind",
+        "The most cards either side may put in its row this turn. Set by the floor, the same for you and the enemy, unless a perk says otherwise.",
     ),
     (
         "Opposing Cards",
-        "The enemy's row, laid down before you play. The first is face up; the rest are a coin toss. Your cards sit one per slot across from them.",
+        "The enemy's row, chosen from its own Draw and laid face down before you play. Your cards sit one per slot across from them.",
     ),
     (
         "The Hand",
@@ -77,10 +77,6 @@ const GLOSSARY: &[(&str, &str)] = &[
     (
         "Push Your Luck",
         "Once The Hand is shown: Push to flip a coin, or Hold to take the turn as it is. Cleared the Edge? Win doubles the Payout; lose and The Hand is 0. Fell short? Win forgives the Whiff; lose and it doubles.",
-    ),
-    (
-        "Rising Blinds",
-        "Every few turns the enemy lays another Opposing Card down. Past your Plays you can't cover them all. Nobody sits here forever.",
     ),
     ("Loaded Dice", "Item: +5 to your next two Hands."),
 ];

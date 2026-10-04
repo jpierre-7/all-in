@@ -4,19 +4,11 @@
 
 use bevy::prelude::*;
 
+use crate::boss::{PIT_BOSS, SLOTZ, THE_HOUSE};
 use crate::overworld::narrative;
-use crate::run::{CombatOutcome, EncounterId, RewardOffer};
+pub use crate::run::Floor;
+use crate::run::{CombatOutcome, Encounter, RewardOffer};
 use crate::state::AppState;
-
-/// The three floors of the casino, in the order Lucky Jack walks them.
-// The first one really is called The Floor; the narrative names them.
-#[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Floor {
-    TheFloor,
-    ThePit,
-    BigShotsTable,
-}
 
 impl Floor {
     /// The arrival prose the player reads on stepping onto this floor.
@@ -37,46 +29,56 @@ impl Floor {
     }
 }
 
-/// Who sits down across from you.
-pub fn encounter_intro(id: EncounterId) -> &'static str {
-    match id {
-        EncounterId::FloorMinion => narrative::ENC_FLOOR_MINION,
-        EncounterId::Slotz => narrative::ENC_SLOTZ,
-        EncounterId::PitMinion => narrative::ENC_PIT_MINION,
-        EncounterId::PitBoss => narrative::ENC_PIT_BOSS,
-        EncounterId::TheHouse => narrative::ENC_THE_HOUSE,
-        EncounterId::Tutorial => narrative::TUTORIAL_INTRO,
+/// Who sits down across from you. A boss brings its own words.
+pub fn encounter_intro(encounter: Encounter) -> &'static str {
+    match encounter {
+        Encounter::Boss { boss, .. } => boss.intro,
+        Encounter::Minion { floor } => match floor {
+            Floor::TheFloor => narrative::ENC_FLOOR_MINION,
+            Floor::ThePit => narrative::ENC_PIT_MINION,
+            Floor::BigShotsTable => narrative::ENC_BIG_SHOTS_MINION,
+        },
+        Encounter::Practice => narrative::TUTORIAL_INTRO,
     }
 }
 
 /// What the player reads on clearing this encounter's Chips.
-pub fn win_line(id: EncounterId) -> &'static str {
-    match id {
-        EncounterId::FloorMinion | EncounterId::PitMinion => narrative::WIN_MINION,
-        EncounterId::Slotz => narrative::WIN_SLOTZ,
-        EncounterId::PitBoss => narrative::WIN_PIT_BOSS,
-        EncounterId::TheHouse => narrative::WIN_THE_HOUSE,
-        EncounterId::Tutorial => narrative::TUTORIAL_DONE,
+pub fn win_line(encounter: Encounter) -> &'static str {
+    match encounter {
+        Encounter::Boss { boss, .. } => boss.win,
+        Encounter::Minion { .. } => narrative::WIN_MINION,
+        Encounter::Practice => narrative::TUTORIAL_DONE,
     }
 }
 
-/// Every encounter in a run, in order. The whole progression is this list;
-/// the balance sim (`tools/sim`) walks it too.
-pub const RUN: [EncounterId; 5] = [
-    EncounterId::FloorMinion,
-    EncounterId::Slotz,
-    EncounterId::PitMinion,
-    EncounterId::PitBoss,
-    EncounterId::TheHouse,
+/// Every encounter in a run, in order: the floor layout. The whole
+/// progression is this list; the balance sim (`tools/sim`) walks it too.
+pub const RUN: [Encounter; 5] = [
+    Encounter::Minion {
+        floor: Floor::TheFloor,
+    },
+    Encounter::Boss {
+        boss: &SLOTZ,
+        floor: Floor::TheFloor,
+    },
+    Encounter::Minion {
+        floor: Floor::ThePit,
+    },
+    Encounter::Boss {
+        boss: &PIT_BOSS,
+        floor: Floor::ThePit,
+    },
+    Encounter::Boss {
+        boss: &THE_HOUSE,
+        floor: Floor::BigShotsTable,
+    },
 ];
 
 /// Which floor the encounter at `index` sits on.
 fn floor_of(index: usize) -> Floor {
-    match RUN.get(index) {
-        Some(EncounterId::FloorMinion | EncounterId::Slotz) => Floor::TheFloor,
-        Some(EncounterId::PitMinion | EncounterId::PitBoss) => Floor::ThePit,
-        _ => Floor::BigShotsTable,
-    }
+    RUN.get(index)
+        .and_then(|encounter| encounter.floor())
+        .unwrap_or(Floor::BigShotsTable)
 }
 
 /// How far into `RUN` the player is. Reset with `Progress::new` on Fold or death.
@@ -96,16 +98,16 @@ impl Progress {
     /// `Combat` is the point: the encounter after it, the floor prose, and the
     /// reward screen all still come out right.
     #[cfg_attr(not(debug_assertions), allow(dead_code))]
-    pub fn at(id: EncounterId) -> Self {
+    pub fn at(encounter: Encounter) -> Self {
         let next = RUN
             .iter()
-            .position(|&encounter| encounter == id)
-            .expect("every EncounterId is somewhere in RUN");
+            .position(|&e| e == encounter)
+            .expect("the encounter is somewhere in RUN");
         Self { next }
     }
 
     /// The encounter about to be played, or `None` once The House is beaten.
-    pub fn encounter(&self) -> Option<EncounterId> {
+    pub fn encounter(&self) -> Option<Encounter> {
         RUN.get(self.next).copied()
     }
 
@@ -128,7 +130,7 @@ impl Progress {
     pub fn route(&self, outcome: CombatOutcome) -> AppState {
         match (outcome, self.encounter()) {
             (CombatOutcome::Lost, _) => AppState::GameOver,
-            (CombatOutcome::Won, Some(EncounterId::TheHouse)) => AppState::Ending,
+            (CombatOutcome::Won, _) if self.next + 1 == RUN.len() => AppState::Ending,
             (CombatOutcome::Won, _) => AppState::Reward,
         }
     }
@@ -136,7 +138,7 @@ impl Progress {
     /// What the encounter just won pays. `None` once The House is beaten, or
     /// after The House itself, which pays in an ending.
     pub fn reward_offer(&self) -> Option<RewardOffer> {
-        self.encounter().and_then(RewardOffer::for_encounter)
+        self.encounter().and_then(Encounter::reward_offer)
     }
 
     /// Move past the encounter just won.
@@ -148,6 +150,17 @@ impl Progress {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_house_is_the_last_encounter_of_the_run() {
+        assert_eq!(
+            RUN.last(),
+            Some(&Encounter::Boss {
+                boss: &THE_HOUSE,
+                floor: Floor::BigShotsTable
+            })
+        );
+    }
 
     #[test]
     fn every_floor_has_arrival_prose() {
@@ -200,9 +213,9 @@ mod tests {
 
     #[test]
     fn starting_at_an_encounter_leaves_the_rest_of_the_walk_intact() {
-        let mut progress = Progress::at(EncounterId::PitBoss);
+        let mut progress = Progress::at(RUN[3]);
 
-        assert_eq!(progress.encounter(), Some(EncounterId::PitBoss));
+        assert_eq!(progress.encounter(), Some(RUN[3]));
         // Same floor as the Pit minion before it, so no arrival prose.
         assert_eq!(progress.arrival(), AppState::FightOrFold);
         assert_eq!(progress.floor(), Floor::ThePit);
@@ -212,7 +225,7 @@ mod tests {
         ));
 
         progress.advance();
-        assert_eq!(progress.encounter(), Some(EncounterId::TheHouse));
+        assert_eq!(progress.encounter(), Some(RUN[4]));
     }
 
     #[test]
@@ -280,7 +293,7 @@ mod tests {
             progress.advance();
         }
 
-        assert_eq!(progress.encounter(), Some(EncounterId::TheHouse));
+        assert_eq!(progress.encounter(), Some(RUN[4]));
         assert_eq!(progress.route(CombatOutcome::Won), AppState::Ending);
     }
 
@@ -297,11 +310,11 @@ mod tests {
         assert_eq!(
             walked,
             vec![
-                (Floor::TheFloor, EncounterId::FloorMinion),
-                (Floor::TheFloor, EncounterId::Slotz),
-                (Floor::ThePit, EncounterId::PitMinion),
-                (Floor::ThePit, EncounterId::PitBoss),
-                (Floor::BigShotsTable, EncounterId::TheHouse),
+                (Floor::TheFloor, RUN[0]),
+                (Floor::TheFloor, RUN[1]),
+                (Floor::ThePit, RUN[2]),
+                (Floor::ThePit, RUN[3]),
+                (Floor::BigShotsTable, RUN[4]),
             ]
         );
     }

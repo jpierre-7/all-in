@@ -12,7 +12,7 @@
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
 
-use super::duel::Duel;
+use super::duel::{Duel, FlopPeek};
 use super::info::{self, InfoOpen, get_keywords};
 use super::plugin::ActiveDuel;
 use super::ui::{CardSlot, Zone};
@@ -71,8 +71,9 @@ pub struct Tag {
     pub term: Option<&'static str>,
     /// While an All In waits for its sacrifice: what burning this card adds.
     pub burn: Option<u32>,
-    /// A Flop in the Draw: what it would take in the next empty slot.
-    pub flop: Option<u32>,
+    /// A Flop in the Draw: what it would take in the next empty slot, as far
+    /// as the player can see.
+    pub flop: Option<FlopPeek>,
 }
 
 /// The card in a slot, as the player is entitled to see it. A face-down
@@ -346,7 +347,7 @@ pub fn show(
                 text(body, format!("Burn for +{burn}"), 16.0, NEON);
             }
             if let Some(flop) = tag.flop {
-                text(body, format!("Next slot: +{flop}"), 16.0, NEON);
+                text(body, format!("Next slot: {flop}"), 16.0, NEON);
             }
             if let Some(term) = tag.term {
                 nest(body, tag.card.slot, term);

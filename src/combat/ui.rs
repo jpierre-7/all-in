@@ -15,7 +15,8 @@ use super::duel::{
     Coin, Duel, Opposing, Outcome, Phase, Placed, Played, Push, Showdown, TurnResult,
 };
 use super::plugin::ActiveDuel;
-use crate::run::{Card, EncounterId, LOADED_DICE_BONUS, Tell};
+use crate::boss::BOSSES;
+use crate::run::{Card, Encounter, LOADED_DICE_BONUS, Tell};
 use crate::state::AppState;
 
 const INK: Color = Color::srgb(0.90, 0.87, 0.80);
@@ -77,24 +78,21 @@ pub struct Art {
     pub copycat: Option<Handle<Image>>,
     pub flop: Option<Handle<Image>>,
     pub backdrop: Option<Handle<Image>>,
-    pub slotz: Option<Handle<Image>>,
-    pub pit_boss: Option<Handle<Image>>,
-    pub the_house: Option<Handle<Image>>,
+    /// Each boss's portrait, keyed by its path under `assets/`.
+    pub portraits: std::collections::HashMap<&'static str, Handle<Image>>,
     /// Per-card face art under `assets/cards/faces/`, keyed by the card's
     /// name as a file stem (`bus_ticket_home.png`). Whatever is there.
     pub faces: std::collections::HashMap<String, Handle<Image>>,
 }
 
 impl Art {
-    /// The face at the other side of the table. Only the three bosses sat for
-    /// a portrait; the minions are a name and their Chips, and that is the whole
+    /// The face at the other side of the table. Only the bosses sit for a
+    /// portrait; the minions are a name and their Chips, and that is the whole
     /// of them.
-    pub fn portrait(&self, id: EncounterId) -> Option<&Handle<Image>> {
-        match id {
-            EncounterId::Slotz => self.slotz.as_ref(),
-            EncounterId::PitBoss => self.pit_boss.as_ref(),
-            EncounterId::TheHouse => self.the_house.as_ref(),
-            EncounterId::FloorMinion | EncounterId::PitMinion | EncounterId::Tutorial => None,
+    pub fn portrait(&self, encounter: Encounter) -> Option<&Handle<Image>> {
+        match encounter {
+            Encounter::Boss { boss, .. } => self.portraits.get(boss.portrait),
+            Encounter::Minion { .. } | Encounter::Practice => None,
         }
     }
 
@@ -165,9 +163,10 @@ pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
         copycat: load("tells/copycat.png"),
         flop: load("tells/flop.png"),
         backdrop: load("backdrops/combat.png"),
-        slotz: load("portraits/slotz.png"),
-        pit_boss: load("portraits/pit_boss.png"),
-        the_house: load("portraits/the_house.png"),
+        portraits: BOSSES
+            .iter()
+            .filter_map(|boss| Some((boss.portrait, load(boss.portrait)?)))
+            .collect(),
     });
 }
 
@@ -256,7 +255,7 @@ pub fn redraw(
                 ..default()
             })
             .with_children(|who| {
-                if let Some(portrait) = art.portrait(active.id) {
+                if let Some(portrait) = art.portrait(active.encounter) {
                     who.spawn((
                         Node {
                             width: px(PORTRAIT),
@@ -290,7 +289,7 @@ pub fn redraw(
             text(
                 mid,
                 format!(
-                    "{covered} of {} slots covered   -   {} Plays left",
+                    "{covered} of {} slots covered   -   {} more to play",
                     duel.slots(),
                     duel.plays_left()
                 ),
@@ -307,11 +306,6 @@ pub fn redraw(
                 let (size, color) = if guide.is_free_play() { (16.0, DIM) } else { (20.0, GOLD) };
                 text(mid, guide.prompt(), size, color);
                 text(mid, "Esc leaves the Arcade.", 14.0, DIM);
-            }
-            if let Some(margin) = duel.margin()
-                && duel.phase() == Phase::Playing
-            {
-                text(mid, format!("The House keeps its last card back. It fills it in on everything but your last card, plus {margin} - so your last card is the one it can't see."), 16.0, DIM);
             }
             if duel.phase() == Phase::PushYourLuck {
                 if duel.hand() >= duel.house_edge() {
@@ -333,9 +327,6 @@ pub fn redraw(
                 // the line has to carry what they came to, slot by slot.
                 if let Some(showdown) = duel.last_showdown() {
                     text(mid, showdown_line(showdown), 15.0, DIM);
-                }
-                if turn.blinds_rose {
-                    text(mid, blinds_line(duel), 16.0, NEON);
                 }
             }
             if let Some(notice) = &active.notice {
@@ -425,7 +416,7 @@ fn facing_rows(root: &mut ChildSpawnerCommands, active: &ActiveDuel, art: &Art) 
             for i in 0..duel.slots() {
                 let placed: Option<&Placed> = duel.row().get(i);
                 let value = showdown.and_then(|s| s.row.get(i)).map(|p| p.value);
-                // Past the player's Plays there is no slot to fill, only a
+                // Past the player's Blind there is no slot to fill, only a
                 // card of theirs nobody is covering.
                 let coverable = i < usize::from(duel.plays_left()) + duel.row().len();
                 let label = (placed.is_none() && !coverable).then_some("uncovered");
@@ -630,13 +621,9 @@ fn edge_line(parent: &mut ChildSpawnerCommands, duel: &Duel) {
         return;
     }
     let (showing, hidden) = duel.showing();
-    let line = match (hidden, duel.margin()) {
-        (0, _) => format!("House Edge {showing}"),
-        (1, Some(margin)) => {
-            format!("House Edge {showing} + the card it kept back   (your row, +{margin})")
-        }
-        (1, None) => format!("House Edge {showing} + 1 face down"),
-        (n, _) => format!("House Edge {showing} + {n} face down"),
+    let line = match hidden {
+        0 => format!("House Edge {showing}"),
+        n => format!("House Edge {showing} + {n} face down"),
     };
     text(parent, line, 24.0, INK);
 }
@@ -659,14 +646,6 @@ fn showdown_line(showdown: &Showdown) -> String {
         side(&showdown.row),
         side(&showdown.opposing)
     )
-}
-
-/// What the Blinds just did, which is not the same thing for The House.
-fn blinds_line(duel: &Duel) -> String {
-    match duel.margin() {
-        Some(margin) => format!("The Blinds rise. The margin is {margin}."),
-        None => format!("The Blinds rise. {} Opposing Cards now.", duel.slots()),
-    }
 }
 
 /// What the coin is, in the player's terms.
@@ -799,19 +778,31 @@ mod tests {
     use bevy::prelude::*;
 
     use super::{Art, Zone};
-    use crate::run::EncounterId;
+    use crate::boss::{BOSSES, PIT_BOSS, SLOTZ, THE_HOUSE};
+    use crate::run::{Encounter, Floor};
 
-    const SLOTZ: Handle<Image> = uuid_handle!("2f9d4f2e-0e5f-4a23-9a1a-0b0c1d2e3f40");
-    const PIT_BOSS: Handle<Image> = uuid_handle!("2f9d4f2e-0e5f-4a23-9a1a-0b0c1d2e3f41");
-    const THE_HOUSE: Handle<Image> = uuid_handle!("2f9d4f2e-0e5f-4a23-9a1a-0b0c1d2e3f42");
+    const HANDLES: [Handle<Image>; 3] = [
+        uuid_handle!("2f9d4f2e-0e5f-4a23-9a1a-0b0c1d2e3f40"),
+        uuid_handle!("2f9d4f2e-0e5f-4a23-9a1a-0b0c1d2e3f41"),
+        uuid_handle!("2f9d4f2e-0e5f-4a23-9a1a-0b0c1d2e3f42"),
+    ];
 
-    /// Every portrait on disk, so the only thing under test is the match.
+    /// Every portrait on disk, so the only thing under test is the lookup.
     fn hung() -> Art {
         Art {
-            slotz: Some(SLOTZ),
-            pit_boss: Some(PIT_BOSS),
-            the_house: Some(THE_HOUSE),
+            portraits: BOSSES
+                .iter()
+                .zip(HANDLES)
+                .map(|(boss, handle)| (boss.portrait, handle))
+                .collect(),
             ..Art::default()
+        }
+    }
+
+    fn boss(boss: &'static crate::boss::Boss) -> Encounter {
+        Encounter::Boss {
+            boss,
+            floor: Floor::TheFloor,
         }
     }
 
@@ -819,29 +810,32 @@ mod tests {
     fn each_boss_gets_its_own_face() {
         let art = hung();
 
-        assert_eq!(art.portrait(EncounterId::Slotz), Some(&SLOTZ));
-        assert_eq!(art.portrait(EncounterId::PitBoss), Some(&PIT_BOSS));
-        assert_eq!(art.portrait(EncounterId::TheHouse), Some(&THE_HOUSE));
+        assert_eq!(art.portrait(boss(&SLOTZ)), Some(&HANDLES[0]));
+        assert_eq!(art.portrait(boss(&PIT_BOSS)), Some(&HANDLES[1]));
+        assert_eq!(art.portrait(boss(&THE_HOUSE)), Some(&HANDLES[2]));
     }
 
     #[test]
     fn the_minions_never_sat_for_one() {
         let art = hung();
 
-        assert_eq!(art.portrait(EncounterId::FloorMinion), None);
-        assert_eq!(art.portrait(EncounterId::PitMinion), None);
+        for floor in [Floor::TheFloor, Floor::ThePit] {
+            assert_eq!(art.portrait(Encounter::Minion { floor }), None);
+        }
+        assert_eq!(art.portrait(Encounter::Practice), None);
     }
 
     #[test]
     fn a_missing_file_is_no_portrait_rather_than_a_broken_one() {
         let art = Art::default();
 
-        for id in [
-            EncounterId::Slotz,
-            EncounterId::PitBoss,
-            EncounterId::TheHouse,
-        ] {
-            assert_eq!(art.portrait(id), None, "{id:?} falls back to no portrait");
+        for b in BOSSES {
+            assert_eq!(
+                art.portrait(boss(b)),
+                None,
+                "{} falls back to no portrait",
+                b.name
+            );
         }
     }
 
