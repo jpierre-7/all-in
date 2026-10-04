@@ -10,6 +10,14 @@ A text-adventure roguelike set in a casino. Every encounter is a card duel again
 A fighter's remaining life. Only the player and the enemy have Chips; cards have a Face Value instead. The player's Chips carry between encounters and only come back by buying them with Cash.
 _Avoid_: Stack, HP, health, life
 
+**Boss**:
+An enemy written by hand in one place: its Deck, its Boss Tell, its Table Rule, its Boss Pack, and the Perk pair offered for beating it (The House offers a Legacy Perk choice instead). Beating it unlocks its Boss Tell for the rest of the run.
+_Avoid_: elite, champion
+
+**Minion**:
+An enemy whose Deck is dealt from the standard template for its floor, its Tells drawn from every Tell the run has unlocked so far.
+_Avoid_: mob, grunt, regular enemy
+
 **House Edge**:
 What the Opposing Cards add up to once every Tell in them has resolved: the number The Hand has to beat this turn. Not a flat number the enemy carries around: it is whatever the enemy actually laid down, and the player sees none of it before confirming unless a Reveal turns some of it over.
 _Avoid_: defense, armor, threshold
