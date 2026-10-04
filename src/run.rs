@@ -6,6 +6,9 @@
 
 use bevy::prelude::*;
 
+use crate::boss::Boss;
+use crate::modifier::Modifier;
+
 // ---------------------------------------------------------------------------
 // Cards
 // ---------------------------------------------------------------------------
@@ -32,6 +35,10 @@ pub enum Tell {
 }
 
 impl Tell {
+    /// The Tells every run starts with. Every other Tell is a Boss Tell,
+    /// locked until its boss is beaten.
+    pub const OPEN: [Tell; 2] = [Tell::Streak, Tell::AllIn];
+
     pub fn rule_text(&self) -> Vec<&'static str> {
         match self {
             Tell::Streak => vec![
@@ -90,13 +97,29 @@ pub struct Card {
 // Run-long modifiers
 // ---------------------------------------------------------------------------
 
-/// Chosen 1-of-2 after beating a boss. Persists for the run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Perk {
-    /// Slotz option 1: Push Your Luck is best 2-of-3 at 49/51.
-    PylBestTwoOfThree,
-    /// Pit Boss option 1: 6 Plays per turn, but Rising Blinds add an Opposing Card every turn.
-    SixPlaysSteepBlinds,
+/// Chosen 1-of-2 after beating a boss, and kept for the run. Each one lives
+/// in its boss's file and bends the duel through its [`Modifier`].
+#[derive(Debug)]
+pub struct Perk {
+    /// The line the reward screen puts against the key that takes it.
+    pub label: &'static str,
+    pub modifier: &'static dyn Modifier,
+}
+
+/// A Perk is the one definition it was taken from.
+impl PartialEq for Perk {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+/// A boss reward that adds cards to the deck. Today's card-giving rewards,
+/// until the Boss Pack replaces them.
+#[derive(Debug)]
+pub struct CardReward {
+    pub label: &'static str,
+    /// The cards it adds, rolled off the seed the caller hands over.
+    pub cards: fn(u64) -> Vec<Card>,
 }
 
 /// Dropped after beating a minion. Consumed by combat.
@@ -108,15 +131,22 @@ pub enum Item {
 
 /// What the reward screen hands out. Overworld renders the choice and calls
 /// `RunState::apply`; deck-changing rewards mutate the deck here, not in combat.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub enum Reward {
     LoadedDice,
-    /// Slotz option 2: add 3 Streak cards to the deck.
-    SlotzStreakCards,
-    SlotzPylBestTwoOfThree,
-    PitBossSixPlays,
-    /// Pit Boss option 2: add 4 random cards (2 with random Tells, 2 vanilla).
-    PitBossRandomCards,
+    Perk(&'static Perk),
+    Cards(&'static CardReward),
+}
+
+impl PartialEq for Reward {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::LoadedDice, Self::LoadedDice) => true,
+            (Self::Perk(a), Self::Perk(b)) => std::ptr::eq(*a, *b),
+            (Self::Cards(a), Self::Cards(b)) => std::ptr::eq(*a, *b),
+            _ => false,
+        }
+    }
 }
 
 impl Reward {
@@ -124,46 +154,20 @@ impl Reward {
     pub fn label(self) -> &'static str {
         match self {
             Self::LoadedDice => "Loaded Dice. +5 to each of your next two Hands.",
-            Self::SlotzStreakCards => "Three more Streak cards in the deck.",
-            Self::SlotzPylBestTwoOfThree => "Push Your Luck becomes best 2 of 3, at 49/51.",
-            Self::PitBossSixPlays => {
-                "A sixth Play every turn - but the Blinds rise every turn, not every fifth, and each rise is another Opposing Card."
-            }
-            Self::PitBossRandomCards => {
-                "Four cards off the Pit's table: two with Tells, two plain."
-            }
+            Self::Perk(perk) => perk.label,
+            Self::Cards(cards) => cards.label,
         }
     }
 }
 
 /// What is on the table once an encounter is won. Overworld renders it;
 /// `RunState::apply` does the mutating.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RewardOffer {
     /// A minion's drop: no choice, it is already in your pocket.
     Drop(Reward),
     /// A boss's pick, 1 of 2.
     Pick(Reward, Reward),
-}
-
-impl RewardOffer {
-    /// What beating `id` pays. The House pays in an ending, not a perk.
-    pub fn for_encounter(id: EncounterId) -> Option<Self> {
-        match id {
-            EncounterId::FloorMinion | EncounterId::PitMinion => {
-                Some(Self::Drop(Reward::LoadedDice))
-            }
-            EncounterId::Slotz => Some(Self::Pick(
-                Reward::SlotzPylBestTwoOfThree,
-                Reward::SlotzStreakCards,
-            )),
-            EncounterId::PitBoss => Some(Self::Pick(
-                Reward::PitBossSixPlays,
-                Reward::PitBossRandomCards,
-            )),
-            EncounterId::TheHouse | EncounterId::Tutorial => None,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -177,8 +181,11 @@ pub struct RunState {
     /// The player's chips. Combat mutates this in place; 0 means the run is over.
     pub chips: u32,
     pub deck: Vec<Card>,
-    pub perks: Vec<Perk>,
+    /// In the order taken, which is the order the duel applies them in.
+    pub perks: Vec<&'static Perk>,
     pub items: Vec<Item>,
+    /// Every boss beaten this run. The Tells they unlocked follow from it.
+    pub bosses_beaten: Vec<&'static Boss>,
 }
 
 impl RunState {
@@ -189,26 +196,45 @@ impl RunState {
             deck: starter_deck(),
             perks: Vec::new(),
             items: Vec::new(),
+            bosses_beaten: Vec::new(),
         }
     }
 
     /// Grant a reward. The only way perks, items, or the deck change between
     /// encounters.
     ///
-    /// `seed` feeds the one reward that rolls dice, the Pit Boss card pack.
-    /// The caller owns the randomness here for the same reason it owns the
-    /// duel's shuffle: it keeps this whole file deterministic under test.
+    /// `seed` feeds the rewards that roll dice. The caller owns the
+    /// randomness here for the same reason it owns the duel's shuffle: it
+    /// keeps this whole file deterministic under test.
     pub fn apply(&mut self, reward: Reward, seed: u64) {
         match reward {
             Reward::LoadedDice => {
                 // A fresh pair on top of an existing one adds Hands, not clutter.
                 self.set_loaded_dice(self.loaded_dice().saturating_add(LOADED_DICE_HANDS));
             }
-            Reward::SlotzStreakCards => self.deck.extend(streak_reward_cards()),
-            Reward::SlotzPylBestTwoOfThree => self.take_perk(Perk::PylBestTwoOfThree),
-            Reward::PitBossSixPlays => self.take_perk(Perk::SixPlaysSteepBlinds),
-            Reward::PitBossRandomCards => self.deck.extend(random_cards(seed)),
+            Reward::Perk(perk) => self.take_perk(perk),
+            Reward::Cards(cards) => self.deck.extend((cards.cards)(seed)),
         }
+    }
+
+    /// Record a boss beaten, which unlocks its Boss Tell for the rest of the run.
+    pub fn beat(&mut self, boss: &'static Boss) {
+        if !self.bosses_beaten.contains(&boss) {
+            self.bosses_beaten.push(boss);
+        }
+    }
+
+    /// Every Tell this run has unlocked: the ones open from the start, then
+    /// each beaten boss's Boss Tell. Minion decks, Packs and the Cage deal
+    /// from this.
+    pub fn tell_pool(&self) -> Vec<Tell> {
+        let mut pool = Tell::OPEN.to_vec();
+        for boss in &self.bosses_beaten {
+            if !pool.contains(&boss.tell) {
+                pool.push(boss.tell);
+            }
+        }
+        pool
     }
 
     /// Hands still carrying the Loaded Dice bonus. Combat reads this on the
@@ -230,34 +256,8 @@ impl RunState {
         }
     }
 
-    /// Plays per turn after perks: the most cards the player may put in the
-    /// row. An enemy row longer than this can't be covered slot for slot, and
-    /// what isn't covered is free chips for the enemy.
-    pub fn plays(&self) -> u8 {
-        if self.perks.contains(&Perk::SixPlaysSteepBlinds) {
-            6
-        } else {
-            5
-        }
-    }
-
-    /// Rising Blinds after perks. The Pit Boss perk states its own price
-    /// rather than borrowing the enemy's step: another Opposing Card every
-    /// turn, three times the base rate, and the same price whoever is sitting
-    /// across the table. The sixth Play buys one turn of cover against it.
-    pub fn blinds(&self, base: RisingBlinds) -> RisingBlinds {
-        if self.perks.contains(&Perk::SixPlaysSteepBlinds) {
-            RisingBlinds {
-                every_turns: 1,
-                cards: STEEP_BLINDS_CARDS,
-            }
-        } else {
-            base
-        }
-    }
-
     /// A perk is a thing you either have or don't; taking it twice is a no-op.
-    fn take_perk(&mut self, perk: Perk) {
+    fn take_perk(&mut self, perk: &'static Perk) {
         if !self.perks.contains(&perk) {
             self.perks.push(perk);
         }
@@ -271,54 +271,117 @@ impl Default for RunState {
 }
 
 // ---------------------------------------------------------------------------
-// Enemies and encounters
+// Floors, encounters and enemies
 // ---------------------------------------------------------------------------
 
-/// Which encounter the overworld is entering. Overworld's floor table is a
-/// sequence of these; Dev 1 owns what each one means.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum EncounterId {
-    FloorMinion,
-    Slotz,
-    PitMinion,
-    PitBoss,
-    TheHouse,
-    /// The Arcade's practice duel (#40). Never part of a run.
-    Tutorial,
-}
-
-/// How the enemy's side escalates as combat goes on: every `every_turns`
-/// turns it lays `cards` more Opposing Cards. The House is the exception —
-/// it raises its margin instead, by `HoleCard::step`.
+/// The three floors of the casino, in the order Lucky Jack walks them.
+// The first one really is called The Floor; the narrative names them.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RisingBlinds {
-    pub every_turns: u8,
-    pub cards: u8,
+pub enum Floor {
+    TheFloor,
+    ThePit,
+    BigShotsTable,
 }
 
-/// What an enemy deals its Opposing Cards from. Ordinary enemies keep no
-/// named deck: a Face Value range and the odds of a Tell are the whole of them, so
-/// a new enemy is six numbers rather than eighteen cards.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Deal {
-    /// Opposing Cards laid down on turn one. Rising Blinds add more.
-    pub row: u8,
-    /// The Face Value range a card is dealt from, inclusive at both ends.
-    pub low: u32,
-    pub high: u32,
-    /// Chance in 100 that a dealt card carries a Tell at all.
-    pub tell_pct: u32,
-    /// The Tells this enemy plays; one is drawn at random when `tell_pct`
-    /// hits. **Never All In** — an enemy has no Draw to burn a card from, so
-    /// an All In dealt here would just be worth its Face Value.
-    pub tells: &'static [Tell],
-    /// Chance in 100 that a card is dealt face down. The first Opposing Card
-    /// is always face up whatever this says.
-    pub hidden_pct: u32,
+impl Floor {
+    /// The most cards either side may play in a turn here: 2 on The Floor
+    /// and one more on each floor after it.
+    pub fn blind(self) -> u8 {
+        match self {
+            Self::TheFloor => 2,
+            Self::ThePit => 3,
+            Self::BigShotsTable => 4,
+        }
+    }
 }
 
-/// The names the house deals under. Flavour only: an Opposing Card is a
-/// Face Value and a Tell, and the name is what the Peek puts at the top of the tag.
+/// The Arcade's practice hand plays every card the script walks through.
+pub const PRACTICE_BLIND: u8 = 5;
+
+/// Who is across the table. Inserted by overworld before
+/// `NextState(AppState::Combat)`; combat removes it on exit.
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub enum Encounter {
+    Boss {
+        boss: &'static Boss,
+        floor: Floor,
+    },
+    Minion {
+        floor: Floor,
+    },
+    /// The Arcade's demo dealer (#40). Never part of a run: it unlocks
+    /// nothing, pays nothing, and doesn't read the Tell pool.
+    Practice,
+}
+
+impl Encounter {
+    /// The floor it is fought on. `None` for the Arcade.
+    pub fn floor(self) -> Option<Floor> {
+        match self {
+            Self::Boss { floor, .. } | Self::Minion { floor } => Some(floor),
+            Self::Practice => None,
+        }
+    }
+
+    /// The Blind both sides start the duel with.
+    pub fn blind(self) -> u8 {
+        self.floor().map_or(PRACTICE_BLIND, Floor::blind)
+    }
+
+    /// Who sits down. A minion's Deck is dealt here off `seed`, from every
+    /// Tell `run` has unlocked so far.
+    pub fn enemy(self, run: &RunState, seed: u64) -> Enemy {
+        match self {
+            Self::Boss { boss, .. } => Enemy {
+                name: boss.name,
+                chips: boss.chips,
+                deck: boss.deck.to_vec(),
+                table_rule: boss.table_rule,
+            },
+            Self::Minion { floor } => {
+                let table = MinionTable::on(floor);
+                Enemy {
+                    name: table.name,
+                    chips: table.chips,
+                    deck: minion_deck(floor, &run.tell_pool(), seed),
+                    table_rule: None,
+                }
+            }
+            Self::Practice => Enemy {
+                name: "THE DEMO DEALER",
+                chips: 30,
+                deck: Vec::new(),
+                table_rule: None,
+            },
+        }
+    }
+
+    /// What beating it pays. `None` for The House, which pays in an ending,
+    /// and for the Arcade.
+    pub fn reward_offer(self) -> Option<RewardOffer> {
+        match self {
+            Self::Boss { boss, .. } => boss.rewards.map(|[one, two]| RewardOffer::Pick(one, two)),
+            Self::Minion { .. } => Some(RewardOffer::Drop(Reward::LoadedDice)),
+            Self::Practice => None,
+        }
+    }
+}
+
+/// Whoever is across the table, as the duel needs them.
+#[derive(Debug, Clone)]
+pub struct Enemy {
+    pub name: &'static str,
+    /// The enemy's chips; 0 means the encounter is won.
+    pub chips: u32,
+    /// What it draws from, in draw order before the duel shuffles it.
+    pub deck: Vec<Card>,
+    /// A boss's rule for its own fight, applied before anything else.
+    pub table_rule: Option<&'static dyn Modifier>,
+}
+
+/// The names the house deals under. Flavour only: a dealt card is a Face
+/// Value and a Tell, and the name is what the Peek puts at the top of the tag.
 const HOUSE_CARDS: [&str; 10] = [
     "Dealer's Nod",
     "Chip Rack",
@@ -332,168 +395,75 @@ const HOUSE_CARDS: [&str; 10] = [
     "Eye in the Sky",
 ];
 
-impl Deal {
-    /// One Opposing Card off the enemy's table. Rolls the Face Value, then whether
-    /// it carries a Tell, then which — always in that order, so a change to
-    /// the Tell list doesn't re-deal the Face Values of a pinned seed.
-    pub fn card(&self, rng: &mut u64) -> Card {
-        let span = u64::from(self.high.saturating_sub(self.low) + 1);
-        let face_value = self.low + (xorshift64(rng) % span) as u32;
-        let carries = !self.tells.is_empty() && xorshift64(rng) % 100 < u64::from(self.tell_pct);
-        let tell =
-            carries.then(|| self.tells[(xorshift64(rng) % self.tells.len() as u64) as usize]);
-        let name = HOUSE_CARDS[(xorshift64(rng) % HOUSE_CARDS.len() as u64) as usize];
-        Card {
-            name,
-            face_value,
-            tell,
-        }
+/// One card off the house's table: a Face Value in `faces`, and a Tell drawn
+/// uniformly from `pool` `tell_pct` times in 100. Rolls the Face Value, then
+/// whether it carries a Tell, then which, always in that order, so a change
+/// to the pool doesn't re-deal the Face Values of a pinned seed. Minion decks
+/// are dealt with it, and Packs will be.
+pub fn deal_card(
+    faces: std::ops::RangeInclusive<u32>,
+    tell_pct: u32,
+    pool: &[Tell],
+    rng: &mut u64,
+) -> Card {
+    let span = u64::from(faces.end().saturating_sub(*faces.start()) + 1);
+    let face_value = faces.start() + (xorshift64(rng) % span) as u32;
+    let carries = !pool.is_empty() && xorshift64(rng) % 100 < u64::from(tell_pct);
+    let tell = carries.then(|| pool[(xorshift64(rng) % pool.len() as u64) as usize]);
+    let name = HOUSE_CARDS[(xorshift64(rng) % HOUSE_CARDS.len() as u64) as usize];
+    Card {
+        name,
+        face_value,
+        tell,
     }
 }
 
-/// The House's Hole Card rule (#5). It deals its last Opposing Card face
-/// down and leaves it blank until the showdown, then sets it so its row reads
-/// the player's row — everything but the player's own last card — plus the
-/// margin. The player's last card is the Hole Card: the one card The House
-/// could not see. Rising Blinds raise the margin rather than the row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HoleCard {
-    /// How far above the row it read The House sets its own.
-    pub margin: u32,
-    /// What each Blinds tick adds to the margin.
-    pub step: u32,
+/// The standard template a minion's Deck is dealt from, one row per floor.
+/// Untuned: the balance sim sets these.
+struct MinionTable {
+    name: &'static str,
+    chips: u32,
+    size: usize,
+    faces: std::ops::RangeInclusive<u32>,
+    /// Chance in 100 that a card carries a Tell.
+    tell_pct: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Enemy {
-    pub name: &'static str,
-    /// The enemy's chips; 0 means the encounter is won.
-    pub chips: u32,
-    /// How it fills the row across from the player.
-    pub deal: Deal,
-    pub blinds: RisingBlinds,
-    /// Set for The House alone (#5); `None` for every ordinary enemy.
-    pub hole_card: Option<HoleCard>,
-}
-
-impl Enemy {
-    /// The single place enemy numbers live (#8).
-    pub fn for_encounter(id: EncounterId) -> Self {
-        let blinds = RisingBlinds {
-            every_turns: 5,
-            cards: 1,
-        };
-        match id {
-            EncounterId::FloorMinion => Enemy {
+impl MinionTable {
+    fn on(floor: Floor) -> Self {
+        match floor {
+            Floor::TheFloor => MinionTable {
                 name: "A shill in a rented tux",
                 chips: 25,
-                deal: Deal {
-                    row: 3,
-                    low: 2,
-                    high: 5,
-                    tell_pct: 20,
-                    tells: &[Tell::Streak],
-                    hidden_pct: 50,
-                },
-                blinds,
-                hole_card: None,
+                size: 14,
+                faces: 2..=5,
+                tell_pct: 20,
             },
-            EncounterId::Slotz => Enemy {
-                name: "SLOTZ",
-                chips: 32,
-                deal: Deal {
-                    row: 3,
-                    low: 3,
-                    high: 7,
-                    tell_pct: 35,
-                    tells: &[Tell::Streak, Tell::Copycat],
-                    hidden_pct: 50,
-                },
-                blinds,
-                hole_card: None,
-            },
-            EncounterId::PitMinion => Enemy {
+            Floor::ThePit => MinionTable {
                 name: "A dealer with a scar",
                 chips: 32,
-                deal: Deal {
-                    row: 4,
-                    low: 4,
-                    high: 7,
-                    tell_pct: 30,
-                    tells: &[Tell::Streak, Tell::Flop],
-                    hidden_pct: 50,
-                },
-                blinds,
-                hole_card: None,
+                size: 14,
+                faces: 4..=7,
+                tell_pct: 30,
             },
-            EncounterId::PitBoss => Enemy {
-                name: "THE PIT BOSS",
-                chips: 40,
-                deal: Deal {
-                    row: 4,
-                    low: 4,
-                    high: 9,
-                    tell_pct: 40,
-                    tells: &[Tell::Streak, Tell::Copycat, Tell::Flop],
-                    hidden_pct: 55,
-                },
-                blinds,
-                hole_card: None,
-            },
-            // A practice hand, not a clock: everything face up, no Tells, no
-            // Blinds. The Arcade overrides the row outright (#40).
-            EncounterId::Tutorial => Enemy {
-                name: "THE DEMO DEALER",
-                chips: 30,
-                deal: Deal {
-                    row: 5,
-                    low: 4,
-                    high: 4,
-                    tell_pct: 0,
-                    tells: &[],
-                    hidden_pct: 0,
-                },
-                blinds: RisingBlinds {
-                    every_turns: u8::MAX,
-                    cards: 0,
-                },
-                hole_card: None,
-            },
-            // The House deals itself scraps and keeps the last card blank
-            // until the showdown, so its row lands wherever the Hole Card
-            // rule says it lands. Streak and Flop only: both read a slot
-            // that is already settled when the Hole Card is worked out,
-            // where a Copycat would have to read the blank.
-            EncounterId::TheHouse => Enemy {
-                name: "THE HOUSE",
-                chips: 35,
-                deal: Deal {
-                    row: 4,
-                    low: 1,
-                    high: 4,
-                    tell_pct: 35,
-                    tells: &[Tell::Streak, Tell::Flop],
-                    hidden_pct: 40,
-                },
-                blinds: RisingBlinds {
-                    every_turns: 2,
-                    cards: 0,
-                },
-                hole_card: Some(HoleCard { margin: 1, step: 2 }),
+            Floor::BigShotsTable => MinionTable {
+                name: "A high roller's minder",
+                chips: 36,
+                size: 16,
+                faces: 4..=8,
+                tell_pct: 35,
             },
         }
     }
 }
 
-/// Inserted by overworld before `NextState(AppState::Combat)`.
-/// Combat removes it on exit.
-#[derive(Resource, Debug, Clone)]
-pub struct Encounter {
-    /// Which encounter this is. Combat reads it for the Arcade's fixed deal
-    /// and for the portrait the screen hangs across the table; the Hole Card
-    /// rule rides on `enemy.hole_card` rather than on the id.
-    pub id: EncounterId,
-    pub enemy: Enemy,
+/// A minion's Deck for `floor`, its Tells drawn uniformly from `pool`.
+pub fn minion_deck(floor: Floor, pool: &[Tell], seed: u64) -> Vec<Card> {
+    let table = MinionTable::on(floor);
+    let mut rng = seed | 1;
+    (0..table.size)
+        .map(|_| deal_card(table.faces.clone(), table.tell_pct, pool, &mut rng))
+        .collect()
 }
 
 /// Inserted by combat immediately before `NextState(AppState::PostCombat)`.
@@ -509,7 +479,8 @@ pub enum CombatOutcome {
 pub const STARTING_CHIPS: u32 = 50;
 
 /// The one xorshift64 the whole game rolls on: the duel's reshuffle, the
-/// deal into the Draw, the Push Your Luck coin, and the Pit Boss card pack.
+/// deal into the Draw, the Push Your Luck coin, minion decks, and the Pit Boss
+/// card pack.
 /// Not cryptography - it is a card game, and one stream is easier to reason
 /// about than three.
 pub fn xorshift64(state: &mut u64) -> u64 {
@@ -522,82 +493,6 @@ pub fn xorshift64(state: &mut u64) -> u64 {
 /// Loaded Dice: this much on The Hand, for this many Hands (#12).
 pub const LOADED_DICE_BONUS: u32 = 5;
 pub const LOADED_DICE_HANDS: u8 = 2;
-
-/// What the Pit Boss perk's sixth Play costs: this many more Opposing Cards
-/// every single turn, against a base of the same step every three (#12).
-const STEEP_BLINDS_CARDS: u8 = 1;
-
-/// Slotz Option 2 (#12): three more Streak cards, all middling, so the reward
-/// is a better chance of firing Streak rather than a higher ceiling.
-fn streak_reward_cards() -> Vec<Card> {
-    ["Loose Slot", "Second Cherry", "Jackpot Bell"]
-        .into_iter()
-        .map(|name| Card {
-            name,
-            face_value: 4,
-            tell: Some(Tell::Streak),
-        })
-        .collect()
-}
-
-/// Pit Boss Option 2 (#12): four cards off the Pit's own table, two with a
-/// random Tell (Streak, All In, Copycat, or Flop) and two plain. Face Values stay
-/// inside the starter deck's ranges so the pack thickens the deck without
-/// rewriting its maths.
-fn random_cards(seed: u64) -> Vec<Card> {
-    const TELLED: [&str; 6] = [
-        "Sleeve Ace",
-        "Tipped Dealer",
-        "Marker from the Pit",
-        "Cooler Deck",
-        "Late Bet",
-        "Chip on the Rail",
-    ];
-    const PLAIN: [&str; 6] = [
-        "House Matchbook",
-        "Parking Stub",
-        "Cocktail Napkin",
-        "Loose Change",
-        "Cigarette Burn",
-        "Plastic Chip",
-    ];
-
-    let mut rng = seed | 1;
-    let mut roll = |n: u64| xorshift64(&mut rng) % n;
-    // Names come out of the hat rather than off it, so a pack never holds the
-    // same card twice.
-    let mut telled = TELLED.to_vec();
-    let mut plain = PLAIN.to_vec();
-
-    let mut cards = Vec::with_capacity(4);
-    for _ in 0..2 {
-        let name = telled.swap_remove(roll(telled.len() as u64) as usize);
-        // Each Tell keeps the range the starter deck gives it: Streak 3..=6,
-        // All In 2..=5. Copycat prints 2..=5 too (#110): the print only
-        // counts when no card follows, so a low one pushes it into the
-        // sequence rather than the last slot. Flop's print never counts for
-        // itself, only for a Copycat or an enemy Flop reading it (#113).
-        let (tell, face_value) = match roll(4) {
-            0 => (Tell::Streak, 3 + roll(4) as u32),
-            1 => (Tell::AllIn, 2 + roll(4) as u32),
-            2 => (Tell::Copycat, 2 + roll(4) as u32),
-            _ => (Tell::Flop, 2 + roll(4) as u32),
-        };
-        cards.push(Card {
-            name,
-            face_value,
-            tell: Some(tell),
-        });
-    }
-    for _ in 0..2 {
-        cards.push(Card {
-            name: plain.swap_remove(roll(plain.len() as u64) as usize),
-            face_value: 2 + roll(7) as u32, // 2..=8, the starter deck's vanilla range
-            tell: None,
-        });
-    }
-    cards
-}
 
 /// The fixed starter deck (#3): 18 cards, 44% with a Tell. Ten vanilla
 /// cards 2..=8, four Streak 3..=6, four All In 2..=5. Prototyped on the
@@ -709,9 +604,19 @@ pub fn tutorial_opposing() -> Vec<(Card, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::boss::{PIT_BOSS, SLOTZ, THE_HOUSE};
 
     /// Any old seed; the rewards that roll dice only have to be deterministic.
     const SEED: u64 = 0x1234_5678_9abc_def0;
+
+    /// The two rewards Slotz puts on the table, perk first.
+    fn slotz() -> [Reward; 2] {
+        SLOTZ.rewards.expect("Slotz pays a 1-of-2")
+    }
+
+    fn pit_boss() -> [Reward; 2] {
+        PIT_BOSS.rewards.expect("the Pit Boss pays a 1-of-2")
+    }
 
     fn tells(cards: &[Card]) -> usize {
         cards.iter().filter(|c| c.tell.is_some()).count()
@@ -725,8 +630,164 @@ mod tests {
         assert_eq!(run.deck.len(), starter_deck().len());
         assert!(run.perks.is_empty());
         assert!(run.items.is_empty());
-        assert_eq!(run.plays(), 5);
+        assert!(run.bosses_beaten.is_empty());
         assert_eq!(run.loaded_dice(), 0);
+    }
+
+    #[test]
+    fn a_fresh_run_has_only_streak_and_all_in_unlocked() {
+        assert_eq!(RunState::new().tell_pool(), vec![Tell::Streak, Tell::AllIn]);
+    }
+
+    #[test]
+    fn beating_a_boss_unlocks_its_boss_tell_and_nothing_else() {
+        let mut run = RunState::new();
+
+        run.beat(&SLOTZ);
+
+        assert_eq!(
+            run.tell_pool(),
+            vec![Tell::Streak, Tell::AllIn, Tell::Copycat]
+        );
+    }
+
+    #[test]
+    fn a_boss_tell_already_in_the_pool_is_not_listed_twice() {
+        let mut run = RunState::new();
+
+        // The Pit Boss carries Streak until its own Boss Tell is picked.
+        run.beat(&PIT_BOSS);
+        run.beat(&THE_HOUSE);
+        run.beat(&THE_HOUSE);
+
+        assert_eq!(run.tell_pool(), vec![Tell::Streak, Tell::AllIn, Tell::Flop]);
+    }
+
+    #[test]
+    fn a_minion_deck_is_dealt_inside_its_floors_range() {
+        let pool = [Tell::Streak, Tell::AllIn];
+
+        for seed in 1..50 {
+            let deck = minion_deck(Floor::TheFloor, &pool, seed);
+            assert_eq!(deck.len(), 14);
+            assert!(deck.iter().all(|c| (2..=5).contains(&c.face_value)));
+
+            let pit = minion_deck(Floor::ThePit, &pool, seed);
+            assert!(pit.iter().all(|c| (4..=7).contains(&c.face_value)));
+        }
+    }
+
+    #[test]
+    fn a_minion_only_holds_tells_the_run_has_unlocked() {
+        let pool = [Tell::Copycat];
+
+        let dealt: Vec<Card> = (1..50)
+            .flat_map(|seed| minion_deck(Floor::ThePit, &pool, seed))
+            .collect();
+
+        assert!(tells(&dealt) > 0);
+        assert!(
+            dealt
+                .iter()
+                .all(|c| c.tell.is_none() || c.tell == Some(Tell::Copycat))
+        );
+        assert!(
+            minion_deck(Floor::ThePit, &[], SEED)
+                .iter()
+                .all(|c| c.tell.is_none()),
+            "an empty pool deals plain cards"
+        );
+    }
+
+    #[test]
+    fn a_minion_draws_every_unlocked_tell_about_as_often() {
+        let pool = [Tell::Streak, Tell::AllIn, Tell::Copycat, Tell::Flop];
+        let dealt: Vec<Card> = (1..400)
+            .flat_map(|seed| minion_deck(Floor::BigShotsTable, &pool, seed))
+            .collect();
+
+        let count = |tell| dealt.iter().filter(|c| c.tell == Some(tell)).count();
+        let telled = tells(&dealt);
+        for tell in pool {
+            let share = count(tell) * 100 / telled;
+            assert!(
+                (18..=32).contains(&share),
+                "{tell:?} was {share}% of the Tells"
+            );
+        }
+    }
+
+    #[test]
+    fn a_minion_deck_is_dealt_off_its_seed() {
+        let pool = RunState::new().tell_pool();
+
+        assert_eq!(
+            minion_deck(Floor::TheFloor, &pool, SEED),
+            minion_deck(Floor::TheFloor, &pool, SEED)
+        );
+        assert_ne!(
+            minion_deck(Floor::TheFloor, &pool, SEED),
+            minion_deck(Floor::TheFloor, &pool, SEED ^ 0xffff)
+        );
+    }
+
+    #[test]
+    fn a_minion_is_dealt_from_the_runs_pool() {
+        let mut run = RunState::new();
+        run.beat(&THE_HOUSE);
+
+        let enemy = Encounter::Minion {
+            floor: Floor::ThePit,
+        }
+        .enemy(&run, SEED);
+
+        assert_eq!(
+            enemy.deck,
+            minion_deck(Floor::ThePit, &run.tell_pool(), SEED)
+        );
+    }
+
+    #[test]
+    fn a_boss_sits_down_with_its_own_deck() {
+        let enemy = Encounter::Boss {
+            boss: &SLOTZ,
+            floor: Floor::TheFloor,
+        }
+        .enemy(&RunState::new(), SEED);
+
+        assert_eq!(enemy.name, SLOTZ.name);
+        assert_eq!(enemy.chips, SLOTZ.chips);
+        assert_eq!(enemy.deck, SLOTZ.deck);
+    }
+
+    #[test]
+    fn the_blind_is_two_on_the_floor_and_one_more_each_floor_up() {
+        assert_eq!(Floor::TheFloor.blind(), 2);
+        assert_eq!(Floor::ThePit.blind(), 3);
+        assert_eq!(Floor::BigShotsTable.blind(), 4);
+    }
+
+    #[test]
+    fn every_encounter_worth_beating_puts_something_on_the_table() {
+        let minion = Encounter::Minion {
+            floor: Floor::TheFloor,
+        };
+        let boss = |boss| Encounter::Boss {
+            boss,
+            floor: Floor::ThePit,
+        };
+
+        assert_eq!(
+            minion.reward_offer(),
+            Some(RewardOffer::Drop(Reward::LoadedDice))
+        );
+        assert_eq!(
+            boss(&SLOTZ).reward_offer(),
+            Some(RewardOffer::Pick(slotz()[0], slotz()[1]))
+        );
+        // The House pays out in an ending, not a perk, and the Arcade in nothing.
+        assert_eq!(boss(&THE_HOUSE).reward_offer(), None);
+        assert_eq!(Encounter::Practice.reward_offer(), None);
     }
 
     #[test]
@@ -767,7 +828,7 @@ mod tests {
         let mut run = RunState::new();
         let before = run.deck.len();
 
-        run.apply(Reward::SlotzStreakCards, SEED);
+        run.apply(slotz()[1], SEED);
 
         let added = &run.deck[before..];
         assert_eq!(added.len(), 3);
@@ -775,13 +836,15 @@ mod tests {
     }
 
     #[test]
-    fn the_slotz_perk_is_the_only_thing_that_changes() {
+    fn a_perk_is_the_only_thing_that_changes_and_is_taken_once() {
         let mut run = RunState::new();
         let deck = run.deck.len();
 
-        run.apply(Reward::SlotzPylBestTwoOfThree, SEED);
+        run.apply(slotz()[0], SEED);
+        run.apply(slotz()[0], SEED);
 
-        assert_eq!(run.perks, vec![Perk::PylBestTwoOfThree]);
+        assert_eq!(run.perks.len(), 1);
+        assert_eq!(Reward::Perk(run.perks[0]), slotz()[0]);
         assert_eq!(run.deck.len(), deck);
     }
 
@@ -790,7 +853,7 @@ mod tests {
         let mut run = RunState::new();
         let before = run.deck.len();
 
-        run.apply(Reward::PitBossRandomCards, SEED);
+        run.apply(pit_boss()[1], SEED);
 
         let added = &run.deck[before..];
         assert_eq!(added.len(), 4);
@@ -807,147 +870,12 @@ mod tests {
         let mut two = RunState::new();
         let mut same = RunState::new();
 
-        one.apply(Reward::PitBossRandomCards, SEED);
-        two.apply(Reward::PitBossRandomCards, SEED ^ 0xffff);
-        same.apply(Reward::PitBossRandomCards, SEED);
+        one.apply(pit_boss()[1], SEED);
+        two.apply(pit_boss()[1], SEED ^ 0xffff);
+        same.apply(pit_boss()[1], SEED);
 
         assert_eq!(one.deck, same.deck, "the same seed deals the same cards");
         assert_ne!(one.deck, two.deck, "a different seed deals different ones");
-    }
-
-    #[test]
-    fn the_pit_boss_perk_buys_a_sixth_play_with_blinds_every_turn() {
-        let mut run = RunState::new();
-        let base = RisingBlinds {
-            every_turns: 3,
-            cards: 1,
-        };
-        assert_eq!(run.blinds(base), base);
-
-        run.apply(Reward::PitBossSixPlays, SEED);
-
-        assert_eq!(run.plays(), 6);
-        assert_eq!(
-            run.blinds(base),
-            RisingBlinds {
-                every_turns: 1,
-                cards: 1
-            }
-        );
-    }
-
-    #[test]
-    fn every_encounter_worth_beating_puts_something_on_the_table() {
-        use EncounterId::*;
-
-        assert_eq!(
-            RewardOffer::for_encounter(FloorMinion),
-            Some(RewardOffer::Drop(Reward::LoadedDice))
-        );
-        assert_eq!(
-            RewardOffer::for_encounter(PitMinion),
-            Some(RewardOffer::Drop(Reward::LoadedDice))
-        );
-        assert_eq!(
-            RewardOffer::for_encounter(Slotz),
-            Some(RewardOffer::Pick(
-                Reward::SlotzPylBestTwoOfThree,
-                Reward::SlotzStreakCards
-            ))
-        );
-        assert_eq!(
-            RewardOffer::for_encounter(PitBoss),
-            Some(RewardOffer::Pick(
-                Reward::PitBossSixPlays,
-                Reward::PitBossRandomCards
-            ))
-        );
-        // The House pays out in an ending, not a perk.
-        assert_eq!(RewardOffer::for_encounter(TheHouse), None);
-    }
-
-    #[test]
-    fn an_opposing_card_is_dealt_inside_the_enemys_range() {
-        let deal = Deal {
-            row: 3,
-            low: 4,
-            high: 8,
-            tell_pct: 100,
-            tells: &[Tell::Streak],
-            hidden_pct: 50,
-        };
-        let mut rng = SEED;
-
-        for _ in 0..500 {
-            let card = deal.card(&mut rng);
-            assert!(
-                (4..=8).contains(&card.face_value),
-                "{} is off the range",
-                card.face_value
-            );
-            assert_eq!(card.tell, Some(Tell::Streak));
-            assert!(!card.name.is_empty());
-        }
-    }
-
-    #[test]
-    fn the_tell_odds_are_what_the_enemy_says_they_are() {
-        let never = Deal {
-            tell_pct: 0,
-            ..Enemy::for_encounter(EncounterId::PitBoss).deal
-        };
-        let mut rng = SEED;
-        assert!((0..200).all(|_| never.card(&mut rng).tell.is_none()));
-
-        // An enemy with no Tells listed plays none, whatever the odds say.
-        let none = Deal {
-            tell_pct: 100,
-            tells: &[],
-            ..never
-        };
-        assert!((0..200).all(|_| none.card(&mut rng).tell.is_none()));
-
-        // A third of the deal, near enough, over five hundred cards.
-        let some = Deal {
-            tell_pct: 33,
-            tells: &[Tell::Flop],
-            ..never
-        };
-        let telled = (0..500)
-            .filter(|_| some.card(&mut rng).tell.is_some())
-            .count();
-        assert!(
-            (120..=210).contains(&telled),
-            "{telled} of 500 carried a Tell"
-        );
-    }
-
-    #[test]
-    fn no_enemy_deals_itself_an_all_in() {
-        use EncounterId::*;
-
-        // An enemy has no Draw to burn from, so an All In across the table
-        // would silently be worth its Face Value and nothing else.
-        for id in [FloorMinion, Slotz, PitMinion, PitBoss, TheHouse, Tutorial] {
-            let deal = Enemy::for_encounter(id).deal;
-            assert!(
-                !deal.tells.contains(&Tell::AllIn),
-                "{id:?} deals itself an All In"
-            );
-        }
-    }
-
-    #[test]
-    fn the_house_is_the_only_one_holding_a_hole_card() {
-        use EncounterId::*;
-
-        assert_eq!(
-            Enemy::for_encounter(TheHouse).hole_card,
-            Some(HoleCard { margin: 1, step: 2 })
-        );
-        for id in [FloorMinion, Slotz, PitMinion, PitBoss, Tutorial] {
-            assert_eq!(Enemy::for_encounter(id).hole_card, None, "{id:?}");
-        }
     }
 
     #[test]
@@ -962,19 +890,15 @@ mod tests {
             .map(|(c, _)| c.face_value)
             .sum();
         assert_eq!(hidden, 8);
-        assert!(row[0].1, "the first Opposing Card is always face up");
         assert!(row.iter().all(|(c, _)| c.tell.is_none()), "a practice hand");
     }
 
     #[test]
     fn every_reward_says_what_it_is() {
-        for reward in [
-            Reward::LoadedDice,
-            Reward::SlotzStreakCards,
-            Reward::SlotzPylBestTwoOfThree,
-            Reward::PitBossSixPlays,
-            Reward::PitBossRandomCards,
-        ] {
+        let mut rewards = vec![Reward::LoadedDice];
+        rewards.extend(slotz());
+        rewards.extend(pit_boss());
+        for reward in rewards {
             assert!(!reward.label().is_empty());
         }
     }

@@ -13,7 +13,7 @@ use std::thread;
 use all_in::combat::duel::{Duel, Phase};
 use all_in::overworld::progression::RUN;
 use all_in::run::{
-    Card, CombatOutcome, EncounterId, Enemy, Reward, RewardOffer, RunState, Tell, xorshift64,
+    Card, CombatOutcome, Encounter, Floor, Reward, RewardOffer, RunState, Tell, xorshift64,
 };
 
 /// A duel still going after this many turns is a stall, counted as a loss.
@@ -145,22 +145,14 @@ fn naive_row(duel: &mut Duel, rng: &mut u64) {
 /// What the smart player thinks a finished row is worth: The Hand less what
 /// it can see of the Opposing Cards. Face-down cards are the same whatever
 /// it plays, so leaving them out moves every row by the same amount.
-///
-/// Against The House it also knows the Hole Card rule: the row it can't see
-/// is set to everything but the last card plus the margin, so `prefix` (The
-/// Hand before the last card went down) is what that read comes to.
-fn score(duel: &Duel, prefix: u32) -> i64 {
+fn score(duel: &Duel) -> i64 {
     let (showing, _) = duel.showing();
-    let edge = match duel.margin() {
-        Some(margin) => showing.max(prefix + margin),
-        None => showing,
-    };
-    i64::from(duel.hand()) - i64::from(edge)
+    i64::from(duel.hand()) - i64::from(showing)
 }
 
 /// Every row the Draw can make, by putting cards down and lifting them back
 /// off, which is how a player rearranges a row on the table.
-fn search(duel: &mut Duel, path: &mut Vec<Move>, prefix: u32, best: &mut (i64, Vec<Move>)) {
+fn search(duel: &mut Duel, path: &mut Vec<Move>, best: &mut (i64, Vec<Move>)) {
     let draw = duel.draw().to_vec();
     let mut tried: Vec<&Move> = Vec::new();
     let mut moves: Vec<Move> = Vec::new();
@@ -177,7 +169,6 @@ fn search(duel: &mut Duel, path: &mut Vec<Move>, prefix: u32, best: &mut (i64, V
             }
         }
     }
-    let hand_before = duel.hand();
     let mut placed_any = false;
     for mv in &moves {
         // Equal cards make equal rows.
@@ -188,13 +179,13 @@ fn search(duel: &mut Duel, path: &mut Vec<Move>, prefix: u32, best: &mut (i64, V
         placed_any = true;
         place(duel, mv);
         path.push(mv.clone());
-        search(duel, path, hand_before, best);
+        search(duel, path, best);
         path.pop();
         let last = duel.row().len() - 1;
         duel.lift(last).expect("the card just placed is in the row");
     }
     if !placed_any && !path.is_empty() {
-        let s = score(duel, prefix);
+        let s = score(duel);
         if s > best.0 {
             *best = (s, path.clone());
         }
@@ -203,7 +194,7 @@ fn search(duel: &mut Duel, path: &mut Vec<Move>, prefix: u32, best: &mut (i64, V
 
 fn smart_row(duel: &mut Duel) {
     let mut best = (i64::MIN, Vec::new());
-    search(duel, &mut Vec::new(), 0, &mut best);
+    search(duel, &mut Vec::new(), &mut best);
     for mv in &best.1 {
         place(duel, mv);
     }
@@ -310,17 +301,20 @@ fn choose(offer: RewardOffer, pick: Pick, rng: &mut u64) -> Reward {
 fn play_run(player: Player, pick: Pick, mut rng: u64, stats: &mut Stats) {
     stats.runs += 1;
     let mut run = RunState::new();
-    for (at, &id) in RUN.iter().enumerate() {
+    for (at, &encounter) in RUN.iter().enumerate() {
         stats.reached[at] += 1;
         stats.arrive_chips[at] += u64::from(run.chips);
-        let mut duel = Duel::for_run(&run, Enemy::for_encounter(id), xorshift64(&mut rng));
+        let mut duel = Duel::for_run(&run, encounter, xorshift64(&mut rng));
         if play_duel(&mut duel, player, &mut rng, at, stats) == CombatOutcome::Lost {
             return;
         }
         stats.won[at] += 1;
         run.chips = duel.player_chips();
         run.set_loaded_dice(duel.dice_left());
-        if let Some(offer) = RewardOffer::for_encounter(id) {
+        if let Encounter::Boss { boss, .. } = encounter {
+            run.beat(boss);
+        }
+        if let Some(offer) = encounter.reward_offer() {
             let reward = choose(offer, pick, &mut rng);
             run.apply(reward, xorshift64(&mut rng));
         }
@@ -364,14 +358,19 @@ fn simulate(player: Player, args: &Args) -> Stats {
 // Report
 // ---------------------------------------------------------------------------
 
-fn label(id: EncounterId) -> &'static str {
-    match id {
-        EncounterId::FloorMinion => "Floor minion",
-        EncounterId::Slotz => "Slotz",
-        EncounterId::PitMinion => "Pit minion",
-        EncounterId::PitBoss => "Pit Boss",
-        EncounterId::TheHouse => "The House",
-        EncounterId::Tutorial => "Tutorial",
+fn label(encounter: Encounter) -> &'static str {
+    match encounter {
+        Encounter::Boss { boss, .. } => boss.name,
+        Encounter::Minion {
+            floor: Floor::TheFloor,
+        } => "Floor minion",
+        Encounter::Minion {
+            floor: Floor::ThePit,
+        } => "Pit minion",
+        Encounter::Minion {
+            floor: Floor::BigShotsTable,
+        } => "Big Shots minion",
+        Encounter::Practice => "Practice",
     }
 }
 
@@ -393,12 +392,12 @@ fn report(player: Player, s: &Stats) {
         "  {:<13}{:>8}{:>7}{:>8}{:>8}{:>7}{:>7}{:>8}{:>8}",
         "encounter", "reached", "won%", "chips", "turns", "hand", "edge", "whiff%", "push%"
     );
-    for (at, &id) in RUN.iter().enumerate() {
+    for (at, &encounter) in RUN.iter().enumerate() {
         let reached = s.reached[at] as u64;
         let turns = s.turns[at];
         println!(
             "  {:<13}{:>8}{:>7.1}{:>8.1}{:>8.1}{:>7.1}{:>7.1}{:>8.1}{:>8.1}{}",
-            label(id),
+            label(encounter),
             reached,
             100.0 * per(s.won[at] as u64, reached),
             per(s.arrive_chips[at], reached),

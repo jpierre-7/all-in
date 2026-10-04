@@ -199,7 +199,7 @@ partway up the casino with a pinned seed and a pocket already full, so one
 encounter can be played on its own:
 
 ```sh
-cargo run -- --encounter pit-boss --seed 42 --with sixplays,dice
+cargo run -- --encounter pit-boss --seed 42 --with blind,dice
 ```
 
 Release builds do not compile that module, so a shipped binary has no flags to

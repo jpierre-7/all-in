@@ -4,7 +4,7 @@
 //! so a shipped binary has no flags to find.
 //!
 //! ```text
-//! cargo run -- --encounter pit-boss --seed 42 --with sixplays,dice
+//! cargo run -- --encounter pit-boss --seed 42 --with blind,dice
 //! ```
 //!
 //! Everything here goes in through the doors the game already uses:
@@ -19,9 +19,10 @@
 
 use bevy::prelude::*;
 
+use crate::boss::{PIT_BOSS, SLOTZ};
 use crate::combat::DuelSeed;
-use crate::overworld::progression::Progress;
-use crate::run::{EncounterId, Reward, RunState};
+use crate::overworld::progression::{Progress, RUN};
+use crate::run::{Encounter, Reward, RunState};
 
 const USAGE: &str = "\
 All In — dev entry point (debug builds only)
@@ -34,11 +35,20 @@ All In — dev entry point (debug builds only)
     --seed <n>        Pin the shuffle, the deal and the Push Your Luck coin,
                       so a Hand that went wrong can be played again.
     --with <a,b,...>  Rewards to start holding, as if they had been won:
-                      dice, streak, pyl, sixplays, pack. Needs --encounter,
+                      dice, streak, pyl, blind, pack. Needs --encounter,
                       since starting in the Lobby ends the run.
     --help            This.
 
 With no flags the game opens in the Lobby, exactly as it ships.";
+
+/// The names `--encounter` knows, in the order of `RUN`.
+const ENCOUNTERS: [&str; 5] = [
+    "floor-minion",
+    "slotz",
+    "pit-minion",
+    "pit-boss",
+    "the-house",
+];
 
 /// The pack of cards the Pit Boss reward rolls has to come from somewhere even
 /// when no seed is given. Any constant will do; it only has to be the same one
@@ -46,15 +56,15 @@ With no flags the game opens in the Lobby, exactly as it ships.";
 const DEFAULT_REWARD_SEED: u64 = 0x5eed_1337_c0ff_ee01;
 
 /// What the command line asked for.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct DevStart {
-    encounter: Option<EncounterId>,
+    encounter: Option<Encounter>,
     seed: Option<u64>,
     rewards: Vec<Reward>,
 }
 
 /// What to do about it.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 enum Outcome {
     /// No flags: the game as it ships.
     Play,
@@ -150,24 +160,23 @@ fn value(
         .ok_or_else(|| format!("`{flag}` needs a value after it."))
 }
 
-fn encounter(name: &str) -> Result<EncounterId, String> {
-    match name {
-        "floor-minion" => Ok(EncounterId::FloorMinion),
-        "slotz" => Ok(EncounterId::Slotz),
-        "pit-minion" => Ok(EncounterId::PitMinion),
-        "pit-boss" => Ok(EncounterId::PitBoss),
-        "the-house" => Ok(EncounterId::TheHouse),
-        other => Err(format!("Nobody called `{other}` sits down in this casino.")),
-    }
+fn encounter(name: &str) -> Result<Encounter, String> {
+    ENCOUNTERS
+        .iter()
+        .position(|&known| known == name)
+        .map(|at| RUN[at])
+        .ok_or_else(|| format!("Nobody called `{name}` sits down in this casino."))
 }
 
 fn reward(name: &str) -> Result<Reward, String> {
+    let slotz = SLOTZ.rewards.expect("Slotz pays a 1-of-2");
+    let pit_boss = PIT_BOSS.rewards.expect("the Pit Boss pays a 1-of-2");
     match name {
         "dice" => Ok(Reward::LoadedDice),
-        "streak" => Ok(Reward::SlotzStreakCards),
-        "pyl" => Ok(Reward::SlotzPylBestTwoOfThree),
-        "sixplays" => Ok(Reward::PitBossSixPlays),
-        "pack" => Ok(Reward::PitBossRandomCards),
+        "pyl" => Ok(slotz[0]),
+        "streak" => Ok(slotz[1]),
+        "blind" => Ok(pit_boss[0]),
+        "pack" => Ok(pit_boss[1]),
         other => Err(format!("There is no reward called `{other}`.")),
     }
 }
@@ -185,10 +194,10 @@ impl DevStart {
                 run.apply(*reward, self.seed.unwrap_or(DEFAULT_REWARD_SEED));
             }
             said.push(format!(
-                "holding {} ({} cards, {} Plays)",
+                "holding {} ({} cards, {} Perks)",
                 self.rewards.len(),
                 run.deck.len(),
-                run.plays()
+                run.perks.len()
             ));
             app.insert_resource(run);
         }
@@ -198,13 +207,13 @@ impl DevStart {
             app.insert_resource(DuelSeed::new(seed));
         }
 
-        if let Some(id) = self.encounter {
-            let progress = Progress::at(id);
+        if let Some(encounter) = self.encounter {
+            let progress = Progress::at(encounter);
             // Where the walk would have put the player on reaching this
             // encounter: the floor's prose if it is the first one on its
             // floor, otherwise straight to Fight or Fold.
             let arrival = progress.arrival();
-            said.push(format!("starting at {id:?}"));
+            said.push(format!("starting at {encounter:?}"));
             app.insert_resource(progress);
             // After the plugins, so this overwrites the state the overworld
             // initialised and replaces its opening transition. The Lobby is
@@ -220,7 +229,7 @@ impl DevStart {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run::Perk;
+    use crate::modifier::Side;
 
     /// One argument per element, the way a shell hands them over.
     fn parsed(args: &[&str]) -> Result<Outcome, String> {
@@ -243,21 +252,22 @@ mod tests {
     fn an_encounter_can_be_named() {
         assert_eq!(
             started(&["--encounter", "pit-boss"]).encounter,
-            Some(EncounterId::PitBoss)
+            Some(RUN[3])
         );
     }
 
     #[test]
     fn every_encounter_in_the_run_has_a_name_on_the_command_line() {
-        for (name, id) in [
-            ("floor-minion", EncounterId::FloorMinion),
-            ("slotz", EncounterId::Slotz),
-            ("pit-minion", EncounterId::PitMinion),
-            ("pit-boss", EncounterId::PitBoss),
-            ("the-house", EncounterId::TheHouse),
-        ] {
-            assert_eq!(encounter(name), Ok(id));
+        for (name, at) in ENCOUNTERS.iter().zip(RUN) {
+            assert_eq!(encounter(name), Ok(at));
         }
+        assert_eq!(
+            encounter("slotz"),
+            Ok(Encounter::Boss {
+                boss: &SLOTZ,
+                floor: crate::run::Floor::TheFloor
+            })
+        );
     }
 
     #[test]
@@ -269,16 +279,16 @@ mod tests {
     #[test]
     fn rewards_come_as_a_comma_separated_list() {
         assert_eq!(
-            started(&["--encounter", "pit-boss", "--with", "sixplays,dice"]).rewards,
-            vec![Reward::PitBossSixPlays, Reward::LoadedDice]
+            started(&["--encounter", "pit-boss", "--with", "blind,dice"]).rewards,
+            vec![reward("blind").unwrap(), Reward::LoadedDice]
         );
     }
 
     #[test]
     fn spaces_around_a_reward_name_do_not_count() {
         assert_eq!(
-            started(&["--encounter", "pit-boss", "--with", "sixplays, dice"]).rewards,
-            vec![Reward::PitBossSixPlays, Reward::LoadedDice]
+            started(&["--encounter", "pit-boss", "--with", "blind, dice"]).rewards,
+            vec![reward("blind").unwrap(), Reward::LoadedDice]
         );
     }
 
@@ -288,7 +298,7 @@ mod tests {
         let two = started(&["--with", "dice", "--seed", "7", "--encounter", "pit-boss"]);
 
         assert_eq!(one, two);
-        assert_eq!(one.encounter, Some(EncounterId::PitBoss));
+        assert_eq!(one.encounter, Some(RUN[3]));
         assert_eq!(one.seed, Some(7));
         assert_eq!(one.rewards, vec![Reward::LoadedDice]);
     }
@@ -331,14 +341,14 @@ mod tests {
     fn the_pocket_is_built_through_the_same_door_the_game_uses() {
         // Not a parse test: the point is that `--with` produces exactly the
         // run state that winning those rewards would have.
-        let dev = started(&["--encounter", "pit-boss", "--with", "sixplays,dice,streak"]);
+        let dev = started(&["--encounter", "pit-boss", "--with", "blind,dice,streak"]);
         let mut run = RunState::new();
         for reward in &dev.rewards {
             run.apply(*reward, DEFAULT_REWARD_SEED);
         }
 
-        assert_eq!(run.perks, vec![Perk::SixPlaysSteepBlinds]);
-        assert_eq!(run.plays(), 6);
+        assert_eq!(run.perks.len(), 1);
+        assert_eq!(run.perks[0].modifier.blind(Side::Player, 2), 3);
         assert_eq!(run.loaded_dice(), 2);
         assert_eq!(run.deck.len(), RunState::new().deck.len() + 3);
     }
