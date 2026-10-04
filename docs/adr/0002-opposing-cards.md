@@ -1,5 +1,7 @@
 # The turn is two rows facing each other, and Tells read the slot
 
+_Superseded by [ADR-0003](0003-symmetric-turn.md): the enemy now draws and plays its own cards, so the Deal, Rising Blinds, and the face-up first card below are gone._
+
 _Terms updated by #123: a fighter's Stack is now **Chips**, a card's is its **Face Value**, and "Stack Sum" is gone: The Hand and House Edge name each side's row._
 
 The enemy used to do nothing on its turn: it was a pile of Chips, a flat House Edge, and a Rising Blinds schedule, and the player built The Hand against a number that was decided before the duel started. Now the enemy lays a row of **Opposing Cards** down first — the first face up, each of the rest face down on a roll — the player covers that row slot for slot out of the Draw, both rows turn over on **Confirm**, and the side that comes up short loses the difference. House Edge survives as a term but changes meaning: it is whatever the Opposing Cards add up to, not a number the enemy carries.
