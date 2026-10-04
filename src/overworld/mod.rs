@@ -18,7 +18,7 @@ use screens::{
 };
 
 use crate::boss::SLOTZ;
-use crate::run::{CombatOutcome, Encounter, RewardOffer, RunState};
+use crate::run::{Card, CombatOutcome, Encounter, Pack, RewardOffer, RunState};
 use crate::state::AppState;
 
 pub struct OverworldPlugin;
@@ -326,7 +326,26 @@ fn leave_outcome(
 // Reward
 // ---------------------------------------------------------------------------
 
-fn show_reward(mut commands: Commands, progress: Res<Progress>, tutorial: Option<Res<InTutorial>>) {
+/// The Boss Pack on the table, and which of its cards the player has marked
+/// to keep. Only there between a boss's win and the Perk pick.
+#[derive(Resource)]
+struct OpenPack {
+    pack: Pack,
+    picked: Vec<usize>,
+}
+
+/// The reward screen on the felt now, so a mark in the Boss Pack or moving
+/// on to the Perk pick can redraw it.
+#[derive(Component)]
+struct RewardScreen;
+
+fn show_reward(
+    mut commands: Commands,
+    progress: Res<Progress>,
+    run: Res<RunState>,
+    time: Res<Time>,
+    tutorial: Option<Res<InTutorial>>,
+) {
     // The Arcade's sign-off (#73). This gate is load-bearing: during the
     // Arcade, Progress still sits at the first encounter, so falling through
     // would render its Loaded Dice drop.
@@ -338,6 +357,57 @@ fn show_reward(mut commands: Commands, progress: Res<Progress>, tutorial: Option
             .spawn(&mut commands, AppState::Reward);
         return;
     }
+    let Some(encounter) = progress.encounter() else {
+        return;
+    };
+
+    // A boss's Pack comes first, then its Perk pick. The overworld's other
+    // roll, alongside the one `take_reward` hands to card-giving rewards.
+    if let Some(pack) = encounter.boss_pack(&run, time.elapsed_secs_f64().to_bits()) {
+        let open = OpenPack {
+            pack,
+            picked: Vec::new(),
+        };
+        spawn_pack(&mut commands, &open);
+        commands.insert_resource(open);
+        return;
+    }
+    spawn_offer(&mut commands, &progress);
+}
+
+fn spawn_pack(commands: &mut Commands, open: &OpenPack) {
+    let mut screen = Screen::new()
+        .title("The Boss Pack")
+        .prose(narrative::BOSS_PACK);
+    for (i, card) in open.pack.cards.iter().enumerate() {
+        let mark = if open.picked.contains(&i) {
+            "KEEP "
+        } else {
+            ""
+        };
+        screen = screen.option(i as u8 + 1, &format!("{mark}{}", card_line(card)));
+    }
+    let footer = format!(
+        "Press 1 to {} to mark {} to keep, again to put one back. Enter takes them. ({} of {})",
+        open.pack.cards.len(),
+        open.pack.keep,
+        open.picked.len(),
+        open.pack.keep,
+    );
+    let root = screen.footer(footer).spawn(commands, AppState::Reward);
+    commands.entity(root).insert(RewardScreen);
+}
+
+/// One card as the Pack shows it: its name, Face Value and Tell.
+fn card_line(card: &Card) -> String {
+    match card.tell {
+        Some(tell) => format!("{}  {}  {}", card.name, card.face_value, tell.name()),
+        None => format!("{}  {}", card.name, card.face_value),
+    }
+}
+
+/// The drop or the Perk pick for the encounter just won.
+fn spawn_offer(commands: &mut Commands, progress: &Progress) {
     let Some(offer) = progress.reward_offer() else {
         return;
     };
@@ -356,16 +426,20 @@ fn show_reward(mut commands: Commands, progress: Res<Progress>, tutorial: Option
             .footer("Press 1 or 2. There is no going back."),
     };
 
-    screen.spawn(&mut commands, AppState::Reward);
+    let root = screen.spawn(commands, AppState::Reward);
+    commands.entity(root).insert(RewardScreen);
 }
 
 /// The reward is granted here rather than on the way in, so there is one place
-/// the run changes and it is the same place for a drop and a pick.
+/// the run changes and it is the same place for a drop, a Pack and a pick.
+#[allow(clippy::too_many_arguments)]
 fn take_reward(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     tutorial: Option<Res<InTutorial>>,
+    open: Option<ResMut<OpenPack>>,
+    shown: Query<Entity, With<RewardScreen>>,
     mut run: ResMut<RunState>,
     mut progress: ResMut<Progress>,
     mut next: ResMut<NextState<AppState>>,
@@ -379,6 +453,29 @@ fn take_reward(
         }
         return;
     }
+
+    // The Boss Pack: a number marks or unmarks a card, Enter takes the marked
+    // ones once there are as many as the Pack lets you keep.
+    if let Some(mut open) = open {
+        if let Some(n) = digit_pressed(&keys) {
+            let i = usize::from(n) - 1;
+            if let Some(at) = open.picked.iter().position(|&p| p == i) {
+                open.picked.remove(at);
+            } else if i < open.pack.cards.len() && open.picked.len() < open.pack.keep {
+                open.picked.push(i);
+            } else {
+                return;
+            }
+            redraw(&mut commands, &shown);
+            spawn_pack(&mut commands, &open);
+        } else if confirm(&keys) && run.keep(&open.pack, &open.picked) {
+            commands.remove_resource::<OpenPack>();
+            redraw(&mut commands, &shown);
+            spawn_offer(&mut commands, &progress);
+        }
+        return;
+    }
+
     let Some(offer) = progress.reward_offer() else {
         return;
     };
@@ -395,10 +492,17 @@ fn take_reward(
     };
     let Some(reward) = taken else { return };
 
-    // The only roll the overworld makes: a reward that deals cards.
+    // A reward that deals cards rolls here.
     run.apply(reward, time.elapsed_secs_f64().to_bits());
     progress.advance();
     next.set(progress.arrival());
+}
+
+/// Clear the reward screen off the felt so the next one can go down.
+fn redraw(commands: &mut Commands, shown: &Query<Entity, With<RewardScreen>>) {
+    for screen in shown {
+        commands.entity(screen).despawn();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -432,9 +536,9 @@ mod tests {
     use bevy::prelude::*;
     use bevy::state::app::StatesPlugin;
 
-    use super::OverworldPlugin;
     use super::combat_stub::CombatStubPlugin;
     use super::progression::{Progress, RUN};
+    use super::{OpenPack, OverworldPlugin};
     use crate::boss::SLOTZ;
     use crate::run::{CombatOutcome, Encounter, Floor, Reward, RunState, Tell};
     use crate::state::AppState;
@@ -705,6 +809,7 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         assert_eq!(state(&app), AppState::FightOrFold);
         duel(&mut app, true);
+        keep_two(&mut app);
         press(&mut app, KeyCode::Digit1);
 
         // The Pit announces itself, then a minion and the Pit Boss.
@@ -714,6 +819,7 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         assert_eq!(state(&app), AppState::FightOrFold);
         duel(&mut app, true);
+        keep_two(&mut app);
         press(&mut app, KeyCode::Digit1);
 
         // The Big Shots Table: The House, and no reward after it.
@@ -773,8 +879,17 @@ mod tests {
         assert_eq!(state(&app), AppState::FightOrFold);
     }
 
-    /// Walk to the Slotz reward screen and take the option `key` picks.
-    fn slotz_reward(key: KeyCode) -> App {
+    /// Keep the Boss Pack's first two cards and take them.
+    fn keep_two(app: &mut App) {
+        assert_eq!(state(app), AppState::Reward);
+        press(app, KeyCode::Digit1);
+        press(app, KeyCode::Digit2);
+        press(app, KeyCode::Enter);
+        assert!(app.world().get_resource::<OpenPack>().is_none());
+    }
+
+    /// Walk to Slotz's Boss Pack, still unopened.
+    fn slotz_pack() -> App {
         let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
@@ -782,9 +897,72 @@ mod tests {
         press(&mut app, KeyCode::Enter); // pocket the drop
         duel(&mut app, true); // Slotz
         assert_eq!(state(&app), AppState::Reward);
+        app
+    }
 
+    /// The cards of the Boss Pack on the table.
+    fn pack_cards(app: &App) -> Vec<crate::run::Card> {
+        app.world().resource::<OpenPack>().pack.cards.clone()
+    }
+
+    fn deck_len(app: &App) -> usize {
+        app.world().resource::<RunState>().deck.len()
+    }
+
+    /// Walk past the Slotz Boss Pack and take the Perk option `key` picks.
+    fn slotz_reward(key: KeyCode) -> App {
+        let mut app = slotz_pack();
+        keep_two(&mut app);
         press(&mut app, key);
         app
+    }
+
+    #[test]
+    fn a_boss_opens_its_pack_before_the_perk_pick() {
+        let mut app = slotz_pack();
+        let cards = pack_cards(&app);
+        let before = deck_len(&app);
+        assert_eq!(cards.len(), 7);
+
+        press(&mut app, KeyCode::Digit5);
+        press(&mut app, KeyCode::Digit2);
+        press(&mut app, KeyCode::Enter);
+
+        let run = app.world().resource::<RunState>();
+        assert_eq!(run.deck[before..], [cards[4].clone(), cards[1].clone()]);
+        assert!(run.perks.is_empty(), "the Perk pick is still to come");
+        assert_eq!(state(&app), AppState::Reward);
+        assert_eq!(progress(&app).encounter(), Some(RUN[1]));
+    }
+
+    #[test]
+    fn enter_takes_nothing_until_two_cards_are_marked() {
+        let mut app = slotz_pack();
+        let before = deck_len(&app);
+
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Digit3);
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(deck_len(&app), before);
+        assert!(app.world().get_resource::<OpenPack>().is_some());
+    }
+
+    #[test]
+    fn a_marked_card_is_put_back_with_its_key_and_a_third_mark_is_refused() {
+        let mut app = slotz_pack();
+        let cards = pack_cards(&app);
+        let before = deck_len(&app);
+
+        press(&mut app, KeyCode::Digit1);
+        press(&mut app, KeyCode::Digit1); // put back
+        press(&mut app, KeyCode::Digit3);
+        press(&mut app, KeyCode::Digit6);
+        press(&mut app, KeyCode::Digit7); // already holding two
+        press(&mut app, KeyCode::Enter);
+
+        let run = app.world().resource::<RunState>();
+        assert_eq!(run.deck[before..], [cards[2].clone(), cards[5].clone()]);
     }
 
     #[test]
@@ -798,25 +976,22 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![SLOTZ.rewards.expect("a 1-of-2")[0]]
         );
-        assert_eq!(run.deck.len(), crate::run::starter_deck().len());
+        // The two kept from the Boss Pack, and nothing from the Perk.
+        assert_eq!(run.deck.len(), crate::run::starter_deck().len() + 2);
 
         let cards = slotz_reward(KeyCode::Digit2);
         let run = cards.world().resource::<RunState>();
         assert!(run.perks.is_empty());
-        let added = &run.deck[crate::run::starter_deck().len()..];
+        let added = &run.deck[crate::run::starter_deck().len() + 2..];
         assert_eq!(added.len(), 3);
         assert!(added.iter().all(|c| c.tell == Some(Tell::Streak)));
     }
 
     #[test]
     fn enter_does_not_pick_a_perk_for_you() {
-        let mut app = opened();
-        press(&mut app, KeyCode::Enter);
-        begin_run(&mut app);
-        duel(&mut app, true);
-        press(&mut app, KeyCode::Enter); // pocket the drop
-        duel(&mut app, true); // Slotz
-        assert_eq!(state(&app), AppState::Reward);
+        let mut app = slotz_pack();
+        keep_two(&mut app);
+        let deck = deck_len(&app);
 
         press(&mut app, KeyCode::Enter);
 
@@ -827,7 +1002,7 @@ mod tests {
         );
         let run = app.world().resource::<RunState>();
         assert!(run.perks.is_empty());
-        assert_eq!(run.deck.len(), crate::run::starter_deck().len());
+        assert_eq!(run.deck.len(), deck);
     }
 
     #[test]

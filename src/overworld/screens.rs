@@ -159,8 +159,9 @@ impl Screen {
         self
     }
 
-    /// Put the screen on the felt, scoped to `state`.
-    pub fn spawn(self, commands: &mut Commands, state: AppState) {
+    /// Put the screen on the felt, scoped to `state`. Returns its root, for a
+    /// screen that has to be taken down and redrawn before `state` exits.
+    pub fn spawn(self, commands: &mut Commands, state: AppState) -> Entity {
         commands
             .spawn((
                 Node {
@@ -204,7 +205,8 @@ impl Screen {
                         TextColor(DIM),
                     ));
                 }
-            });
+            })
+            .id()
     }
 }
 
@@ -232,12 +234,17 @@ pub fn space(keys: &ButtonInput<KeyCode>) -> bool {
     keys.just_pressed(KeyCode::Space)
 }
 
-/// The number key just pressed, top row or numpad, for menus.
+/// The number key just pressed, top row or numpad, for menus and the seven
+/// cards of a Boss Pack.
 pub fn digit_pressed(keys: &ButtonInput<KeyCode>) -> Option<u8> {
     keys.get_just_pressed().find_map(|key| match key {
         KeyCode::Digit1 | KeyCode::Numpad1 => Some(1),
         KeyCode::Digit2 | KeyCode::Numpad2 => Some(2),
         KeyCode::Digit3 | KeyCode::Numpad3 => Some(3),
+        KeyCode::Digit4 | KeyCode::Numpad4 => Some(4),
+        KeyCode::Digit5 | KeyCode::Numpad5 => Some(5),
+        KeyCode::Digit6 | KeyCode::Numpad6 => Some(6),
+        KeyCode::Digit7 | KeyCode::Numpad7 => Some(7),
         _ => None,
     })
 }
