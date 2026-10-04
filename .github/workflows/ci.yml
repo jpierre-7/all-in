@@ -44,5 +44,8 @@ jobs:
           # Only main writes the cache; PRs restore from it without churning it.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - run: cargo build --locked
-      - run: cargo test --locked
+      - run: cargo build --workspace --locked
+      - run: cargo test --workspace --locked
+      # The balance sim (#94) plays the real Duel; a short run keeps it
+      # building and playing from main.
+      - run: cargo run --locked -p sim -- --runs 20

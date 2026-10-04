@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use super::duel::{Coin, Duel, Phase, PlayError, TurnResult};
 use super::ui::{self, Zone};
 use crate::overworld::narrative;
-use crate::run::{Card, CombatOutcome, Encounter, EncounterId, RunState, xorshift64};
+use crate::run::{CombatOutcome, Encounter, EncounterId, RunState, xorshift64};
 use crate::state::AppState;
 
 pub struct CombatPlugin;
@@ -205,19 +205,7 @@ fn start_duel(
             best_of: 1,
         })
     } else {
-        let mut enemy = encounter.enemy.clone();
-        enemy.blinds = run.blinds(enemy.blinds);
-        // The Hole Card rule rides in on the enemy itself (#5), so there is
-        // nothing to switch on here: The House is the only one carrying one.
-        Duel::new(
-            shuffled(run.deck.clone(), seed),
-            run.chips,
-            run.plays(),
-            enemy,
-        )
-        .with_seed(seed.rotate_left(17))
-        .with_coin(Coin::for_perks(&run.perks))
-        .with_loaded_dice(run.loaded_dice())
+        Duel::for_run(&run, encounter.enemy.clone(), seed)
     };
 
     commands.insert_resource(ActiveDuel {
@@ -230,15 +218,6 @@ fn start_duel(
         guide: tutorial.then(Guide::default),
         pointer: None,
     });
-}
-
-/// Fisher-Yates, same as the duel's own reshuffle.
-fn shuffled(mut deck: Vec<Card>, mut rng: u64) -> Vec<Card> {
-    for i in (1..deck.len()).rev() {
-        let j = (xorshift64(&mut rng) % (i as u64 + 1)) as usize;
-        deck.swap(i, j);
-    }
-    deck
 }
 
 fn take_input(

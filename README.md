@@ -178,6 +178,7 @@ demo), and **3** the Floor, where the run starts.
 | `src/run.rs` | Cards, run state, enemies. The combat ↔ overworld seam. |
 | `src/combat/` | The duel: rules, UI, the glossary. |
 | `src/overworld/` | The shell: title, lobby, floors, rewards, endings. |
+| `tools/sim/` | The balance sim: whole runs against the real duel, headless. |
 | `CONTEXT.md` | The game's vocabulary. Read this before naming anything. |
 | `docs/onboarding.md` | New to the team? Start here: what to read, how tickets are claimed. |
 | `docs/adr/` | Architectural decisions. |
@@ -190,6 +191,7 @@ demo), and **3** the Floor, where the run starts.
 cargo test           # the whole suite
 cargo run            # debug build, with the dev flags below
 cargo run -- --help  # what they are
+cargo run --release -p sim   # the balance sim; see tools/sim/README.md
 ```
 
 Debug builds carry a dev entry point (`src/devstart.rs`) that starts a run
