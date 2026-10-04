@@ -29,7 +29,7 @@ pub enum Tell {
     /// Takes the Face Value of the Opposing Card across from it; its own
     /// if there is nothing across.
     Flop,
-    //Takes the Face Value and Tell of the card before it. If first, behaves like a regular card.
+    /// Takes the Face Value and Tell of the card before it. If first, behaves like a regular card.
     Echo,
 }
 
@@ -74,8 +74,8 @@ impl Tell {
                 "Face Value",
                 "and",
                 "Tell",
-                "of the card before it."
-            ]
+                "of the card before it.",
+            ],
         }
     }
 
@@ -99,8 +99,12 @@ pub struct Card {
 }
 
 impl Card {
-    pub fn new(face_value: u32, tell: Option<Tell>) -> Card {
-        Card { name: tell.map_or("card", |tell| tell.name()), face_value, tell }
+    pub fn new(name: Option<&'static str>, face_value: u32, tell: Option<Tell>) -> Card {
+        Card {
+            name: name.unwrap_or("card"),
+            face_value,
+            tell,
+        }
     }
 }
 
@@ -361,11 +365,7 @@ impl Deal {
         let tell =
             carries.then(|| self.tells[(xorshift64(rng) % self.tells.len() as u64) as usize]);
         let name = HOUSE_CARDS[(xorshift64(rng) % HOUSE_CARDS.len() as u64) as usize];
-        Card {
-            name,
-            face_value,
-            tell,
-        }
+        Card::new(Some(name), face_value, tell)
     }
 }
 
@@ -452,7 +452,7 @@ impl Enemy {
                     low: 4,
                     high: 9,
                     tell_pct: 40,
-                    tells: &[Tell::Streak, Tell::Copycat, Tell::Flop],
+                    tells: &[Tell::Streak, Tell::Copycat, Tell::Flop, Tell::Echo],
                     hidden_pct: 55,
                 },
                 blinds,
@@ -550,11 +550,7 @@ const STEEP_BLINDS_CARDS: u8 = 1;
 fn streak_reward_cards() -> Vec<Card> {
     ["Loose Slot", "Second Cherry", "Jackpot Bell"]
         .into_iter()
-        .map(|name| Card {
-            name,
-            face_value: 4,
-            tell: Some(Tell::Streak),
-        })
+        .map(|name| Card::new(Some(name), 4, Some(Tell::Streak)))
         .collect()
 }
 
@@ -601,18 +597,14 @@ fn random_cards(seed: u64) -> Vec<Card> {
             2 => (Tell::Copycat, 2 + roll(4) as u32),
             _ => (Tell::Flop, 2 + roll(4) as u32),
         };
-        cards.push(Card {
-            name,
-            face_value,
-            tell: Some(tell),
-        });
+        cards.push(Card::new(Some(name), face_value, Some(tell)));
     }
     for _ in 0..2 {
-        cards.push(Card {
-            name: plain.swap_remove(roll(plain.len() as u64) as usize),
-            face_value: 2 + roll(7) as u32, // 2..=8, the starter deck's vanilla range
-            tell: None,
-        });
+        cards.push(Card::new(
+            Some(plain.swap_remove(roll(plain.len() as u64) as usize)),
+            2 + roll(7) as u32, // 2..=8, the starter deck's vanilla range
+            None,
+        ));
     }
     cards
 }
@@ -646,36 +638,19 @@ pub fn starter_deck() -> Vec<Card> {
         ("Deed to the House", 4),
         ("Firstborn", 5),
     ];
-    let echo = [
-        ("Radio", 3),
-        ("Walkie Talkie", 4),
-        ("Radio", 5),
-        ("Walkie Talkie", 5),
-        ("Radio", 7),
-        ("Walkie Talkie", 7),
-    ];
     vanilla
         .into_iter()
-        .map(|(name, face_value)| Card {
-            name,
-            face_value,
-            tell: None,
-        })
-        .chain(streak.into_iter().map(|(name, face_value)| Card {
-            name,
-            face_value,
-            tell: Some(Tell::Streak),
-        }))
-        .chain(all_in.into_iter().map(|(name, face_value)| Card {
-            name,
-            face_value,
-            tell: Some(Tell::AllIn),
-        }))
-        .chain(echo.into_iter().map(|(name, face_value)| Card {
-            name,
-            face_value,
-            tell: Some(Tell::Echo),
-        }))
+        .map(|(name, face_value)| Card::new(Some(name), face_value, None))
+        .chain(
+            streak
+                .into_iter()
+                .map(|(name, face_value)| Card::new(Some(name), face_value, Some(Tell::Streak))),
+        )
+        .chain(
+            all_in
+                .into_iter()
+                .map(|(name, face_value)| Card::new(Some(name), face_value, Some(Tell::AllIn))),
+        )
         .collect()
 }
 
@@ -724,16 +699,7 @@ pub fn tutorial_opposing() -> Vec<(Card, bool)> {
         ("Table Limit", 3, true),
     ]
     .into_iter()
-    .map(|(name, face_value, face_up)| {
-        (
-            Card {
-                name,
-                face_value,
-                tell: None,
-            },
-            face_up,
-        )
-    })
+    .map(|(name, face_value, face_up)| (Card::new(Some(name), face_value, None), face_up))
     .collect()
 }
 

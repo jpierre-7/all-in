@@ -75,6 +75,10 @@ const GLOSSARY: &[(&str, &str)] = &[
         "Tell: worth the Face Value of the Opposing Card across from it. Its own if nothing is across.",
     ),
     (
+        "Echo",
+        "Tell: takes the Face Value and Tell of the card in the slot to its left, and resolves as that card would in its place; a plain card if nothing is to its left."
+    ),
+    (
         "Push Your Luck",
         "Once The Hand is shown: Push to flip a coin, or Hold to take the turn as it is. Cleared the Edge? Win doubles the Payout; lose and The Hand is 0. Fell short? Win forgives the Whiff; lose and it doubles.",
     ),

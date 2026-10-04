@@ -184,12 +184,14 @@ fn effective_value(
     across: &[Option<Card>],
     slot: usize,
     placed: &Placed,
-    index: Option<usize>,
+    target_slot: Option<usize>,
 ) -> Played {
     let printed = placed.card.face_value;
-    let value = match placed.card.tell {
+    let mut placed_clone = placed.card.clone();
+    let mut value = match placed.card.tell {
         Some(Tell::Streak) if slot > 0 && row[slot - 1].card.tell.is_some() => printed * 2,
-        Some(Tell::AllIn) => printed + placed.sacrifice.as_ref().map_or(0, |c| c.face_value),
+        // Since Echos can mimic an All In, not just All Ins will have sacrifices. The value addition is done further below
+        // Some(Tell::AllIn) => printed + placed.sacrifice.as_ref().map_or(0, |c| c.face_value),
         Some(Tell::Copycat) => row
             .get(slot + 1)
             .map_or(printed, |next| next.card.face_value),
@@ -197,15 +199,28 @@ fn effective_value(
             .get(slot)
             .and_then(Option::as_ref)
             .map_or(printed, |card| card.face_value),
-        //Recursion is necessary if this echo is placed in front of another echo
-        Some(Tell::Echo) if index.unwrap_or(slot) > 0 => {
-            let position = index.unwrap_or(slot);
-            effective_value(row, across, slot, &row[position - 1], Some(position - 1)).value
+        Some(Tell::Echo) if target_slot.unwrap_or(slot) > 0 => {
+            let position = target_slot.unwrap_or(slot);
+            let effective_placed =
+                effective_value(row, across, slot, &row[position - 1], Some(position - 1));
+            placed_clone.tell = effective_placed.card.tell;
+
+            if effective_placed.card.tell == Some(Tell::AllIn) {
+                effective_placed.card.face_value
+            }
+            else {
+                effective_placed.value
+            }
         }
         _ => printed,
     };
+
+    if let Some(sac) = &placed.sacrifice {
+        value += sac.face_value;
+    }
+
     Played {
-        card: placed.card.clone(),
+        card: placed_clone,
         value,
     }
 }
@@ -476,7 +491,17 @@ impl Duel {
             return Err(PlayError::RowIsFull);
         }
         let played = self.draw.get(card).ok_or(PlayError::NoSuchCard)?.clone();
-        let sacrificed = match (played.tell, sacrifice) {
+        let effective_row = resolve_row(&self.row, &self.opposing_cards());
+
+        let mut tell_result: Option<Tell> = played.tell;
+
+        if let Some(effective_played) = effective_row.last() {
+            if played.tell == Some(Tell::Echo) && effective_played.card.tell == Some(Tell::AllIn) {
+                tell_result = Some(Tell::AllIn);
+            }
+        }
+
+        let sacrificed = match (tell_result, sacrifice) {
             (Some(Tell::AllIn), None) => return Err(PlayError::AllInNeedsSacrifice),
             (Some(Tell::AllIn), Some(i)) if i == card => return Err(PlayError::NoSuchCard),
             (Some(Tell::AllIn), Some(i)) => {
@@ -671,11 +696,11 @@ impl Duel {
             .collect();
         let opposing = row_value(&resolve_row(&mine, &self.row_cards()));
 
-        self.opposing[slot].card = Card {
-            name: "The House's Hole Card",
-            face_value: (read + hole.margin).saturating_sub(opposing),
-            tell: None,
-        };
+        self.opposing[slot].card = Card::new(
+            Some("The House's Hole Card"),
+            (read + hole.margin).saturating_sub(opposing),
+            None,
+        );
     }
 
     /// The Opposing Cards as a row that [`resolve_row`] can read. Nothing
@@ -736,11 +761,7 @@ impl Duel {
         if self.hole_card.is_some()
             && let Some(last) = self.opposing.last_mut()
         {
-            last.card = Card {
-                name: "The House's Hole Card",
-                face_value: 0,
-                tell: None,
-            };
+            last.card = Card::new(Some("The House's Hole Card"), 0, None);
             last.face_up = false;
         }
     }
@@ -838,22 +859,22 @@ pub(super) mod cards {
     use crate::run::{Card, Deal, Enemy, HoleCard, RisingBlinds, Tell};
 
     pub fn card(face_value: u32) -> Card {
-        Card::new(face_value, None)
+        Card::new(None, face_value, None)
     }
     pub fn streak(face_value: u32) -> Card {
-        Card::new(face_value, Some(Tell::Streak))
+        Card::new(None, face_value, Some(Tell::Streak))
     }
     pub fn all_in(face_value: u32) -> Card {
-        Card::new(face_value, Some(Tell::AllIn))
+        Card::new(None, face_value, Some(Tell::AllIn))
     }
     pub fn copycat(face_value: u32) -> Card {
-        Card::new(face_value, Some(Tell::Copycat))
+        Card::new(None, face_value, Some(Tell::Copycat))
     }
     pub fn flop(face_value: u32) -> Card {
-        Card::new(face_value, Some(Tell::Flop))
+        Card::new(None, face_value, Some(Tell::Flop))
     }
     pub fn echo(face_value: u32) -> Card {
-        Card::new(face_value, Some(Tell::Echo))
+        Card::new(None, face_value, Some(Tell::Echo))
     }
 
     /// An enemy that deals a row of `row` cards, every one of them a 6 with
@@ -1489,6 +1510,35 @@ mod tell_tests {
 
         assert_eq!(resolved(&duel), vec![5, 10, 10]);
         assert_eq!(duel.hand(), 25);
+    }
+
+    #[test] 
+    fn echo_after_copycat_chains() {
+        let mut duel = table(
+            vec![copycat(2), echo(5), card(7)],
+            vec![card(1), card(1), card(1)],
+        );
+
+        duel.place(0, None).unwrap(); //Place Copycat (2)
+        duel.place(0, None).unwrap(); //Place Echo (5)
+        duel.place(0, None).unwrap(); //Place Card (7)
+
+        assert_eq!(resolved(&duel), vec![5, 7, 7]);
+        assert_eq!(duel.hand(), 19);
+    }
+
+    #[test]
+    fn echo_after_flop_crosses() {
+        let mut duel = table(
+            vec![flop(2), echo(5), card(7)],
+            vec![card(8), card(4), card(1)],
+        );
+
+        duel.place(0, None).unwrap(); //Place Flop (2)
+        duel.place(0, None).unwrap(); //Place Echo (5)
+
+        assert_eq!(resolved(&duel), vec![8, 4]);
+        assert_eq!(duel.hand(), 12);
     }
 }
 

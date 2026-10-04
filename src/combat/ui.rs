@@ -111,7 +111,7 @@ impl Art {
             Tell::AllIn => self.all_in.as_ref(),
             Tell::Copycat => self.copycat.as_ref(),
             Tell::Flop => self.flop.as_ref(),
-            Tell::Echo => self.echo.as_ref()
+            Tell::Echo => self.echo.as_ref(),
         }
     }
 }

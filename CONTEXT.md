@@ -105,7 +105,7 @@ Tell: takes the Face Value of the card in the slot to its right, and none of its
 Tell: takes the Face Value of the Opposing Card across from it, and none of its Tell; its own if nothing is across. Until the rows turn over, a face-down card counts as nothing across. Ties its own slot exactly, which makes it worth whatever the enemy kept hidden there.
 
 **Echo**:
-Tell: takes the value and Tell of the card before it. The Tell will behave exactly the same as if it was replacing this Echo, so the actual value of this echo will be calculated according to that Tell if there is one.
+Tell: takes the Face Value and Tell of the card in the slot to its left, and resolves as that card would in its place; a plain card if nothing is to its left.
 
 **Peek**:
 The tag that opens beside the card the player points at, mouse or keyboard, and says its Tell. The player can wave it off for the table and call it back.
