@@ -1,6 +1,6 @@
 # All In
 
-A text-adventure roguelike set in a casino. Every encounter is a card duel against the House: the enemy lays a row of cards down, the player covers it card for card, both rows turn over, and the lower total pays the difference.
+A text-adventure roguelike set in a casino. Every encounter is a card duel against the House: both sides draw from their own decks and lay a row of cards face down, both rows turn over, and the lower total pays the difference.
 
 ## Language
 
@@ -11,11 +11,11 @@ A fighter's remaining life. Only the player and the enemy have Chips; cards have
 _Avoid_: Stack, HP, health, life
 
 **House Edge**:
-What the Opposing Cards add up to once every Tell in them has resolved: the number The Hand has to beat this turn. Not a flat number the enemy carries around — it is whatever the enemy actually laid down, and the player sees none of it before confirming.
+What the Opposing Cards add up to once every Tell in them has resolved: the number The Hand has to beat this turn. Not a flat number the enemy carries around: it is whatever the enemy actually laid down, and the player sees none of it before confirming unless a Reveal turns some of it over.
 _Avoid_: defense, armor, threshold
 
 **Table Rule**:
-A boss's own rule for its fight: it bends how the duel plays while that boss is at the table, and never leaves it. One per boss.
+A boss's own rule for its fight: it bends how the duel plays while that boss is at the table, and never leaves it. One per boss. It may change how the boss chooses its cards, or when it lays them down.
 _Avoid_: gimmick, mechanic, house rule
 
 ### A turn
@@ -25,11 +25,11 @@ The cards a fighter draws from. Every enemy has one, as the player does: a boss'
 _Avoid_: Deal (retired), pool, library
 
 **Opposing Cards**:
-The enemy's row. The enemy draws and chooses its cards by the same rules as the player, and neither side sees the other's row until Confirm. The player's cards sit one per slot across from them.
+The enemy's row. The enemy draws and chooses its cards by the same rules as the player, and lays them down face down at the start of the turn, before the player has placed anything. The player sees how many there are and nothing else until Confirm, unless a Reveal turns some over. The player's cards sit one per slot across from them.
 _Avoid_: enemy hand, their cards, board
 
 **Slot**:
-One column of the table: an Opposing Card and whatever the player put across from it. Which card faces which is what every Tell now reads.
+One column of the table: an Opposing Card and whatever the player put across from it. Both rows fill from the left, and there are as many slots as the larger of the two Blinds; a slot with nothing in it is worth nothing. Which card faces which is what every Tell now reads.
 _Avoid_: position, lane, index
 
 **The Hand**:
@@ -49,15 +49,19 @@ The moment the rows turn over on Confirm: both rows are shown, every Tell resolv
 _Avoid_: reveal, resolution
 
 **Draw**:
-The cards the player is holding this turn. Refilled to 7 at the start of each turn.
+The cards a fighter is holding this turn; the enemy has one too, which the player never sees. Refilled to 7 from that fighter's Deck at the start of each turn; cards not played stay in it. Played cards go to that fighter's discard, which is shuffled back into the Deck when the Deck runs dry.
 _Avoid_: hand (reserved for The Hand), cards in hand
 
 **Blind**:
 The most cards either side may put in its row in one turn. Set by the floor (2 on The Floor, one more on each floor after it) and the same for both sides; items, perks, and a Table Rule can raise or lower it for one side. Playing fewer is allowed.
 _Avoid_: Plays, Rising Blinds, actions, energy, mana
 
+**Reveal**:
+An effect (an Item, a Perk, or a Table Rule) that turns chosen Opposing Cards face up before Confirm, for this turn only.
+_Avoid_: peek (that is the tag), scout, spy
+
 **Push Your Luck**:
-An optional coin flip offered once The Hand is final, whether it clears House Edge or falls short. On a clearing Hand, push and win: the Payout doubles; push and lose: The Hand becomes 0, a full Whiff. On a Whiff, push and win: the Whiff is forgiven; push and lose: it doubles. The Hand itself is the stake; there is no separate wager.
+An optional coin flip offered to the player, never the enemy, once The Hand is final, whether it clears House Edge or falls short. On a clearing Hand, push and win: the Payout doubles; push and lose: The Hand becomes 0, a full Whiff. On a Whiff, push and win: the Whiff is forgiven; push and lose: it doubles. The Hand itself is the stake; there is no separate wager.
 _Avoid_: gamble, double-or-nothing, wager
 
 **Push / Hold**:
@@ -101,7 +105,7 @@ The Tell a boss's deck is built around. Nobody else has it until that boss is be
 _Avoid_: signature card, unlock
 
 **Peek**:
-The tag that opens beside the card the player points at, mouse or keyboard, and says its Tell. The player can wave it off for the table and call it back.
+The tag that opens beside the card the player points at, mouse or keyboard, and says its Tell. Where a Tell would read Opposing Cards that are still face down, it says what it knows and marks what it can't see. The player can wave it off for the table and call it back.
 _Avoid_: tooltip, hover text, popup, hint
 
 ### Run
