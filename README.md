@@ -18,9 +18,7 @@ Tell, **Copycat** takes the print of the slot to its right, **Flop** takes the
 print of the Opposing Card straight across, and **All In** burns a card from
 your Draw for its chips. Nothing resolves until you confirm, so you can put a
 card down, pull it back out, and re-order the row until it reads the way you
-want. Then there is The House itself, which keeps its own last card blank until
-you have committed and fills it in on everything but your last card — leaving
-that one, the **Hole Card**, as the only card it cannot see.
+want.
 
 ## Playing it
 

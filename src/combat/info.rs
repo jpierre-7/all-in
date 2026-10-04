@@ -85,22 +85,10 @@ pub fn get_keywords() -> Vec<&'static str> {
     GLOSSARY.iter().map(|unit| unit.0).collect()
 }
 
-const BIG_SHOTS: &[(&str, &str)] = &[
-    (
-        "Margin",
-        "How far above the row it read The House sets its own. Rises with the Blinds.",
-    ),
-    (
-        "Hole Card",
-        "The last card in your row. The House keeps its own last card back and fills it in on everything before yours, so the Hole Card is the only one it can't see.",
-    ),
-];
-
 /// The glossary line for a term, if it has one.
 pub fn define(term: &str) -> Option<&'static str> {
     GLOSSARY
         .iter()
-        .chain(BIG_SHOTS)
         .find(|(name, _)| *name == term)
         .map(|(_, line)| *line)
 }
@@ -177,18 +165,6 @@ fn spawn(commands: &mut Commands, state: AppState) {
                 TextColor(NEON),
             ));
             for (term, line) in GLOSSARY {
-                entry(root, term, line);
-            }
-            root.spawn((
-                Text::new("At the Big Shots Table"),
-                TextFont::from_font_size(18.0),
-                TextColor(GOLD),
-                Node {
-                    margin: UiRect::top(px(10)),
-                    ..default()
-                },
-            ));
-            for (term, line) in BIG_SHOTS {
                 entry(root, term, line);
             }
             root.spawn((

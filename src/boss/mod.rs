@@ -11,7 +11,7 @@ mod the_house;
 
 pub use pit_boss::PIT_BOSS;
 pub use slotz::SLOTZ;
-pub use the_house::{HoleCard, THE_HOUSE};
+pub use the_house::THE_HOUSE;
 
 use crate::modifier::Modifier;
 use crate::run::{Card, Reward, Tell};

@@ -9,21 +9,13 @@
 
 use std::fmt::Debug;
 
-use crate::combat::duel::{Coin, Placed};
+use crate::combat::duel::Coin;
 
 /// Which side of the table a hook is asking about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
     Player,
     Enemy,
-}
-
-/// Both rows as they turn over at Confirm, before any Tell resolves. Slot `i`
-/// of one faces slot `i` of the other.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Rows {
-    pub player: Vec<Placed>,
-    pub enemy: Vec<Placed>,
 }
 
 /// A Table Rule, a Perk or an Item. Every hook defaults to doing nothing.
@@ -33,10 +25,6 @@ pub trait Modifier: Debug + Sync {
     fn blind(&self, _side: Side, blind: u8) -> u8 {
         blind
     }
-
-    /// Bends Face Values or slots once both rows are down and before any Tell
-    /// reads them, so every Tell still resolves in one pass.
-    fn before_showdown(&self, _rows: &mut Rows) {}
 
     /// The coin Push Your Luck is flipped with.
     fn coin(&self, coin: Coin) -> Coin {
