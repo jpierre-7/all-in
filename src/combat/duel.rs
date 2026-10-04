@@ -11,7 +11,7 @@
 
 use std::fmt;
 
-use crate::modifier::{Modifier, Rows, Side};
+use crate::modifier::{Modifier, Side};
 use crate::run::{
     Card, CombatOutcome, Encounter, Enemy, LOADED_DICE_BONUS, RunState, Tell, xorshift64,
 };
@@ -120,16 +120,6 @@ pub struct Placed {
     pub card: Card,
     /// The All In's sacrifice, waiting out the turn.
     pub sacrifice: Option<Card>,
-}
-
-impl Placed {
-    /// A card with nothing burned for it: every card that isn't an All In.
-    pub fn plain(card: Card) -> Self {
-        Placed {
-            card,
-            sacrifice: None,
-        }
-    }
 }
 
 /// One of the enemy's cards, and whether the player can see it yet. Every
@@ -708,10 +698,10 @@ impl Duel {
         Ok(placed.card)
     }
 
-    /// Confirm the row. Both sides turn over, the modifiers bend them, each
-    /// resolves its Tells, and The Hand meets the House Edge. Anything but a
-    /// tie puts the Push Your Luck prompt up and resolves nothing yet
-    /// (`None`); a tie, where nobody pays, resolves on the spot.
+    /// Confirm the row. Both sides turn over, each resolves its Tells, and
+    /// The Hand meets the House Edge. Anything but a tie puts the Push Your
+    /// Luck prompt up and resolves nothing yet (`None`); a tie, where nobody
+    /// pays, resolves on the spot.
     pub fn confirm(&mut self) -> Option<TurnResult> {
         if self.phase == Phase::PushYourLuck {
             return None;
@@ -719,18 +709,12 @@ impl Duel {
         for opposing in &mut self.opposing {
             opposing.face_up = true;
         }
-        let mut rows = Rows {
-            player: self.row.clone(),
-            enemy: self.opposing_row(),
-        };
-        for modifier in &self.modifiers {
-            modifier.before_showdown(&mut rows);
-        }
+        let enemy = self.opposing_row();
         let printed = |row: &[Placed]| -> Vec<Option<Card>> {
             row.iter().map(|p| Some(p.card.clone())).collect()
         };
-        let row = resolve_row(&rows.player, &printed(&rows.enemy));
-        let opposing = resolve_row(&rows.enemy, &printed(&rows.player));
+        let row = resolve_row(&self.row, &printed(&enemy));
+        let opposing = resolve_row(&enemy, &printed(&self.row));
         let mut hand = row_value(&row);
         let house_edge = row_value(&opposing);
         // The items that modify The Hand land here, after every card is down.
@@ -2180,131 +2164,6 @@ mod loaded_dice_tests {
 
         assert_eq!(duel.hand(), LOADED_DICE_BONUS);
         assert_eq!(duel.dice_left(), 1);
-    }
-}
-
-#[cfg(test)]
-mod the_house_tests {
-    use super::cards::*;
-    use super::*;
-    use crate::boss::HoleCard;
-
-    fn vanilla_deck(n: u32) -> Vec<Card> {
-        (1..=n).map(card).collect()
-    }
-
-    /// The House holding nothing but `face_value`s, with the Hole Card as its
-    /// Table Rule.
-    fn the_house(face_value: u32, margin: u32) -> Enemy {
-        Enemy {
-            table_rule: Some(leak(HoleCard { margin })),
-            ..enemy_with(100, vec![card(face_value); 30])
-        }
-    }
-
-    /// The House at a Blind of 5, committing 1s in every slot; the last one
-    /// becomes the Hole Card at Confirm.
-    fn table(margin: u32) -> Duel {
-        Duel::new(vanilla_deck(18), 50, 5, the_house(1, margin))
-    }
-
-    #[test]
-    fn the_house_sets_its_hole_card_to_the_row_it_read_plus_the_margin() {
-        let mut duel = table(1);
-        // Draw: 18,17,16,15,14. The first four are all The House sees: 66.
-        for _ in 0..5 {
-            duel.place(0, None).unwrap();
-        }
-
-        let result = duel.end_turn();
-
-        assert_eq!(result.house_edge, 67, "the read row, plus the margin");
-        assert_eq!(result.hand, 80);
-        // The Hole Card was the 14, and it pays its value over the margin.
-        assert_eq!(result.kind, Outcome::Payout(13));
-        let shown = duel.last_showdown().expect("the rows that turned over");
-        assert_eq!(shown.opposing[4].card.name, "The House's Hole Card");
-    }
-
-    #[test]
-    fn a_short_row_still_keeps_only_its_last_card_from_the_house() {
-        let mut duel = table(1);
-        duel.place(0, None).unwrap();
-        duel.place(0, None).unwrap(); // 18 and 17, three slots left empty
-
-        let result = duel.end_turn();
-
-        // It read the 18 alone; the 17 was the card it couldn't see.
-        assert_eq!(result.house_edge, 19);
-        assert_eq!(result.hand, 35);
-        assert_eq!(result.kind, Outcome::Payout(16));
-    }
-
-    #[test]
-    fn a_row_of_nothing_at_all_loses_to_what_the_house_committed() {
-        let mut duel = table(1);
-
-        let result = duel.end_turn();
-
-        // Nothing to read, so the Hole Card is worth nothing and the row is
-        // just the four 1s in front of it. It can't take them back to come
-        // down to the margin.
-        assert_eq!(result.house_edge, 4);
-        assert_eq!(result.kind, Outcome::Whiff(4));
-        assert_eq!(duel.player_chips(), 46);
-    }
-
-    #[test]
-    fn the_hole_card_is_worth_nothing_rather_than_less_than_nothing() {
-        // Four 9s in front of it are already past anything a one-card row
-        // plus the margin could ask for.
-        let mut duel = Duel::new(vanilla_deck(18), 50, 5, the_house(9, 1));
-
-        duel.place(0, None).unwrap(); // an 18, and it is the Hole Card
-        let result = duel.end_turn();
-
-        assert_eq!(result.house_edge, 36, "four 9s, and a Hole Card of 0");
-        assert_eq!(result.kind, Outcome::Whiff(18));
-    }
-
-    #[test]
-    fn the_loaded_dice_land_after_the_house_has_read_the_row() {
-        let mut duel = table(1).with_loaded_dice(1);
-        for _ in 0..5 {
-            duel.place(0, None).unwrap();
-        }
-
-        let result = duel.end_turn();
-
-        // The Edge is the same 67 it would have been without the dice, and
-        // the whole +5 falls on the player's side of the comparison.
-        assert_eq!(result.house_edge, 67);
-        assert_eq!(result.hand, 85);
-        assert_eq!(result.kind, Outcome::Payout(18));
-    }
-
-    #[test]
-    fn a_copycat_hole_card_lands_its_own_print_after_the_lock() {
-        // Drawn first: 10,10,10,10, copycat(3).
-        let deck = vec![
-            card(1),
-            card(1),
-            copycat(3),
-            card(10),
-            card(10),
-            card(10),
-            card(10),
-        ];
-        let mut duel = Duel::new(deck, 50, 5, the_house(1, 1));
-        for _ in 0..5 {
-            duel.place(0, None).unwrap();
-        }
-
-        let result = duel.end_turn();
-
-        assert_eq!(result.house_edge, 41, "the four 10s, plus the margin");
-        assert_eq!(result.hand, 43, "the Copycat at the end took its own 3");
-        assert_eq!(result.kind, Outcome::Payout(2));
     }
 }
 

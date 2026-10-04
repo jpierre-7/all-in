@@ -41,8 +41,7 @@ Two players, after the starter-deck prototype:
   In burning the smallest card left over. It always Holds.
 - **smart** tries every row the Draw can make (every order, every All In
   sacrifice) and plays the one with the best Hand over what it can see of
-  the Opposing Cards. Against The House it knows the Hole Card rule. It
-  Pushes a clearing Hand only when the doubled Payout is the kill and the Hold
+  the Opposing Cards. It Pushes a clearing Hand only when the doubled Payout is the kill and the Hold
   isn't, and Pushes a Whiff only when Holding would kill it anyway.
 
 Smart sees only what a player sees: face-down Opposing Cards count for

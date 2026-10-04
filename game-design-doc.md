@@ -25,7 +25,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 - **The Floor** — Early low-stakes encounters (1 Minion + Boss: Slotz).
 - **The Pit** — Mid-tier recurring enemies (1 Minion + Boss: Pit Boss).
 - **The Back Room** — Optional secret encounter (Boss: The Man Who Beat the House [Plays +1] | Reward: Turns all cards in deck to "All In" tell).
-- **The Big Shots Table** — Final boss (The House [reads your Hand before your last Play and sets House Edge to it plus a margin; your last Play is your Hole Card]).
+- **The Big Shots Table** — Final boss (The House [Table Rule to be picked; until then it plays by the same rules as everyone]).
 
 **Tone:** [casino-noir / pulpy / darkly comic]
 
@@ -53,7 +53,6 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | **Rising Blinds** | Difficulty escalates as combat goes on: the enemy lays one more Opposing Card every 5 turns. Past your Plays you can't cover them all. |
 | **Plays** | Limited number of cards you may put in your row per turn (Draw of 7, up to 5 placed by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final. Cleared House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Fell short: Push to have the Whiff forgiven, or lose and it doubles. Coin is 45/55 in the House's favor. |
-| **Hole Card** | Against The House only: the last card in your row. The House keeps its own last Opposing Card back and fills it in on everything before yours. |
 | **Fight or Fold** | Encounter choice. "Fight" initiates duel; "Fold" abandons the run and returns to the Lobby, resetting all perks, items, and temporary deck upgrades. |
 
 ---
@@ -182,13 +181,13 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 | | Player | Floor minion | Slotz | Pit minion | Pit Boss | The House |
 | --- | --- | --- | --- | --- | --- | --- |
 | Chips | **50** | 25 | 32 | 32 | 40 | 35 |
-| Deal | | 3 × 2–5 | 3 × 3–7 | 4 × 4–7 | 4 × 4–9 | 4 × 1–4, last kept back |
-| Expected row | | ~10.8 | ~15.6 | ~22.8 | ~27 | read + margin |
+| Deal | | 3 × 2–5 | 3 × 3–7 | 4 × 4–7 | 4 × 4–9 | written deck, 1–4 |
+| Expected row | | ~10.8 | ~15.6 | ~22.8 | ~27 | |
 | Tells | | 20% Streak | 35% Streak/Copycat | 30% Streak/Flop | 40% Streak/Copycat/Flop | 35% Streak/Flop |
-| Face down | | 50% | 50% | 50% | 55% | 40%, + the Hole Card |
-| Rising Blinds | | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | margin +1, +2 / 2 turns |
+| Face down | | 50% | 50% | 50% | 55% | |
+| Rising Blinds | | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | |
 
-What the sim said: a careless player (top five cards, random order) beats the Pit Boss 82% of the time and the House 19%; a player who leads with All In then Streaks beats everything up to the House with full Chips, then loses to the House every time because that habit makes the hole card a low vanilla card; a player who saves the biggest Tell for last beats the House in ~4 turns. The House inverts the habit the Tutorial teaches, on purpose. Blinds every 2 turns (the earlier draft) made every fight past 6 turns unwinnable; every 3 is the difference.
+What the sim said (under the Hole Card rule, removed in #145): a careless player (top five cards, random order) beats the Pit Boss 82% of the time and the House 19%; a player who leads with All In then Streaks beats everything up to the House with full Chips, then loses to the House every time because that habit makes the hole card a low vanilla card; a player who saves the biggest Tell for last beats the House in ~4 turns. The House inverts the habit the Tutorial teaches, on purpose. Blinds every 2 turns (the earlier draft) made every fight past 6 turns unwinnable; every 3 is the difference.
 
 **Built (#88):** the reactive enemy is no longer a stretch goal — laying the Opposing Cards down *is* the enemy's turn, and House Edge is what they add up to. See `docs/adr/0002-opposing-cards.md`.
 
@@ -200,16 +199,10 @@ What the sim said: a careless player (top five cards, random order) beats the Pi
 4. **The Back Room (Optional/Secret):** Boss: **The Man Who Beat the House** (Plays +1, transforms deck).
 5. **The Big Shots Table (Final Boss):** Boss: **The House**. See "The House" below.
 
-**The House (the Hole Card rule):**
+**The House:**
 
-- The House lays its row down like anyone else, but deals itself scraps (1–4) and keeps its **last Opposing Card** blank and face down.
-- At the showdown it fills that card in so its whole row reads **the player's row minus the player's last card, plus the margin**.
-- The last card in the player's row is the **Hole Card**: the one card The House can't see. Payout = the Hole Card's resolved value − margin. Streak doubling, All In sacrifice, and Loaded Dice all land after it fills in, so they are the whole strategy.
-- Push Your Luck works unchanged: it is offered when the Hole Card beats the margin.
-- Rising Blinds for The House raise the **margin**, not the row: margin starts at +1 and rises +2 every 2 turns (1, 1, 3, 3, 5, 5, 7…). The margin is the clock; the House wins by outlasting the deck, not by big Whiffs.
-- Confirming a short row still works the same way: everything but the last card you placed is what it reads. An empty row Whiffs by the margin.
-- The House deals itself no Copycat — that is the one Tell that would have to read the card it hasn't decided on yet.
-- Intro line hook: "Fill your row. I'll fill my last card in after. Then show me the one I couldn't see."
+- The Hole Card and its margin are gone (#145). The House plays a temporary written deck in the scraps it used to be dealt (1–4, Streak and Flop), by the same rules as everyone: a hidden Draw of 7, up to the Big Shots Table's Blind, both rows turning over at Confirm.
+- Its Boss Tell is **Flop**. Its new Table Rule is still to be picked, and its Flop Pack comes with its build ticket.
 
 ---
 
