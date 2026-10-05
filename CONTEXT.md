@@ -26,6 +26,15 @@ _Avoid_: defense, armor, threshold
 A boss's own rule for its fight: it bends how the duel plays while that boss is at the table, and never leaves it. One per boss. It may change how the boss chooses its cards, or when it lays them down.
 _Avoid_: gimmick, mechanic, house rule
 
+**All Night**:
+Slotz's Table Rule: its Blind goes up by 1 every 3 turns, to at most 2 above the floor's.
+
+**The Beam Swings Back**:
+The Pit Boss's Table Rule: if the player won last turn, its Blind is 1 higher this turn. Winning means dealing a Payout once Push Your Luck is settled; a tie is not a win, two wins in a row still add only 1, and the first turn plays the floor's Blind.
+
+**The House Plays Last**:
+The House's Table Rule: it lays its row down at Confirm, after seeing the player's row, so its Flops read the real cards and a Reveal has nothing to turn over.
+
 ### A turn
 
 **Deck**:
@@ -108,6 +117,9 @@ Tell: takes the Face Value of the card in the slot to its right, and none of its
 **Flop**:
 Tell: takes the Face Values of the Opposing Card across from it and of that card's two neighbours, and none of their Tells; never its own. An empty slot counts as nothing, so it is strong against a long row and weak at the end of one. The House's Boss Tell.
 
+**Counterweight**:
+Tell: takes the higher of its own Face Value and the Face Value of the card across from it, and none of its Tell. Across an empty slot it keeps its own. The Pit Boss's Boss Tell.
+
 **Boss Tell**:
 The Tell a boss's deck is built around. Nobody else has it until that boss is beaten in the run; from then on it can turn up in minions' decks, Packs, and the Cage. Locked again on Fold or death.
 _Avoid_: signature card, unlock
@@ -124,6 +136,15 @@ _Avoid_: engage/retreat, flee
 
 **Perk**:
 A run-long modifier chosen from a pair after beating a boss.
+
+**Jackpot**:
+Perk, from Slotz: +5 to The Hand when three cards in the player's row came to the same number after their Tells resolved.
+
+**Read the Pan**:
+Perk, from the Pit Boss: a Reveal of the heaviest Opposing Card, by Face Value, at the start of every turn. Against The House, which plays last, it has nothing to show.
+
+**Beam Swings Your Way**:
+Perk, from the Pit Boss: if the player lost last turn, their Blind is 1 higher this turn. Losing means taking a Whiff once Push Your Luck is settled; a tie is not a loss.
 
 **Item**:
 A modifier with a set number of uses, spent one at a time whenever the player chooses: while building the row, before Confirm, or at the Push / Hold prompt for Weighted Coin. Each use lasts that Hand, or the rest of the encounter where the Item says so. A use can be taken back before Confirm, like a Lift, unless it has already shown or drawn the player something. Any number of different Items may be spent in one Hand, but only one use of each. Unspent uses carry between encounters; the Item is gone when the last is spent. The player never holds two of the same Item, and enemies hold none. After beating a minion the player is offered three different Items not already held, keeping one, or a Pack, or may take nothing. Each Item has its own chance of being offered, the stronger ones rarer.
