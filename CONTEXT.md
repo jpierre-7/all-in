@@ -57,7 +57,7 @@ The moment the rows turn over on Confirm: both rows are shown, every Tell resolv
 _Avoid_: reveal, resolution
 
 **Draw**:
-The cards a fighter is holding this turn; the enemy has one too, which the player never sees. Refilled to 7 from that fighter's Deck at the start of each turn; cards not played stay in it. Played cards go to that fighter's discard, which is shuffled back into the Deck when the Deck runs dry.
+The cards a fighter is holding this turn; the enemy has one too, which the player never sees. Refilled to 7 from that fighter's Deck at the start of each turn (an Item can raise that for the player); cards not played stay in it. Played cards go to that fighter's discard, which is shuffled back into the Deck when the Deck runs dry.
 _Avoid_: hand (reserved for The Hand), cards in hand
 
 **Blind**:
@@ -126,11 +126,38 @@ _Avoid_: engage/retreat, flee
 A run-long modifier chosen from a pair after beating a boss.
 
 **Item**:
-A run-long modifier. After beating a minion the player is offered either three Items, keeping one, or a Pack; or may take nothing.
+A modifier with a set number of uses, spent one at a time whenever the player chooses: while building the row, before Confirm, or at the Push / Hold prompt for Weighted Coin. Each use lasts that Hand, or the rest of the encounter where the Item says so. A use can be taken back before Confirm, like a Lift, unless it has already shown or drawn the player something. Any number of different Items may be spent in one Hand, but only one use of each. Unspent uses carry between encounters; the Item is gone when the last is spent. The player never holds two of the same Item, and enemies hold none. After beating a minion the player is offered three different Items not already held, keeping one, or a Pack, or may take nothing. Each Item has its own chance of being offered, the stronger ones rarer.
+_Avoid_: consumable, charge, buff, power-up
 
 **Loaded Dice**:
-Item: +5 to The Hand for the next 2 Hands. Spent as The Hand is shown, and carried between encounters until it runs out.
-_Avoid_: buff, charge
+Item, 2 uses: +5 to The Hand this Hand.
+
+**Card Shark's Sunglasses**:
+Item, 3 uses: a Reveal of the leftmost face-down Opposing Card.
+
+**Two-Way Mirror**:
+Item, 1 use: a Reveal of every Opposing Card.
+
+**Ace Up the Sleeve**:
+Item, 2 uses: +1 to the player's Blind this Hand.
+
+**Shaved Card**:
+Item, 2 uses: +3 to the Face Value of the card in the player's first slot this Hand, before any Tell resolves, so every Tell that reads it sees the +3.
+
+**Sleight of Hand**:
+Item, 1 use: the enemy's rightmost Opposing Card is taken off the table before the Showdown, leaving its slot empty.
+
+**Insurance**:
+Item, 2 uses: a Whiff this Hand is halved, rounded down.
+
+**Weighted Coin**:
+Item, 2 uses, spent at the Push / Hold prompt: Push Your Luck flips even this Hand instead of in the House's favour.
+
+**Shiny Card Sleeve**:
+Item, 1 use, lasting the encounter: what the card in the player's first slot resolves to counts twice toward The Hand. Tells still read its Face Value, so no other card sees the doubling.
+
+**Deep Pockets**:
+Item, 1 use, lasting the encounter: the player draws one card at once, and the Draw refills to 8 instead of 7 until the encounter ends.
 
 ### Cash
 
