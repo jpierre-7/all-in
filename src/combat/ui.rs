@@ -79,6 +79,7 @@ pub struct Art {
     pub all_in: Option<Handle<Image>>,
     pub copycat: Option<Handle<Image>>,
     pub flop: Option<Handle<Image>>,
+    pub bluff: Option<Handle<Image>>,
     pub lowball: Option<Handle<Image>>,
     pub backdrop: Option<Handle<Image>>,
     /// Each boss's portrait, keyed by its path under `assets/`.
@@ -111,6 +112,7 @@ impl Art {
             Tell::AllIn => self.all_in.as_ref(),
             Tell::Copycat => self.copycat.as_ref(),
             Tell::Flop => self.flop.as_ref(),
+            Tell::Bluff => self.bluff.as_ref(),
             Tell::Lowball => self.lowball.as_ref(),
         }
     }
@@ -166,6 +168,7 @@ pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
         all_in: load("tells/all_in.png"),
         copycat: load("tells/copycat.png"),
         flop: load("tells/flop.png"),
+        bluff: load("tells/bluff.png"),
         lowball: load("tells/lowball.png"),
         backdrop: load("backdrops/combat.png"),
         portraits: BOSSES

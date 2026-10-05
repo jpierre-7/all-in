@@ -32,6 +32,10 @@ pub enum Tell {
     /// Takes the Face Values of the Opposing Card across from it and that
     /// card's two neighbours, never its own.
     Flop,
+    /// At the Showdown, set against the card across from it: the side with
+    /// the lower Face Value loses the difference off its Chips. Counts its
+    /// own Face Value toward its row.
+    Bluff,
     /// At the Showdown, mucks the card across from it if that card's Face
     /// Value is higher than its own.
     Lowball,
@@ -40,7 +44,7 @@ pub enum Tell {
 impl Tell {
     /// The Tells every run starts with. Every other Tell is a Boss Tell,
     /// locked until its boss is beaten.
-    pub const OPEN: [Tell; 3] = [Tell::Streak, Tell::AllIn, Tell::Lowball];
+    pub const OPEN: [Tell; 4] = [Tell::Streak, Tell::AllIn, Tell::Bluff, Tell::Lowball];
 
     pub fn rule_text(&self) -> Vec<&'static str> {
         match self {
@@ -75,6 +79,15 @@ impl Tell {
                 "Opposing Card",
                 "across from it and of the cards either side of that. Never its own.",
             ],
+            Tell::Bluff => vec![
+                "At",
+                "Confirm",
+                ", set against the card across from it. The lower",
+                "Face Value",
+                "loses the difference off its side's",
+                "Chips",
+                ".",
+            ],
             Tell::Lowball => vec![
                 "If the card across from it has a higher",
                 "Face Value",
@@ -91,6 +104,7 @@ impl Tell {
             Tell::AllIn => "All In",
             Tell::Copycat => "Copycat",
             Tell::Flop => "Flop",
+            Tell::Bluff => "Bluff",
             Tell::Lowball => "Lowball",
         }
     }
@@ -735,7 +749,7 @@ mod tests {
     fn a_fresh_run_has_only_the_open_tells_unlocked() {
         assert_eq!(
             RunState::new().tell_pool(),
-            vec![Tell::Streak, Tell::AllIn, Tell::Lowball]
+            vec![Tell::Streak, Tell::AllIn, Tell::Bluff, Tell::Lowball]
         );
     }
 
@@ -747,7 +761,13 @@ mod tests {
 
         assert_eq!(
             run.tell_pool(),
-            vec![Tell::Streak, Tell::AllIn, Tell::Lowball, Tell::Copycat]
+            vec![
+                Tell::Streak,
+                Tell::AllIn,
+                Tell::Bluff,
+                Tell::Lowball,
+                Tell::Copycat
+            ]
         );
     }
 
@@ -762,7 +782,13 @@ mod tests {
 
         assert_eq!(
             run.tell_pool(),
-            vec![Tell::Streak, Tell::AllIn, Tell::Lowball, Tell::Flop]
+            vec![
+                Tell::Streak,
+                Tell::AllIn,
+                Tell::Bluff,
+                Tell::Lowball,
+                Tell::Flop
+            ]
         );
     }
 

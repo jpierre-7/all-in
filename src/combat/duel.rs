@@ -135,6 +135,15 @@ pub struct Opposing {
     pub face_up: bool,
 }
 
+/// A Bluff going off at the Showdown: the slot it sat in, whose Chips took
+/// the hit, and how many. Never more than that side had left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BluffHit {
+    pub slot: usize,
+    pub loser: Side,
+    pub amount: u32,
+}
+
 /// Both rows as they turned over, and what they added up to. Kept so the
 /// screen can go on showing the comparison after the turn has resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,6 +156,10 @@ pub struct Showdown {
     pub hand: u32,
     /// The House Edge: what the Opposing Cards came to.
     pub house_edge: u32,
+    /// The Bluffs that went off, left to right, before the Payout.
+    pub bluffs: Vec<BluffHit>,
+    /// The turn these rows were played on.
+    pub turn: u32,
 }
 
 /// What a Flop in the player's next slot would take, as far as the player
@@ -810,10 +823,11 @@ impl Duel {
         Ok(placed.card)
     }
 
-    /// Confirm the row. Both sides turn over, each resolves its Tells, and
-    /// The Hand meets the House Edge. Anything but a tie puts the Push Your
-    /// Luck prompt up and resolves nothing yet (`None`); a tie, where nobody
-    /// pays, resolves on the spot.
+    /// Confirm the row. Both sides turn over, each resolves its Tells, the
+    /// Bluffs go off, and The Hand meets the House Edge. Anything but a tie
+    /// puts the Push Your Luck prompt up and resolves nothing yet (`None`); a
+    /// tie, where nobody pays, resolves on the spot, and so does a Bluff that
+    /// ends the duel.
     pub fn confirm(&mut self) -> Option<TurnResult> {
         if self.phase == Phase::PushYourLuck {
             return None;
@@ -829,8 +843,13 @@ impl Duel {
         let opposing = resolve_row(&enemy, &printed(&self.row));
         let mut hand = row_value(&row);
         let house_edge = row_value(&opposing);
-        // The items that modify The Hand land here, after every card is down.
-        if self.dice_left > 0 {
+        // The Bluffs go off between the rows turning over and The Hand
+        // meeting the House Edge, and one can end the duel right there.
+        let bluffs = self.call_bluffs();
+        let over = self.outcome().is_some();
+        // The items that modify The Hand land here, after every card is
+        // down. A Hand that will never be paid keeps the dice in the bag.
+        if self.dice_left > 0 && !over {
             self.dice_left -= 1;
             hand += LOADED_DICE_BONUS;
         }
@@ -840,9 +859,11 @@ impl Duel {
             opposing,
             hand,
             house_edge,
+            bluffs,
+            turn: self.turn,
         });
 
-        if hand != house_edge {
+        if hand != house_edge && !over {
             self.phase = Phase::PushYourLuck;
             return None;
         }
@@ -879,6 +900,9 @@ impl Duel {
         let hand = self.hand();
         let house_edge = self.house_edge();
         let kind = match (hand >= house_edge, pyl) {
+            // A Bluff ended the duel before The Hand met the House Edge, so
+            // nobody is paid.
+            _ if self.outcome().is_some() => Outcome::Payout(0),
             // A lost Push on a clearing Hand zeroes it: a full Whiff.
             (true, Some(Push::Lost)) => Outcome::Whiff(house_edge),
             (true, _) => Outcome::Payout(self.payout(pyl)),
@@ -961,6 +985,39 @@ impl Duel {
         for i in gone {
             self.enemy_cards.draw.remove(i);
         }
+    }
+
+    /// Set off every Bluff on the table, left to right. In each slot where
+    /// either card is a Bluff, the side with the lower Face Value loses the
+    /// difference off its Chips: once, even with a Bluff on both sides. A
+    /// Bluff across an empty slot has nothing to compare against. Stops as
+    /// soon as either side's Chips run out, because the duel is over and
+    /// nothing after that resolves.
+    fn call_bluffs(&mut self) -> Vec<BluffHit> {
+        let mut hits = Vec::new();
+        for (slot, (mine, theirs)) in self.row.iter().zip(&self.opposing).enumerate() {
+            if self.player_chips == 0 || self.enemy.chips == 0 {
+                break;
+            }
+            let bluff = Some(Tell::Bluff);
+            if mine.card.tell != bluff && theirs.card.tell != bluff {
+                continue;
+            }
+            let (mine, theirs) = (mine.card.face_value, theirs.card.face_value);
+            let (loser, chips) = match mine.cmp(&theirs) {
+                std::cmp::Ordering::Less => (Side::Player, &mut self.player_chips),
+                std::cmp::Ordering::Greater => (Side::Enemy, &mut self.enemy.chips),
+                std::cmp::Ordering::Equal => continue,
+            };
+            let amount = mine.abs_diff(theirs).min(*chips);
+            *chips -= amount;
+            hits.push(BluffHit {
+                slot,
+                loser,
+                amount,
+            });
+        }
+        hits
     }
 
     /// Hand the committed row back to the enemy's Draw, for a row laid on top
@@ -1154,6 +1211,13 @@ pub(crate) mod cards {
             name: "flop",
             face_value,
             tell: Some(Tell::Flop),
+        }
+    }
+    pub fn bluff(face_value: u32) -> Card {
+        Card {
+            name: "bluff",
+            face_value,
+            tell: Some(Tell::Bluff),
         }
     }
     pub fn lowball(face_value: u32) -> Card {
@@ -2652,5 +2716,211 @@ mod modifier_tests {
             assert!(duel.opposing().iter().all(|o| SLOTZ.deck.contains(&o.card)));
             duel.end_turn();
         }
+    }
+}
+
+#[cfg(test)]
+mod bluff_tests {
+    use super::cards::*;
+    use super::*;
+    use crate::modifier::Side;
+
+    /// The player holding exactly `draw` on `player` Chips, every card of it
+    /// in the row, against an enemy on `enemy_chips` that laid `across`.
+    fn played(draw: Vec<Card>, across: Vec<Card>, player: u32, enemy_chips: u32) -> Duel {
+        let blind = draw.len().max(across.len()) as u8;
+        let deck: Vec<Card> = draw.into_iter().rev().collect();
+        let mut duel = Duel::new(deck, player, blind, enemy(enemy_chips)).facing(across);
+        while !duel.draw().is_empty() && duel.plays_left() > 0 {
+            duel.place(0, None).unwrap();
+        }
+        duel
+    }
+
+    fn hit(slot: usize, loser: Side, amount: u32) -> BluffHit {
+        BluffHit {
+            slot,
+            loser,
+            amount,
+        }
+    }
+
+    #[test]
+    fn a_bluff_under_the_card_across_costs_the_player_the_difference() {
+        let mut duel = played(vec![bluff(3)], vec![card(7)], 40, 99);
+
+        duel.confirm();
+
+        assert_eq!((duel.player_chips(), duel.enemy_chips()), (36, 99));
+        let showdown = duel.showdown().expect("a Whiff puts the prompt up");
+        assert_eq!(showdown.bluffs, vec![hit(0, Side::Player, 4)]);
+        assert_eq!(showdown.hand, 3, "the Bluff still counts its print");
+    }
+
+    #[test]
+    fn a_bluff_over_the_card_across_costs_the_enemy_the_difference() {
+        let mut duel = played(vec![bluff(9)], vec![card(4)], 40, 99);
+
+        duel.confirm();
+
+        assert_eq!((duel.player_chips(), duel.enemy_chips()), (40, 94));
+        assert_eq!(duel.hand(), 9);
+    }
+
+    #[test]
+    fn a_bluff_level_with_the_card_across_does_nothing() {
+        let mut duel = played(vec![bluff(5)], vec![card(5)], 40, 99);
+
+        let result = duel.confirm().expect("a tie resolves on the spot");
+
+        assert_eq!(result.hand, 5);
+        assert_eq!((duel.player_chips(), duel.enemy_chips()), (40, 99));
+        assert!(duel.last_showdown().unwrap().bluffs.is_empty());
+    }
+
+    #[test]
+    fn an_enemy_bluff_over_the_players_card_costs_the_player() {
+        let mut duel = played(vec![card(2)], vec![bluff(8)], 40, 99);
+
+        duel.confirm();
+
+        assert_eq!((duel.player_chips(), duel.enemy_chips()), (34, 99));
+        assert_eq!(duel.showdown().unwrap().house_edge, 8);
+    }
+
+    #[test]
+    fn an_enemy_bluff_under_the_players_card_costs_the_enemy() {
+        let mut duel = played(vec![card(8)], vec![bluff(2)], 40, 99);
+
+        duel.confirm();
+
+        assert_eq!((duel.player_chips(), duel.enemy_chips()), (40, 93));
+    }
+
+    #[test]
+    fn two_bluffs_facing_each_other_hit_once() {
+        let mut duel = played(vec![bluff(3)], vec![bluff(7)], 40, 99);
+
+        duel.confirm();
+
+        assert_eq!(duel.player_chips(), 36, "7 - 3, once");
+        assert_eq!(
+            duel.showdown().unwrap().bluffs,
+            vec![hit(0, Side::Player, 4)]
+        );
+    }
+
+    #[test]
+    fn a_bluff_across_an_empty_slot_does_nothing() {
+        // The player's Bluff in slot 1 has nothing across; the enemy's in
+        // slot 1 of the other duel has nothing across either.
+        let mut short_enemy = played(vec![card(1), bluff(9)], vec![card(1)], 40, 99);
+        let mut short_player = played(vec![card(1)], vec![card(1), bluff(9)], 40, 99);
+
+        short_enemy.confirm();
+        short_player.confirm();
+
+        for duel in [&short_enemy, &short_player] {
+            assert_eq!((duel.player_chips(), duel.enemy_chips()), (40, 99));
+            assert!(duel.showdown().unwrap().bluffs.is_empty());
+        }
+    }
+
+    #[test]
+    fn the_bluff_hit_lands_before_the_payout_and_both_are_paid() {
+        let mut duel = played(vec![bluff(9), card(1)], vec![card(4), card(1)], 40, 99);
+
+        let result = duel.end_turn();
+
+        // Bluff: 9 - 4 = 5. Then a Hand of 10 against an Edge of 5 pays 5.
+        assert_eq!(result.kind, Outcome::Payout(5));
+        assert_eq!(duel.enemy_chips(), 99 - 5 - 5);
+    }
+
+    #[test]
+    fn bluffs_hit_left_to_right_from_both_sides() {
+        let mut duel = played(
+            vec![bluff(6), card(2), bluff(1)],
+            vec![card(3), bluff(5), card(2)],
+            40,
+            99,
+        );
+
+        duel.confirm();
+
+        assert_eq!(
+            duel.showdown().unwrap().bluffs,
+            vec![
+                hit(0, Side::Enemy, 3),
+                hit(1, Side::Player, 3),
+                hit(2, Side::Player, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_bluff_that_ends_the_duel_stops_the_rest_and_nothing_is_paid() {
+        // The first Bluff takes the enemy's last 3 Chips. The second would
+        // have cost the player 8, and the Hand would have paid out; neither
+        // happens.
+        let mut duel = played(vec![bluff(6), bluff(1)], vec![card(3), card(9)], 40, 3);
+
+        let result = duel.confirm().expect("the duel is over, no prompt");
+
+        assert_eq!(duel.outcome(), Some(CombatOutcome::Won));
+        assert_eq!(duel.player_chips(), 40, "the second Bluff never went off");
+        assert_eq!(result.kind, Outcome::Payout(0), "and nothing was paid");
+        assert_eq!(duel.phase(), Phase::Playing);
+        let showdown = duel.last_showdown().expect("the table keeps the rows");
+        assert_eq!(
+            showdown.bluffs,
+            vec![hit(0, Side::Enemy, 3)],
+            "only what it had"
+        );
+    }
+
+    #[test]
+    fn an_enemy_bluff_can_take_the_player_out_before_a_winning_hand_pays() {
+        let mut duel = played(vec![card(1), card(30)], vec![bluff(5), card(1)], 4, 99);
+
+        duel.confirm().expect("the duel is over, no prompt");
+
+        assert_eq!(duel.outcome(), Some(CombatOutcome::Lost));
+        assert_eq!(duel.enemy_chips(), 99, "the Hand of 31 never paid");
+    }
+
+    #[test]
+    fn loaded_dice_are_not_spent_on_a_hand_that_never_paid() {
+        let deck = vec![bluff(9)];
+        let mut duel = Duel::new(deck, 40, 1, enemy(5))
+            .facing(vec![card(1)])
+            .with_loaded_dice(2);
+        duel.place(0, None).unwrap();
+
+        duel.confirm();
+
+        assert_eq!(duel.outcome(), Some(CombatOutcome::Won));
+        assert_eq!(duel.dice_left(), 2);
+    }
+
+    #[test]
+    fn a_streak_to_the_right_of_a_bluff_doubles() {
+        let duel = played(vec![bluff(2), streak(5)], vec![card(2), card(1)], 40, 99);
+
+        assert_eq!(duel.hand(), 2 + 10);
+    }
+
+    #[test]
+    fn greedy_scores_a_bluff_at_its_face_value() {
+        // The Bluff's hit doesn't steer the pick: the plain 6 beats a Bluff 5.
+        let draw = [bluff(5), card(6)];
+
+        assert_eq!(
+            greedy(&draw, 1, 1, 1),
+            vec![Pick {
+                card: 1,
+                sacrifice: None
+            }]
+        );
     }
 }
