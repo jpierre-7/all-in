@@ -45,6 +45,10 @@ const GLOSSARY: &[(&str, &str)] = &[
         "The enemy's row, chosen from its own Draw and laid face down before you play. Your cards sit one per slot across from them.",
     ),
     (
+        "Confirm",
+        "Enter: your row is finished. Both rows turn over and every Tell resolves.",
+    ),
+    (
         "The Hand",
         "Your row, and what it adds up to once every Tell in it has resolved. The bigger of it and the House Edge wins.",
     ),
@@ -73,6 +77,10 @@ const GLOSSARY: &[(&str, &str)] = &[
     (
         "Flop",
         "Tell: worth the Opposing Card across from it plus the cards either side of that. Never its own.",
+    ),
+    (
+        "Bluff",
+        "Tell: at Confirm, set against the card across from it. The lower Face Value loses the difference off its side's Chips. Still counts its own. Nothing across, nothing happens.",
     ),
     (
         "Lowball",

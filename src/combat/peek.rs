@@ -422,6 +422,7 @@ mod tests {
             Tell::AllIn,
             Tell::Copycat,
             Tell::Flop,
+            Tell::Bluff,
             Tell::Lowball,
         ];
         for tell in tells {
@@ -433,5 +434,7 @@ mod tests {
         }
         assert!(terms(Tell::Streak).any(|t| t == "Tell"));
         assert!(terms(Tell::AllIn).any(|t| t == "The Hand"));
+        assert!(terms(Tell::Bluff).any(|t| t == "Confirm"));
+        assert!(terms(Tell::Bluff).any(|t| t == "Chips"));
     }
 }
