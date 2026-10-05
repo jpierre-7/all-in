@@ -5,3 +5,5 @@ __pycache__/
 /tools/butler
 /tools/butler.zip
 /.vs
+# Extra cargo target dirs (e.g. a sim baseline build). Never commit build output.
+/target-*
