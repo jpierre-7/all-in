@@ -214,13 +214,23 @@ _Avoid_: store, merchant
 ### Between runs
 
 **Golden Chips**:
-What beating The House earns, kept from one run to the next, and spent at The Wheel. Always "Golden Chips" in full, never "Chips", which is a fighter's life.
+What beating The House earns, and nothing else earns it. Kept from one run to the next, and placed at The Wheel. Always "Golden Chips" in full, never "Chips", which is a fighter's life.
 _Avoid_: gold, tokens, meta currency
 
 **The Wheel**:
-The roulette table where Golden Chips are placed on squares; each square buys a permanent buff for future runs. Opens after The House is first beaten.
-_Avoid_: shop, skill tree, upgrades
+The roulette table where Golden Chips are placed: twelve squares, each with its own effect, and a green zero. A chip placed on a square stays there across runs, and each square's effect applies to every run, growing with its rank. Chips can be moved freely between runs and never during one. Opens after The House is first beaten.
+_Avoid_: shop, skill tree, upgrades, buff
+
+**Rank**:
+How many Golden Chips sit on a square of The Wheel. An empty square has no effect.
+
+**Hot Square**:
+The square The Wheel's spin lands on at the start of each run. Its effect is one rank higher for that run only. An empty square that comes up hot does nothing, and when the spin lands on the green zero nothing is hot.
 
 **Legacy Perk**:
-A Perk chosen after beating The House that lasts for the next run only.
+A Perk that lasts for the next run only. After beating The House, the player picks one of three drawn from a pool of Legacy Perks, never boss Perks. Spent when that run ends, by a win, death, or a Fold. Stronger than a boss Perk.
 _Avoid_: special perk, bonus
+
+**Save Slot**:
+One player's whole between-runs record: their Golden Chips, The Wheel, whether they have beaten The House, and the Legacy Perk waiting for their next run. Each slot is separate; nothing is shared between them.
+_Avoid_: profile, save file
