@@ -15,8 +15,9 @@ chips. You are always playing against a number you can only half see.
 Which card faces which is the whole game, because every **Tell** reads the
 table by position: **Streak** doubles if the card in the slot to its left has a
 Tell, **Copycat** takes the print of the slot to its right, **Flop** takes the
-print of the Opposing Card straight across, and **All In** burns a card from
-your Draw for its chips. Nothing resolves until you confirm, so you can put a
+print of the Opposing Card straight across, **Lowball** mucks the card across
+from it if that card prints higher, and **All In** burns a card from your Draw
+for its chips. Nothing resolves until you confirm, so you can put a
 card down, pull it back out, and re-order the row until it reads the way you
 want.
 

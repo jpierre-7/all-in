@@ -83,6 +83,14 @@ const GLOSSARY: &[(&str, &str)] = &[
         "Tell: at Confirm, set against the card across from it. The lower Face Value loses the difference off its side's Chips. Still counts its own. Nothing across, nothing happens.",
     ),
     (
+        "Lowball",
+        "Tell: if the card across from it has a higher Face Value, that card is Mucked.",
+    ),
+    (
+        "Mucked",
+        "Taken off the table as the rows turn over, before any Tell resolves. It counts nothing, its Tell doesn't fire, and its slot reads as empty.",
+    ),
+    (
         "Push Your Luck",
         "Once The Hand is shown: Push to flip a coin, or Hold to take the turn as it is. Cleared the Edge? Win doubles the Payout; lose and The Hand is 0. Fell short? Win forgives the Whiff; lose and it doubles.",
     ),

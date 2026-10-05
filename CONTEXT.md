@@ -62,7 +62,7 @@ The player saying the row is finished. Both rows turn over, every Tell resolves,
 _Avoid_: submit, lock in, end turn
 
 **Showdown**:
-The moment the rows turn over on Confirm: both rows are shown, every Tell resolves, and The Hand meets House Edge. What each card came to stays on the table until the next turn.
+The moment the rows turn over on Confirm: both rows are shown, Lowballs muck, every other Tell resolves, Bluffs hit, and The Hand meets House Edge. What each card came to stays on the table until the next turn.
 _Avoid_: reveal, resolution
 
 **Draw**:
@@ -118,7 +118,14 @@ Tell: takes the Face Value of the card in the slot to its right, and none of its
 Tell: takes the Face Values of the Opposing Card across from it and of that card's two neighbours, and none of their Tells; never its own. An empty slot counts as nothing, so it is strong against a long row and weak at the end of one. The House's Boss Tell.
 
 **Bluff**:
-Tell: at the Showdown, set against the card across from it; the side with the lower Face Value loses the difference off its Chips, once per slot even with a Bluff on both sides, while the card still counts its own Face Value. The hits land left to right before The Hand meets House Edge, and one that empties either side's Chips ends the duel there. Across an empty slot it does nothing. Open from the start, so either side can play it.
+Tell: at the Showdown, set against the card across from it; the side with the lower Face Value loses the difference off its Chips, once per slot even with a Bluff on both sides, while the card still counts its own Face Value. The hits land left to right before The Hand meets House Edge, and one that empties either side's Chips ends the duel there. Across an empty slot it does nothing, and a Mucked Bluff doesn't hit. Open from the start, so either side can play it.
+
+**Lowball**:
+Tell: if the card across from it has a higher Face Value, that card is Mucked. Equal or higher, or across an empty slot, it does nothing. Open from the start, so either side can play it.
+
+**Mucked**:
+Taken off the table at the Showdown, before any Tell resolves. A mucked card counts nothing, its Tell doesn't fire, every Tell that reads its slot finds it empty, and it goes to its owner's discard like any other played card.
+_Avoid_: destroyed, burned (that is All In's sacrifice), removed
 
 **Counterweight**:
 Tell: takes the higher of its own Face Value and the Face Value of the card across from it, and none of its Tell. Across an empty slot it keeps its own. The Pit Boss's Boss Tell.
@@ -169,7 +176,7 @@ Item, 2 uses: +1 to the player's Blind this Hand.
 Item, 2 uses: +3 to the Face Value of the card in the player's first slot this Hand, before any Tell resolves, so every Tell that reads it sees the +3.
 
 **Sleight of Hand**:
-Item, 1 use: the enemy's rightmost Opposing Card is taken off the table before the Showdown, leaving its slot empty.
+Item, 1 use: the enemy's rightmost Opposing Card is Mucked.
 
 **Insurance**:
 Item, 2 uses: a Whiff this Hand is halved, rounded down.

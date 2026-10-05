@@ -108,8 +108,11 @@ pub struct TurnResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Played {
     pub card: Card,
-    /// What the card added to its row, after its Tell.
+    /// What the card added to its row, after its Tell. Nothing if mucked.
     pub value: u32,
+    /// A Lowball across from it took it off the table before any Tell
+    /// resolved.
+    pub mucked: bool,
 }
 
 /// A card put in a row, with whatever it burned to get there. The burned
@@ -179,6 +182,24 @@ impl fmt::Display for FlopPeek {
     }
 }
 
+/// What a Lowball would do in the player's next slot, as far as the player
+/// can tell. Only said when the card across is face up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LowballPeek {
+    /// The card across is higher: this Face Value comes off the table.
+    Mucks(u32),
+    TooHigh,
+}
+
+impl fmt::Display for LowballPeek {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LowballPeek::Mucks(n) => write!(f, "Mucks the {n}"),
+            LowballPeek::TooHigh => write!(f, "Too high"),
+        }
+    }
+}
+
 /// One card an enemy commits: its place in the Draw, and for an All In the
 /// place of the card it burns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,7 +254,17 @@ struct Greedy<'a> {
 
 impl Greedy<'_> {
     fn walk(&mut self) {
-        let score = row_value(&resolve_row(&self.row, &self.imagined));
+        // A Lowball that would muck one of the player's imagined cards is
+        // worth that card too: it comes off The Hand instead of going on
+        // the House Edge, which is the same gap.
+        let own: Vec<Option<Card>> = self.row.iter().map(|p| Some(p.card.clone())).collect();
+        let mucked: u32 = mucks(&own, &self.imagined)
+            .iter()
+            .zip(&self.imagined)
+            .filter(|(gone, _)| **gone)
+            .filter_map(|(_, card)| card.as_ref().map(|c| c.face_value))
+            .sum();
+        let score = row_value(&resolve_row(&self.row, &self.imagined)) + mucked;
         if score > self.best.0 {
             self.best = (score, self.picks.clone());
         }
@@ -288,34 +319,71 @@ fn flop_value(across: &[Option<Card>], slot: usize) -> u32 {
         .sum()
 }
 
+/// Which of `targets` the Lowballs in `lowballs` muck, slot by slot: a
+/// Lowball mucks the card across from it when that card's Face Value is
+/// higher than its own. Both rows are read on their print, so two Lowballs
+/// facing each other never both muck.
+fn mucks(lowballs: &[Option<Card>], targets: &[Option<Card>]) -> Vec<bool> {
+    targets
+        .iter()
+        .enumerate()
+        .map(|(slot, target)| {
+            let lowball = lowballs.get(slot).and_then(Option::as_ref);
+            match (lowball, target) {
+                (Some(l), Some(t)) => l.tell == Some(Tell::Lowball) && l.face_value < t.face_value,
+                _ => false,
+            }
+        })
+        .collect()
+}
+
 /// Resolve a row left to right against the row across from it, and say what
 /// each card is worth.
 ///
-/// Every Tell reads by position — Streak one slot left, Copycat one slot
+/// First the Lowballs on both sides muck, all at once, on printed Face
+/// Values. A mucked card is worth nothing, its Tell doesn't fire, and every
+/// Tell that reads its slot finds it empty.
+///
+/// Then every Tell reads by position — Streak one slot left, Copycat one slot
 /// right, Flop across and to either side of that — and every one of them
 /// reads a *printed* Face Value. That is what keeps this a single pass with no
 /// ordering to argue about: no card's value depends on another card's value, so the two rows
 /// facing each other can be worked out in either order and a Flop on each
 /// side of the table never chases the other one round in a circle.
 pub fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
+    let own: Vec<Option<Card>> = row.iter().map(|p| Some(p.card.clone())).collect();
+    let gone = mucks(across, &own);
+    let across: Vec<Option<Card>> = mucks(&own, across)
+        .into_iter()
+        .zip(across)
+        .map(|(mucked, card)| card.clone().filter(|_| !mucked))
+        .collect();
+    let standing = |slot: usize| row.get(slot).filter(|_| !gone[slot]).map(|p| &p.card);
     row.iter()
         .enumerate()
         .map(|(slot, placed)| {
             let printed = placed.card.face_value;
             let value = match placed.card.tell {
-                Some(Tell::Streak) if slot > 0 && row[slot - 1].card.tell.is_some() => printed * 2,
+                _ if gone[slot] => 0,
+                Some(Tell::Streak)
+                    if slot
+                        .checked_sub(1)
+                        .and_then(standing)
+                        .is_some_and(|left| left.tell.is_some()) =>
+                {
+                    printed * 2
+                }
                 Some(Tell::AllIn) => {
                     printed + placed.sacrifice.as_ref().map_or(0, |c| c.face_value)
                 }
-                Some(Tell::Copycat) => row
-                    .get(slot + 1)
-                    .map_or(printed, |next| next.card.face_value),
-                Some(Tell::Flop) => flop_value(across, slot),
+                Some(Tell::Copycat) => standing(slot + 1).map_or(printed, |next| next.face_value),
+                Some(Tell::Flop) => flop_value(&across, slot),
                 _ => printed,
             };
             Played {
                 card: placed.card.clone(),
                 value,
+                mucked: gone[slot],
             }
         })
         .collect()
@@ -591,11 +659,20 @@ impl Duel {
     /// Value alone. The row never says more about a hidden card than the fact
     /// of its being hidden already does, so this only ever under-reads.
     pub fn showing(&self) -> (u32, usize) {
-        let across = self.row_cards();
+        let row = self.row_cards();
+        let seen = self.opposing_face_up_cards();
+        // The player's Lowballs muck what they can see across from them, and
+        // the face-up Lowballs across muck what they can see of the row.
+        let gone = mucks(&row, &seen);
+        let across: Vec<Option<Card>> = mucks(&seen, &row)
+            .into_iter()
+            .zip(row)
+            .map(|(mucked, card)| card.filter(|_| !mucked))
+            .collect();
         let face_up = |slot: usize| {
             self.opposing
                 .get(slot)
-                .filter(|o| o.face_up)
+                .filter(|o| o.face_up && !gone[slot])
                 .map(|o| &o.card)
         };
         let mut total = 0;
@@ -603,6 +680,9 @@ impl Duel {
         for (slot, opposing) in self.opposing.iter().enumerate() {
             if !opposing.face_up {
                 hidden += 1;
+                continue;
+            }
+            if gone[slot] {
                 continue;
             }
             let printed = opposing.card.face_value;
@@ -635,6 +715,38 @@ impl Duel {
                 .sum(),
             hidden: read().filter(|o| !o.face_up).count(),
         })
+    }
+
+    /// What a Lowball printed `face_value` would do in the next empty slot,
+    /// against the Opposing Card across from it. `None` when the row is
+    /// full, or when that slot is empty or still face down: nothing about a
+    /// hidden card is told.
+    pub fn lowball_next(&self, face_value: u32) -> Option<LowballPeek> {
+        if self.plays_left() == 0 {
+            return None;
+        }
+        let across = self.opposing.get(self.row.len()).filter(|o| o.face_up)?;
+        Some(if face_value < across.card.face_value {
+            LowballPeek::Mucks(across.card.face_value)
+        } else {
+            LowballPeek::TooHigh
+        })
+    }
+
+    /// The average Face Value of the enemy's whole Deck: all a player knows
+    /// about a face-down Opposing Card, the way [`greedy`] knows the player's
+    /// Deck. The balance sim reads it to score a Lowball across a card back.
+    pub fn enemy_average(&self) -> u32 {
+        let pile = &self.enemy_cards;
+        let whole: Vec<Card> = pile
+            .deck
+            .iter()
+            .chain(&pile.draw)
+            .chain(&pile.discard)
+            .chain(self.opposing.iter().map(|o| &o.card))
+            .cloned()
+            .collect();
+        average_face_value(&whole)
     }
 
     /// How many slots the table has: as many as the larger Blind. A slot
@@ -733,7 +845,7 @@ impl Duel {
         let house_edge = row_value(&opposing);
         // The Bluffs go off between the rows turning over and The Hand
         // meeting the House Edge, and one can end the duel right there.
-        let bluffs = self.call_bluffs();
+        let bluffs = self.call_bluffs(&row, &opposing);
         let over = self.outcome().is_some();
         // The items that modify The Hand land here, after every card is
         // down. A Hand that will never be paid keeps the dice in the bag.
@@ -881,14 +993,19 @@ impl Duel {
     /// Bluff across an empty slot has nothing to compare against. Stops as
     /// soon as either side's Chips run out, because the duel is over and
     /// nothing after that resolves.
-    fn call_bluffs(&mut self) -> Vec<BluffHit> {
+    fn call_bluffs(&mut self, row: &[Played], opposing: &[Played]) -> Vec<BluffHit> {
         let mut hits = Vec::new();
-        for (slot, (mine, theirs)) in self.row.iter().zip(&self.opposing).enumerate() {
+        for (slot, (mine, theirs)) in row.iter().zip(opposing).enumerate() {
             if self.player_chips == 0 || self.enemy.chips == 0 {
                 break;
             }
             let bluff = Some(Tell::Bluff);
             if mine.card.tell != bluff && theirs.card.tell != bluff {
+                continue;
+            }
+            // The muck came first: a mucked Bluff doesn't hit, and a mucked
+            // card isn't there to be hit.
+            if mine.mucked || theirs.mucked {
                 continue;
             }
             let (mine, theirs) = (mine.card.face_value, theirs.card.face_value);
@@ -1106,6 +1223,13 @@ pub(crate) mod cards {
             name: "bluff",
             face_value,
             tell: Some(Tell::Bluff),
+        }
+    }
+    pub fn lowball(face_value: u32) -> Card {
+        Card {
+            name: "lowball",
+            face_value,
+            tell: Some(Tell::Lowball),
         }
     }
 
@@ -1723,6 +1847,184 @@ mod tell_tests {
         assert_eq!(duel.hand(), 6, "yours took their print");
         assert_eq!(duel.house_edge(), 4, "theirs took yours");
     }
+
+    /// Each card in a row: what it came to, and whether it was mucked.
+    type Values = Vec<(u32, bool)>;
+
+    /// Both rows once they turned over, player's first.
+    fn turned_over(duel: &mut Duel) -> (Values, Values) {
+        // A tie resolves on the spot, so its Showdown is already the last one.
+        duel.confirm();
+        let showdown = duel
+            .showdown()
+            .or(duel.last_showdown())
+            .expect("the rows are turned over");
+        let side = |row: &[Played]| row.iter().map(|p| (p.value, p.mucked)).collect();
+        (side(&showdown.row), side(&showdown.opposing))
+    }
+
+    #[test]
+    fn a_lowball_mucks_a_higher_card_across_from_it() {
+        let mut duel = table(vec![lowball(1), card(4)], vec![card(6), card(2)]);
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+
+        let (row, opposing) = turned_over(&mut duel);
+        assert_eq!(
+            row,
+            vec![(1, false), (4, false)],
+            "the Lowball counts its own 1"
+        );
+        assert_eq!(opposing, vec![(0, true), (2, false)], "the 6 is gone");
+        assert_eq!(duel.house_edge(), 2);
+        assert_eq!(duel.hand(), 5);
+    }
+
+    #[test]
+    fn a_lowball_across_an_equal_or_lower_card_does_nothing() {
+        for across in [6, 5] {
+            let mut duel = table(vec![lowball(6)], vec![card(across)]);
+            duel.place(0, None).unwrap();
+
+            let (row, opposing) = turned_over(&mut duel);
+            assert_eq!(row, vec![(6, false)]);
+            assert_eq!(opposing, vec![(across, false)]);
+        }
+    }
+
+    #[test]
+    fn a_lowball_across_an_empty_slot_does_nothing() {
+        let mut duel = table(vec![card(3), lowball(1)], vec![card(2)]);
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+
+        let (row, opposing) = turned_over(&mut duel);
+        assert_eq!(row, vec![(3, false), (1, false)]);
+        assert_eq!(opposing, vec![(2, false)]);
+    }
+
+    #[test]
+    fn the_enemys_lowball_mucks_the_players_card() {
+        let mut duel = table(vec![card(8), card(3)], vec![lowball(2), card(1)]);
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+
+        let (row, opposing) = turned_over(&mut duel);
+        assert_eq!(row, vec![(0, true), (3, false)]);
+        assert_eq!(opposing, vec![(2, false), (1, false)]);
+        // 3 against 3 ties, so the turn has already resolved.
+        assert_eq!(duel.last_showdown().unwrap().hand, 3);
+    }
+
+    #[test]
+    fn of_two_lowballs_facing_each_other_the_lower_one_mucks() {
+        let mut duel = table(vec![lowball(2), lowball(4)], vec![lowball(5), lowball(4)]);
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+
+        let (row, opposing) = turned_over(&mut duel);
+        assert_eq!(
+            row,
+            vec![(2, false), (4, false)],
+            "4 against 4 is a standoff"
+        );
+        assert_eq!(opposing, vec![(0, true), (4, false)]);
+    }
+
+    #[test]
+    fn a_mucked_cards_slot_reads_as_empty_to_its_neighbours() {
+        // The enemy's Streak 9 is mucked, so the Streak 4 beside it has no
+        // Tell to its left and stays a 4. The 8 is mucked too, so the
+        // Copycat beside it has nothing to its right and keeps its own 1.
+        let mut duel = table(
+            vec![lowball(1), card(1), card(1), lowball(2)],
+            vec![streak(9), streak(4), copycat(1), card(8)],
+        );
+        for _ in 0..4 {
+            duel.place(0, None).unwrap();
+        }
+        let (_, opposing) = turned_over(&mut duel);
+        assert_eq!(opposing, vec![(0, true), (4, false), (1, false), (0, true)]);
+    }
+
+    #[test]
+    fn a_mucked_cards_tell_does_not_fire() {
+        // The enemy's Copycat 7 would take the 9 beside it; mucked, it is
+        // worth nothing at all.
+        let mut duel = table(vec![lowball(2), card(1)], vec![copycat(7), card(9)]);
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+
+        let (_, opposing) = turned_over(&mut duel);
+        assert_eq!(opposing, vec![(0, true), (9, false)]);
+    }
+
+    #[test]
+    fn a_flop_counts_a_mucked_card_as_nothing() {
+        // The enemy's Lowball mucks the player's 7, so the enemy's Flop
+        // across the player's 3 reads only the 3.
+        let mut duel = table(vec![card(7), card(3)], vec![lowball(2), flop(0)]);
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+
+        let (_, opposing) = turned_over(&mut duel);
+        assert_eq!(opposing, vec![(2, false), (3, false)]);
+    }
+
+    #[test]
+    fn a_streak_to_the_right_of_a_lowball_doubles() {
+        let mut duel = table(vec![lowball(2), streak(5)], vec![card(1), card(1)]);
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+
+        assert_eq!(duel.hand(), 2 + 10);
+    }
+
+    #[test]
+    fn a_mucked_card_goes_to_its_owners_discard() {
+        let mut duel = table(vec![card(8)], vec![lowball(2)]);
+        let whole = duel.deck_size();
+        duel.place(0, None).unwrap();
+        duel.end_turn();
+
+        assert_eq!(duel.deck_size(), whole, "mucked, not gone from the Deck");
+    }
+
+    #[test]
+    fn a_face_down_lowball_mucks_nothing_until_the_rows_turn_over() {
+        let mut duel = table(vec![card(8)], vec![lowball(2)]);
+        duel.hide_opposing(0);
+        duel.place(0, None).unwrap();
+        assert_eq!(duel.hand(), 8, "nothing about the face-down card shows");
+
+        let (row, _) = turned_over(&mut duel);
+        assert_eq!(row, vec![(0, true)]);
+    }
+
+    #[test]
+    fn a_face_up_card_your_lowball_mucks_shows_as_nothing() {
+        let mut duel = table(vec![lowball(1), card(1)], vec![card(6), card(2)]);
+        duel.place(0, None).unwrap();
+        assert_eq!(duel.showing(), (2, 0));
+    }
+
+    #[test]
+    fn a_lowball_in_the_draw_says_whether_it_would_muck_the_card_across() {
+        let mut deck = vec![card(1); 16];
+        deck.extend([lowball(3), card(4)]); // the 4 drawn first, then the Lowball
+        let mut duel = Duel::new(deck, 40, 3, enemy(999)).with_opposing(vec![
+            (card(9), true),
+            (card(2), true),
+            (card(7), false),
+        ]);
+
+        let peek = |duel: &Duel| duel.lowball_next(3).map(|p| p.to_string());
+        assert_eq!(peek(&duel), Some("Mucks the 9".into()));
+        duel.place(0, None).unwrap();
+        assert_eq!(peek(&duel), Some("Too high".into()), "a 2 across");
+        duel.place(0, None).unwrap();
+        assert_eq!(peek(&duel), None, "face down: nothing to say");
+    }
 }
 
 #[cfg(test)]
@@ -2284,6 +2586,18 @@ mod greedy_tests {
     }
 
     #[test]
+    fn greedy_scores_a_lowball_on_the_players_average_when_it_would_muck() {
+        let draw = [lowball(1), card(3)];
+
+        // Under the average of 6: 1 + 6 beats the 3.
+        assert_eq!(greedy(&draw, 1, 6, 2), vec![pick(0)]);
+        // Not under an average of 1: a 1 loses to the 3.
+        assert_eq!(greedy(&draw, 1, 1, 2), vec![pick(1)]);
+        // No slot the player can fill: nothing to muck.
+        assert_eq!(greedy(&draw, 1, 6, 0), vec![pick(1)]);
+    }
+
+    #[test]
     fn a_tie_goes_to_the_earliest_pick_in_draw_order() {
         let draw = [card(5), card(2), card(5)];
 
@@ -2592,6 +2906,45 @@ mod bluff_tests {
 
         assert_eq!(duel.outcome(), Some(CombatOutcome::Won));
         assert_eq!(duel.dice_left(), 2);
+    }
+
+    #[test]
+    fn a_bluff_mucked_by_the_lowball_across_does_not_hit() {
+        // Unmucked, the 5 over the 2 would cost the enemy 3.
+        let mut duel = played(vec![bluff(5)], vec![lowball(2)], 40, 99);
+
+        duel.confirm();
+
+        assert_eq!((duel.player_chips(), duel.enemy_chips()), (40, 99));
+        let showdown = duel.showdown().expect("a Whiff puts the prompt up");
+        assert!(showdown.row[0].mucked);
+        assert_eq!(showdown.bluffs, vec![]);
+    }
+
+    #[test]
+    fn an_enemy_bluff_mucked_by_your_lowball_hits_nobody() {
+        // Unmucked, the enemy's 8 over the Lowball 2 would cost the player 6.
+        let mut duel = played(vec![lowball(2)], vec![bluff(8)], 40, 99);
+
+        duel.confirm();
+
+        assert_eq!((duel.player_chips(), duel.enemy_chips()), (40, 99));
+        let showdown = duel.showdown().expect("a clearing Hand puts the prompt up");
+        assert!(showdown.opposing[0].mucked);
+        assert_eq!(showdown.bluffs, vec![]);
+    }
+
+    #[test]
+    fn a_bluff_beside_a_muck_still_hits() {
+        // Slot 0 is mucked; the Bluff in slot 1 goes off as normal.
+        let mut duel = played(vec![lowball(1), bluff(3)], vec![card(9), card(7)], 40, 99);
+
+        duel.confirm();
+
+        let showdown = duel.showdown().or(duel.last_showdown()).unwrap();
+        assert!(showdown.opposing[0].mucked);
+        assert_eq!(showdown.bluffs, vec![hit(1, Side::Player, 4)]);
+        assert_eq!(duel.player_chips(), 36);
     }
 
     #[test]
