@@ -1,0 +1,9 @@
+/home/john/Projects/all-in-114/target-base/release/deps/bevy_render_macros-e5c57eb1680ebe79.d: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/as_bind_group.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/extract_component.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/extract_resource.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/specializer.rs
+
+/home/john/Projects/all-in-114/target-base/release/deps/libbevy_render_macros-e5c57eb1680ebe79.so: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/as_bind_group.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/extract_component.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/extract_resource.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/specializer.rs
+
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/lib.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/as_bind_group.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/extract_component.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/extract_resource.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_render_macros-0.19.1/src/specializer.rs:

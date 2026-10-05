@@ -1,0 +1,11 @@
+/home/john/Projects/all-in-114/target-base/release/deps/hexasphere-f088f090680ab95f.d: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/interpolation.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/math.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/shapes.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/slice.rs
+
+/home/john/Projects/all-in-114/target-base/release/deps/libhexasphere-f088f090680ab95f.rlib: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/interpolation.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/math.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/shapes.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/slice.rs
+
+/home/john/Projects/all-in-114/target-base/release/deps/libhexasphere-f088f090680ab95f.rmeta: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/interpolation.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/math.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/shapes.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/slice.rs
+
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/lib.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/interpolation.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/math.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/shapes.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hexasphere-18.0.0/src/slice.rs:

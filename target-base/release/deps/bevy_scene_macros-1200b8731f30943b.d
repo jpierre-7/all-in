@@ -1,0 +1,10 @@
+/home/john/Projects/all-in-114/target-base/release/deps/bevy_scene_macros-1200b8731f30943b.d: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/mod.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/codegen.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/parse.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/types.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/scene_component.rs
+
+/home/john/Projects/all-in-114/target-base/release/deps/libbevy_scene_macros-1200b8731f30943b.so: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/mod.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/codegen.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/parse.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/types.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/scene_component.rs
+
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/lib.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/mod.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/codegen.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/parse.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/bsn/types.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_scene_macros-0.19.1/src/scene_component.rs:

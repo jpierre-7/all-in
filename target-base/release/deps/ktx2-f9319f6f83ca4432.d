@@ -1,0 +1,12 @@
+/home/john/Projects/all-in-114/target-base/release/deps/ktx2-f9319f6f83ca4432.d: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/dfd/mod.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/dfd/generate.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/enums.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/error.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/util.rs
+
+/home/john/Projects/all-in-114/target-base/release/deps/libktx2-f9319f6f83ca4432.rlib: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/dfd/mod.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/dfd/generate.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/enums.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/error.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/util.rs
+
+/home/john/Projects/all-in-114/target-base/release/deps/libktx2-f9319f6f83ca4432.rmeta: /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/lib.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/dfd/mod.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/dfd/generate.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/enums.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/error.rs /home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/util.rs
+
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/lib.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/dfd/mod.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/dfd/generate.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/enums.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/error.rs:
+/home/john/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ktx2-0.5.0/src/util.rs:

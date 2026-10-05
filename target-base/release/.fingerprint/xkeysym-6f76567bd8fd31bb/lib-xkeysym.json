@@ -1,0 +1,1 @@
+{"rustc":13444744534853132663,"features":"[]","declared_features":"[\"bytemuck\", \"serde\"]","target":17950568939072669192,"profile":854319013279132213,"path":5406537823999688426,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/xkeysym-6f76567bd8fd31bb/dep-lib-xkeysym","checksum":false}}],"rustflags":[],"config":9396254390672932401,"compile_kind":0}

@@ -1,0 +1,1 @@
+{"rustc":13444744534853132663,"features":"[]","declared_features":"[\"eders\", \"serde\"]","target":4519262610945287840,"profile":854319013279132213,"path":15806696662474820307,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/vec_map-8aac88c2f4a439c7/dep-lib-vec_map","checksum":false}}],"rustflags":[],"config":9396254390672932401,"compile_kind":0}
