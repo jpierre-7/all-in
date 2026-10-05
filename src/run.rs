@@ -32,12 +32,16 @@ pub enum Tell {
     /// Takes the Face Values of the Opposing Card across from it and that
     /// card's two neighbours, never its own.
     Flop,
+    /// At the Showdown, set against the card across from it: the side with
+    /// the lower Face Value loses the difference off its Chips. Counts its
+    /// own Face Value toward its row.
+    Bluff,
 }
 
 impl Tell {
     /// The Tells every run starts with. Every other Tell is a Boss Tell,
     /// locked until its boss is beaten.
-    pub const OPEN: [Tell; 2] = [Tell::Streak, Tell::AllIn];
+    pub const OPEN: [Tell; 3] = [Tell::Streak, Tell::AllIn, Tell::Bluff];
 
     pub fn rule_text(&self) -> Vec<&'static str> {
         match self {
@@ -72,6 +76,15 @@ impl Tell {
                 "Opposing Card",
                 "across from it and of the cards either side of that. Never its own.",
             ],
+            Tell::Bluff => vec![
+                "At",
+                "Confirm",
+                ", set against the card across from it. The lower",
+                "Face Value",
+                "loses the difference off its side's",
+                "Chips",
+                ".",
+            ],
         }
     }
 
@@ -81,6 +94,7 @@ impl Tell {
             Tell::AllIn => "All In",
             Tell::Copycat => "Copycat",
             Tell::Flop => "Flop",
+            Tell::Bluff => "Bluff",
         }
     }
 }
@@ -712,8 +726,11 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_run_has_only_streak_and_all_in_unlocked() {
-        assert_eq!(RunState::new().tell_pool(), vec![Tell::Streak, Tell::AllIn]);
+    fn a_fresh_run_has_only_the_open_tells_unlocked() {
+        assert_eq!(
+            RunState::new().tell_pool(),
+            vec![Tell::Streak, Tell::AllIn, Tell::Bluff]
+        );
     }
 
     #[test]
@@ -724,7 +741,7 @@ mod tests {
 
         assert_eq!(
             run.tell_pool(),
-            vec![Tell::Streak, Tell::AllIn, Tell::Copycat]
+            vec![Tell::Streak, Tell::AllIn, Tell::Bluff, Tell::Copycat]
         );
     }
 
@@ -737,7 +754,10 @@ mod tests {
         run.beat(&THE_HOUSE);
         run.beat(&THE_HOUSE);
 
-        assert_eq!(run.tell_pool(), vec![Tell::Streak, Tell::AllIn, Tell::Flop]);
+        assert_eq!(
+            run.tell_pool(),
+            vec![Tell::Streak, Tell::AllIn, Tell::Bluff, Tell::Flop]
+        );
     }
 
     #[test]

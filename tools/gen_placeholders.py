@@ -252,6 +252,28 @@ def tell_copycat(path):
     _save_icon(img, path)
 
 
+def tell_bluff(path):
+    """Two bars, one standing over the other: the lower side loses the gap.
+
+    Solid shapes rather than outlines, so the step between them still reads at
+    the 28px the icon is drawn at. The short bar is in the Whiff's red: it is
+    the side that pays.
+    """
+    img = _icon_canvas()
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle(
+        (22 * SS, 14 * SS, 58 * SS, 114 * SS), radius=7 * SS, fill=GOLD + (255,)
+    )
+    d.rounded_rectangle(
+        (70 * SS, 62 * SS, 106 * SS, 114 * SS), radius=7 * SS, fill=BLOOD + (255,)
+    )
+    # The difference, marked out above the short bar.
+    d.line(
+        [(70 * SS, 22 * SS), (106 * SS, 22 * SS)], fill=GOLD_LIT + (255,), width=6 * SS
+    )
+    _save_icon(img, path)
+
+
 def _relative_luminance(rgb):
     def channel(c):
         c /= 255
@@ -274,6 +296,7 @@ def main():
     tell_streak(ASSETS / "tells" / "streak.png")
     tell_all_in(ASSETS / "tells" / "all_in.png")
     tell_copycat(ASSETS / "tells" / "copycat.png")
+    tell_bluff(ASSETS / "tells" / "bluff.png")
 
     # Text on the card body is the one readability risk worth checking.
     for name, fg in (("gold", GOLD), ("gold-lit", GOLD_LIT), ("bone", BONE)):

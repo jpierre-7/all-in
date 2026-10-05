@@ -117,6 +117,9 @@ Tell: takes the Face Value of the card in the slot to its right, and none of its
 **Flop**:
 Tell: takes the Face Values of the Opposing Card across from it and of that card's two neighbours, and none of their Tells; never its own. An empty slot counts as nothing, so it is strong against a long row and weak at the end of one. The House's Boss Tell.
 
+**Bluff**:
+Tell: at the Showdown, set against the card across from it; the side with the lower Face Value loses the difference off its Chips, once per slot even with a Bluff on both sides, while the card still counts its own Face Value. The hits land left to right before The Hand meets House Edge, and one that empties either side's Chips ends the duel there. Across an empty slot it does nothing. Open from the start, so either side can play it.
+
 **Counterweight**:
 Tell: takes the higher of its own Face Value and the Face Value of the card across from it, and none of its Tell. Across an empty slot it keeps its own. The Pit Boss's Boss Tell.
 

@@ -352,6 +352,8 @@ fn take_input(
         // that pays nobody, resolves here.
         active.last_turn = active.duel.confirm();
         active.notice = None;
+        // A Bluff can end the duel as the rows turn over.
+        finish_if_over(&mut commands, &mut active, &mut run, &mut next);
     }
 }
 
@@ -1405,7 +1407,27 @@ mod hit_marker_tests {
     use bevy::prelude::*;
 
     use super::super::hits::{HitMarker, Side};
-    use super::tests::{press, table};
+    use super::tests::{press, state, table, table_for_run};
+    use crate::run::{Card, CombatOutcome, RunState, Tell};
+    use crate::state::AppState;
+
+    /// A table where every card in the deck is a Bluff of `face_value`,
+    /// facing an Edge of `edge` in the first slot and 0s after it.
+    fn bluffing(player_chips: u32, enemy_chips: u32, face_value: u32, edge: u32) -> App {
+        let run = RunState {
+            chips: player_chips,
+            deck: vec![
+                Card {
+                    name: "Poker Face",
+                    face_value,
+                    tell: Some(Tell::Bluff),
+                };
+                10
+            ],
+            ..RunState::new()
+        };
+        table_for_run(run, enemy_chips, edge)
+    }
 
     /// Every marker on screen, with the text its child carries.
     fn markers(app: &mut App) -> Vec<(Side, String)> {
@@ -1458,6 +1480,32 @@ mod hit_marker_tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].0, Side::Enemy);
         assert!(found[0].1.starts_with('-'));
+    }
+
+    #[test]
+    fn a_bluff_floats_its_hit_as_the_rows_turn_over() {
+        // A Bluff 9 across the Edge of 2: 7 off the enemy, before the prompt.
+        let mut app = bluffing(50, 999, 9, 2);
+
+        press(&mut app, KeyCode::Digit1);
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(
+            markers(&mut app),
+            vec![(Side::Enemy, "Bluff -7".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_bluff_that_takes_the_last_chips_ends_the_duel_at_confirm() {
+        let mut app = bluffing(50, 5, 9, 2);
+
+        press(&mut app, KeyCode::Digit1);
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(state(&app), AppState::PostCombat);
+        assert_eq!(*app.world().resource::<CombatOutcome>(), CombatOutcome::Won);
+        assert_eq!(app.world().resource::<RunState>().chips, 50);
     }
 
     #[test]
