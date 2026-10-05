@@ -32,12 +32,15 @@ pub enum Tell {
     /// Takes the Face Values of the Opposing Card across from it and that
     /// card's two neighbours, never its own.
     Flop,
+    /// At the Showdown, mucks the card across from it if that card's Face
+    /// Value is higher than its own.
+    Lowball,
 }
 
 impl Tell {
     /// The Tells every run starts with. Every other Tell is a Boss Tell,
     /// locked until its boss is beaten.
-    pub const OPEN: [Tell; 2] = [Tell::Streak, Tell::AllIn];
+    pub const OPEN: [Tell; 3] = [Tell::Streak, Tell::AllIn, Tell::Lowball];
 
     pub fn rule_text(&self) -> Vec<&'static str> {
         match self {
@@ -72,6 +75,13 @@ impl Tell {
                 "Opposing Card",
                 "across from it and of the cards either side of that. Never its own.",
             ],
+            Tell::Lowball => vec![
+                "If the card across from it has a higher",
+                "Face Value",
+                ", that card is",
+                "Mucked",
+                ".",
+            ],
         }
     }
 
@@ -81,6 +91,7 @@ impl Tell {
             Tell::AllIn => "All In",
             Tell::Copycat => "Copycat",
             Tell::Flop => "Flop",
+            Tell::Lowball => "Lowball",
         }
     }
 }
@@ -457,6 +468,9 @@ pub struct Enemy {
     pub table_rule: Option<&'static dyn Modifier>,
 }
 
+/// The highest Face Value a dealt Lowball prints, whatever the range.
+pub const LOWBALL_MAX: u32 = 3;
+
 /// The names the house deals under. Flavour only: a dealt card is a Face
 /// Value and a Tell, and the name is what the Peek puts at the top of the tag.
 const HOUSE_CARDS: [&str; 10] = [
@@ -487,6 +501,12 @@ pub fn deal_card(
     let face_value = faces.start() + (xorshift64(rng) % span) as u32;
     let carries = !pool.is_empty() && xorshift64(rng) % 100 < u64::from(tell_pct);
     let tell = carries.then(|| pool[(xorshift64(rng) % pool.len() as u64) as usize]);
+    // A Lowball only wins by being small, so it always prints low.
+    let face_value = if tell == Some(Tell::Lowball) {
+        face_value.min(LOWBALL_MAX)
+    } else {
+        face_value
+    };
     let name = HOUSE_CARDS[(xorshift64(rng) % HOUSE_CARDS.len() as u64) as usize];
     Card {
         name,
@@ -712,8 +732,11 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_run_has_only_streak_and_all_in_unlocked() {
-        assert_eq!(RunState::new().tell_pool(), vec![Tell::Streak, Tell::AllIn]);
+    fn a_fresh_run_has_only_the_open_tells_unlocked() {
+        assert_eq!(
+            RunState::new().tell_pool(),
+            vec![Tell::Streak, Tell::AllIn, Tell::Lowball]
+        );
     }
 
     #[test]
@@ -724,7 +747,7 @@ mod tests {
 
         assert_eq!(
             run.tell_pool(),
-            vec![Tell::Streak, Tell::AllIn, Tell::Copycat]
+            vec![Tell::Streak, Tell::AllIn, Tell::Lowball, Tell::Copycat]
         );
     }
 
@@ -737,7 +760,10 @@ mod tests {
         run.beat(&THE_HOUSE);
         run.beat(&THE_HOUSE);
 
-        assert_eq!(run.tell_pool(), vec![Tell::Streak, Tell::AllIn, Tell::Flop]);
+        assert_eq!(
+            run.tell_pool(),
+            vec![Tell::Streak, Tell::AllIn, Tell::Lowball, Tell::Flop]
+        );
     }
 
     #[test]
@@ -774,6 +800,22 @@ mod tests {
                 .all(|c| c.tell.is_none()),
             "an empty pool deals plain cards"
         );
+    }
+
+    #[test]
+    fn a_dealt_lowball_always_prints_low() {
+        let mut rng = SEED;
+        let dealt: Vec<Card> = (0..200)
+            .map(|_| deal_card(5..=9, 100, &[Tell::Lowball, Tell::Streak], &mut rng))
+            .collect();
+
+        assert!(dealt.iter().any(|c| c.tell == Some(Tell::Lowball)));
+        for card in &dealt {
+            match card.tell {
+                Some(Tell::Lowball) => assert!(card.face_value <= LOWBALL_MAX),
+                _ => assert!(card.face_value >= 5),
+            }
+        }
     }
 
     #[test]

@@ -12,7 +12,7 @@
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
 
-use super::duel::{Duel, FlopPeek};
+use super::duel::{Duel, FlopPeek, LowballPeek};
 use super::info::{self, InfoOpen, get_keywords};
 use super::plugin::ActiveDuel;
 use super::ui::{CardSlot, Zone};
@@ -74,6 +74,9 @@ pub struct Tag {
     /// A Flop in the Draw: what it would take in the next empty slot, as far
     /// as the player can see.
     pub flop: Option<FlopPeek>,
+    /// A Lowball in the Draw: whether it would muck the card across from the
+    /// next empty slot, said only when that card is face up.
+    pub lowball: Option<LowballPeek>,
 }
 
 /// The card in a slot, as the player is entitled to see it. A face-down
@@ -220,11 +223,16 @@ fn wanted(
         Some(Tell::Flop) if card.zone == Zone::Draw => active.duel.flop_next(),
         _ => None,
     };
+    let lowball = match held.tell {
+        Some(Tell::Lowball) if card.zone == Zone::Draw => active.duel.lowball_next(held.face_value),
+        _ => None,
+    };
     Some(Tag {
         card,
         term,
         burn,
         flop,
+        lowball,
     })
 }
 
@@ -349,6 +357,9 @@ pub fn show(
             if let Some(flop) = tag.flop {
                 text(body, format!("Next slot: {flop}"), 16.0, NEON);
             }
+            if let Some(lowball) = tag.lowball {
+                text(body, format!("Next slot: {lowball}"), 16.0, NEON);
+            }
             if let Some(term) = tag.term {
                 nest(body, tag.card.slot, term);
             }
@@ -406,7 +417,13 @@ mod tests {
 
     #[test]
     fn every_term_a_tell_leans_on_has_a_glossary_line() {
-        let tells = [Tell::Streak, Tell::AllIn, Tell::Copycat, Tell::Flop];
+        let tells = [
+            Tell::Streak,
+            Tell::AllIn,
+            Tell::Copycat,
+            Tell::Flop,
+            Tell::Lowball,
+        ];
         for tell in tells {
             let found: Vec<_> = terms(tell).collect();
             assert!(!found.is_empty(), "{} marks no terms", tell.name());

@@ -47,11 +47,16 @@ Two players, after the starter-deck prototype:
   isn't, and Pushes a Whiff only when Holding would kill it anyway.
 
 Smart sees only what a player sees: face-down Opposing Cards count for
-nothing, and so does a Flop's read of them. Real players land between the
+nothing, and so does a Flop's read of them. The one guess it makes is
+across a Lowball: a face-down card there counts as the enemy Deck's average
+Face Value (`Duel::enemy_average`), mucked if the Lowball prints under it,
+the way the enemy's greedy guesses at the player's row. Real players land between the
 two. A duel still going after 300 turns is a stall, and it is counted as a
 loss and flagged in the table.
 
-New Tells need nothing here: both players read cards through the `Duel`.
+New Tells mostly need nothing here: both players read cards through the
+`Duel`. A Tell whose worth hangs on a face-down card (Lowball) needs smart's
+`score` to guess at it.
 A new decision does need a player model, like a new prompt or a choice
 that isn't a 1-of-2.
 

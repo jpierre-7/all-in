@@ -32,6 +32,8 @@ const CARD_BACK: Color = Color::srgb(0.10, 0.05, 0.07);
 const SACRIFICE_TINT: Color = Color::srgb(1.0, 0.52, 0.56);
 /// The empty slots in the player's row, waiting to be covered.
 const EMPTY_SLOT: Color = Color::srgb(0.16, 0.20, 0.17);
+/// Laid over a mucked card: the felt at 70%, so the card shows through dim.
+const MUCKED_SHADE: Color = Color::srgba(0.05, 0.07, 0.06, 0.7);
 
 /// The Draw's card size, in pixels. The Peek hangs its tag off these.
 pub const CARD_WIDTH: f32 = 120.0;
@@ -77,6 +79,7 @@ pub struct Art {
     pub all_in: Option<Handle<Image>>,
     pub copycat: Option<Handle<Image>>,
     pub flop: Option<Handle<Image>>,
+    pub lowball: Option<Handle<Image>>,
     pub backdrop: Option<Handle<Image>>,
     /// Each boss's portrait, keyed by its path under `assets/`.
     pub portraits: std::collections::HashMap<&'static str, Handle<Image>>,
@@ -108,6 +111,7 @@ impl Art {
             Tell::AllIn => self.all_in.as_ref(),
             Tell::Copycat => self.copycat.as_ref(),
             Tell::Flop => self.flop.as_ref(),
+            Tell::Lowball => self.lowball.as_ref(),
         }
     }
 }
@@ -162,6 +166,7 @@ pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
         all_in: load("tells/all_in.png"),
         copycat: load("tells/copycat.png"),
         flop: load("tells/flop.png"),
+        lowball: load("tells/lowball.png"),
         backdrop: load("backdrops/combat.png"),
         portraits: BOSSES
             .iter()
@@ -399,14 +404,14 @@ fn facing_rows(root: &mut ChildSpawnerCommands, active: &ActiveDuel, art: &Art) 
     .with_children(|table| {
         row(table, JustifyContent::Center, |r| {
             for (i, opposing) in duel.opposing().iter().enumerate() {
-                let value = showdown.and_then(|s| s.opposing.get(i)).map(|p| p.value);
+                let played = showdown.and_then(|s| s.opposing.get(i));
                 slot_column(
                     r,
                     art,
                     Zone::Opposing,
                     i,
                     opposing_face(opposing),
-                    value,
+                    played,
                     None,
                 );
             }
@@ -415,7 +420,7 @@ fn facing_rows(root: &mut ChildSpawnerCommands, active: &ActiveDuel, art: &Art) 
         row(table, JustifyContent::Center, |r| {
             for i in 0..duel.slots() {
                 let placed: Option<&Placed> = duel.row().get(i);
-                let value = showdown.and_then(|s| s.row.get(i)).map(|p| p.value);
+                let played = showdown.and_then(|s| s.row.get(i));
                 // Past the player's Blind there is no slot to fill, only a
                 // card of theirs nobody is covering.
                 let coverable = i < usize::from(duel.plays_left()) + duel.row().len();
@@ -426,7 +431,7 @@ fn facing_rows(root: &mut ChildSpawnerCommands, active: &ActiveDuel, art: &Art) 
                     Zone::Row,
                     i,
                     placed.map(|p| p.card.clone()),
-                    value,
+                    played,
                     label,
                 );
             }
@@ -442,9 +447,10 @@ fn slot_column(
     zone: Zone,
     index: usize,
     card: Option<Card>,
-    value: Option<u32>,
+    played: Option<&Played>,
     label: Option<&str>,
 ) {
+    let (width, height) = zone.card_size();
     parent
         .spawn(Node {
             flex_direction: FlexDirection::Column,
@@ -462,8 +468,29 @@ fn slot_column(
                 false,
                 label,
             );
-            match value {
-                Some(value) => text(column, value.to_string(), 17.0, GOLD),
+            // A mucked card stays where it was, dimmed and crossed out, so
+            // the player can see what the Lowball across from it did.
+            if played.is_some_and(|p| p.mucked) {
+                column
+                    .spawn((
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: px(0),
+                            top: px(0),
+                            width: px(width),
+                            height: px(height),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BackgroundColor(MUCKED_SHADE),
+                        Pickable::IGNORE,
+                    ))
+                    .with_children(|x| text(x, "X", height * 0.6, NEON));
+            }
+            match played {
+                Some(p) if p.mucked => text(column, "0", 17.0, DIM),
+                Some(p) => text(column, p.value.to_string(), 17.0, GOLD),
                 None => text(column, " ", 17.0, DIM),
             }
         });
@@ -637,7 +664,10 @@ fn showdown_line(showdown: &Showdown) -> String {
             return "-".to_string();
         }
         row.iter()
-            .map(|played| played.value.to_string())
+            .map(|played| match played.mucked {
+                true => "x".to_string(),
+                false => played.value.to_string(),
+            })
             .collect::<Vec<_>>()
             .join(" ")
     };

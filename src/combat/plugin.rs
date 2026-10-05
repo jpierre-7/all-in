@@ -1587,6 +1587,7 @@ mod peek_tests {
                 term: None,
                 burn: None,
                 flop: None,
+                lowball: None,
             }
         );
     }
