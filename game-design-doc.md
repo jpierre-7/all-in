@@ -74,7 +74,7 @@ Before each encounter, the player chooses to:
 2. **The enemy goes first.** It lays down its Opposing Cards — 3 or 4 to start, depending on the enemy, and one more per Rising Blinds tick. The first is face up; each of the rest is face down on a roll the enemy's own odds set. Enemies play Tells too, at their own configured rate.
 3. Player covers the row: click a card in the Draw to put it in the next empty slot, click a card already in the row to take it (and anything it burned) back out. Up to 5 cards (or the limit set by perks). Nothing resolves yet — a row is worth nothing until it is finished.
 4. Player **confirms**. Both rows turn over.
-5. Lowballs on both sides muck the higher cards across from them, all at once. Then each row resolves left to right over what is left. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop across and to either side. All of them read *Face Values*, so neither row depends on the other resolving first.
+5. Lowballs on both sides muck the higher cards across from them, all at once. Then each row resolves left to right over what is left, and then the Bluffs that weren't mucked hit, left to right. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop across and to either side. All of them read *Face Values*, so neither row depends on the other resolving first.
 6. Items that modify The Hand apply (Loaded Dice: +5). The Hand and House Edge are now final.
 7. **Push Your Luck**: the player sees the House Edge and chooses **Push** or **Hold**, whether The Hand cleared it or fell short (PYL on a Whiff, #96).
    - Hold → step 8 as normal.

@@ -62,7 +62,7 @@ The player saying the row is finished. Both rows turn over, every Tell resolves,
 _Avoid_: submit, lock in, end turn
 
 **Showdown**:
-The moment the rows turn over on Confirm: both rows are shown, Lowballs muck, every other Tell resolves, and The Hand meets House Edge. What each card came to stays on the table until the next turn.
+The moment the rows turn over on Confirm: both rows are shown, Lowballs muck, every other Tell resolves, Bluffs hit, and The Hand meets House Edge. What each card came to stays on the table until the next turn.
 _Avoid_: reveal, resolution
 
 **Draw**:
@@ -118,7 +118,7 @@ Tell: takes the Face Value of the card in the slot to its right, and none of its
 Tell: takes the Face Values of the Opposing Card across from it and of that card's two neighbours, and none of their Tells; never its own. An empty slot counts as nothing, so it is strong against a long row and weak at the end of one. The House's Boss Tell.
 
 **Bluff**:
-Tell: at the Showdown, set against the card across from it; the side with the lower Face Value loses the difference off its Chips, once per slot even with a Bluff on both sides, while the card still counts its own Face Value. The hits land left to right before The Hand meets House Edge, and one that empties either side's Chips ends the duel there. Across an empty slot it does nothing. Open from the start, so either side can play it.
+Tell: at the Showdown, set against the card across from it; the side with the lower Face Value loses the difference off its Chips, once per slot even with a Bluff on both sides, while the card still counts its own Face Value. The hits land left to right before The Hand meets House Edge, and one that empties either side's Chips ends the duel there. Across an empty slot it does nothing, and a Mucked Bluff doesn't hit. Open from the start, so either side can play it.
 
 **Lowball**:
 Tell: if the card across from it has a higher Face Value, that card is Mucked. Equal or higher, or across an empty slot, it does nothing. Open from the start, so either side can play it.

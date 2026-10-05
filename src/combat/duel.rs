@@ -845,7 +845,7 @@ impl Duel {
         let house_edge = row_value(&opposing);
         // The Bluffs go off between the rows turning over and The Hand
         // meeting the House Edge, and one can end the duel right there.
-        let bluffs = self.call_bluffs();
+        let bluffs = self.call_bluffs(&row, &opposing);
         let over = self.outcome().is_some();
         // The items that modify The Hand land here, after every card is
         // down. A Hand that will never be paid keeps the dice in the bag.
@@ -993,14 +993,19 @@ impl Duel {
     /// Bluff across an empty slot has nothing to compare against. Stops as
     /// soon as either side's Chips run out, because the duel is over and
     /// nothing after that resolves.
-    fn call_bluffs(&mut self) -> Vec<BluffHit> {
+    fn call_bluffs(&mut self, row: &[Played], opposing: &[Played]) -> Vec<BluffHit> {
         let mut hits = Vec::new();
-        for (slot, (mine, theirs)) in self.row.iter().zip(&self.opposing).enumerate() {
+        for (slot, (mine, theirs)) in row.iter().zip(opposing).enumerate() {
             if self.player_chips == 0 || self.enemy.chips == 0 {
                 break;
             }
             let bluff = Some(Tell::Bluff);
             if mine.card.tell != bluff && theirs.card.tell != bluff {
+                continue;
+            }
+            // The muck came first: a mucked Bluff doesn't hit, and a mucked
+            // card isn't there to be hit.
+            if mine.mucked || theirs.mucked {
                 continue;
             }
             let (mine, theirs) = (mine.card.face_value, theirs.card.face_value);
@@ -2901,6 +2906,45 @@ mod bluff_tests {
 
         assert_eq!(duel.outcome(), Some(CombatOutcome::Won));
         assert_eq!(duel.dice_left(), 2);
+    }
+
+    #[test]
+    fn a_bluff_mucked_by_the_lowball_across_does_not_hit() {
+        // Unmucked, the 5 over the 2 would cost the enemy 3.
+        let mut duel = played(vec![bluff(5)], vec![lowball(2)], 40, 99);
+
+        duel.confirm();
+
+        assert_eq!((duel.player_chips(), duel.enemy_chips()), (40, 99));
+        let showdown = duel.showdown().expect("a Whiff puts the prompt up");
+        assert!(showdown.row[0].mucked);
+        assert_eq!(showdown.bluffs, vec![]);
+    }
+
+    #[test]
+    fn an_enemy_bluff_mucked_by_your_lowball_hits_nobody() {
+        // Unmucked, the enemy's 8 over the Lowball 2 would cost the player 6.
+        let mut duel = played(vec![lowball(2)], vec![bluff(8)], 40, 99);
+
+        duel.confirm();
+
+        assert_eq!((duel.player_chips(), duel.enemy_chips()), (40, 99));
+        let showdown = duel.showdown().expect("a clearing Hand puts the prompt up");
+        assert!(showdown.opposing[0].mucked);
+        assert_eq!(showdown.bluffs, vec![]);
+    }
+
+    #[test]
+    fn a_bluff_beside_a_muck_still_hits() {
+        // Slot 0 is mucked; the Bluff in slot 1 goes off as normal.
+        let mut duel = played(vec![lowball(1), bluff(3)], vec![card(9), card(7)], 40, 99);
+
+        duel.confirm();
+
+        let showdown = duel.showdown().or(duel.last_showdown()).unwrap();
+        assert!(showdown.opposing[0].mucked);
+        assert_eq!(showdown.bluffs, vec![hit(1, Side::Player, 4)]);
+        assert_eq!(duel.player_chips(), 36);
     }
 
     #[test]
