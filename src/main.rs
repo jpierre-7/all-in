@@ -3,7 +3,7 @@
 
 #[cfg(debug_assertions)]
 use all_in::devstart;
-use all_in::{combat, music, overworld, theme};
+use all_in::{combat, music, overworld, save, theme};
 use bevy::prelude::*;
 
 fn main() {
@@ -27,7 +27,8 @@ fn main() {
     .add_plugins(theme::ThemePlugin)
     .add_plugins(music::MusicPlugin)
     .add_plugins(overworld::OverworldPlugin)
-    .add_plugins(combat::CombatPlugin);
+    .add_plugins(combat::CombatPlugin)
+    .add_plugins(save::SavePlugin::default());
 
     #[cfg(debug_assertions)]
     if let Some(dev) = dev {
