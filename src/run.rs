@@ -1,4 +1,4 @@
-//! Shared run-state and seam types. Vocabulary follows `CONTEXT.md`.
+//! Shared run-state and seam types. Vocabulary follows `GLOSSARY.md`.
 //!
 //! Owned by Dev 1 (combat). Overworld reads these and calls the constructors
 //! and `RunState::apply`; changes to this file go through a PR to Dev 1.

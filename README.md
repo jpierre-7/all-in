@@ -178,7 +178,7 @@ demo), and **3** the Floor, where the run starts.
 | `src/combat/` | The duel: rules, UI, the glossary. |
 | `src/overworld/` | The shell: title, lobby, floors, rewards, endings. |
 | `tools/sim/` | The balance sim: whole runs against the real duel, headless. |
-| `CONTEXT.md` | The game's vocabulary. Read this before naming anything. |
+| `GLOSSARY.md` | The game's vocabulary. Read this before naming anything. |
 | `docs/onboarding.md` | New to the team? Start here: what to read, how tickets are claimed. |
 | `docs/adr/` | Architectural decisions. |
 | `docs/pitch.md` | The 60-second pitch and the demo script. |

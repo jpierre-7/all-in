@@ -22,7 +22,7 @@ pub struct InfoOpen;
 pub struct InfoOverlay;
 
 /// One line per term, in the order a new player meets them. Text follows
-/// `CONTEXT.md`. The Peek's nested tags read from the same table.
+/// `GLOSSARY.md`. The Peek's nested tags read from the same table.
 const GLOSSARY: &[(&str, &str)] = &[
     (
         "Chips",

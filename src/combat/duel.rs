@@ -1,4 +1,4 @@
-//! The pure combat model: one duel, no Bevy. Vocabulary follows `CONTEXT.md`.
+//! The pure combat model: one duel, no Bevy. Vocabulary follows `GLOSSARY.md`.
 //!
 //! Both sides play the same turn (ADR-0003). Each draws up to 7 from its own
 //! Deck; the enemy commits up to its Blind face down, by its strategy; the
