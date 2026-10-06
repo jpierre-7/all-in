@@ -94,7 +94,10 @@ const GLOSSARY: &[(&str, &str)] = &[
         "Push Your Luck",
         "Once The Hand is shown: Push to flip a coin, or Hold to take the turn as it is. Cleared the Edge? Win doubles the Payout; lose and The Hand is 0. Fell short? Win forgives the Whiff; lose and it doubles.",
     ),
-    ("Loaded Dice", "Item: +5 to your next two Hands."),
+    (
+        "Item",
+        "Spent from your pocket with its key (A to X), a use at a time. A use lasts the Hand, or the encounter where it says so. Press the key again before Confirm to put it back, unless it has already shown or drawn you something.",
+    ),
 ];
 
 pub fn get_keywords() -> Vec<&'static str> {

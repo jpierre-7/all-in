@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use super::duel::{Coin, Duel, Phase, PlayError, TurnResult};
+use super::duel::{Coin, Duel, ItemError, Phase, PlayError, Spent, TurnResult};
 use super::ui::{self, Zone};
 use crate::overworld::narrative;
 use crate::run::{CombatOutcome, Encounter, PRACTICE_BLIND, RunState, xorshift64};
@@ -187,7 +187,7 @@ fn start_duel(
         None => time.elapsed_secs_f64().to_bits() | 1,
     };
     // Everything the run has picked up lands here, in one place: the deck the
-    // rewards built, the Perks taken, and whatever is left of the Loaded Dice.
+    // rewards built, the Perks taken, and the Items held.
     let tutorial = *encounter == Encounter::Practice;
     let duel = if tutorial {
         // The Arcade: a fixed deal on both sides of the table, fresh Chips,
@@ -219,12 +219,14 @@ fn start_duel(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn take_input(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     active: Option<ResMut<ActiveDuel>>,
     info: Option<Res<super::info::InfoOpen>>,
     clicked: Query<(&Interaction, &ui::CardSlot), Changed<Interaction>>,
+    pocket: Query<(&Interaction, &ui::ItemButton), Changed<Interaction>>,
     mut run: ResMut<RunState>,
     mut next: ResMut<NextState<AppState>>,
 ) {
@@ -315,6 +317,20 @@ fn take_input(
         return;
     }
 
+    // An Item out of the pocket, or back into it: its key, or a click on it.
+    let item = item_key(&keys).or_else(|| {
+        pocket
+            .iter()
+            .find(|(interaction, _)| **interaction == Interaction::Pressed)
+            .map(|(_, button)| button.0)
+    });
+    if let Some(index) = item
+        && active.awaiting_sacrifice.is_none()
+    {
+        active.notice = Some(spend_or_take_back(&mut active.duel, index));
+        return;
+    }
+
     // Step 5: the prompt is up and only Push or Hold answers it.
     if active.duel.phase() == Phase::PushYourLuck {
         let pushed = keys.just_pressed(KeyCode::KeyP);
@@ -372,6 +388,62 @@ fn placed_line(duel: &Duel, slot: usize) -> String {
     line
 }
 
+/// The keys that spend the Items held, in the order taken: the home row and
+/// on, skipping H, which is Hold.
+pub const ITEM_KEYS: [(KeyCode, char); 10] = [
+    (KeyCode::KeyA, 'A'),
+    (KeyCode::KeyS, 'S'),
+    (KeyCode::KeyD, 'D'),
+    (KeyCode::KeyF, 'F'),
+    (KeyCode::KeyG, 'G'),
+    (KeyCode::KeyJ, 'J'),
+    (KeyCode::KeyK, 'K'),
+    (KeyCode::KeyL, 'L'),
+    (KeyCode::KeyZ, 'Z'),
+    (KeyCode::KeyX, 'X'),
+];
+
+fn item_key(keys: &ButtonInput<KeyCode>) -> Option<usize> {
+    ITEM_KEYS
+        .iter()
+        .position(|(key, _)| keys.just_pressed(*key))
+}
+
+/// Spend the Item at `index`, or put it back if it was spent this Hand and
+/// still can be, and say what happened.
+fn spend_or_take_back(duel: &mut Duel, index: usize) -> String {
+    let Some(pocketed) = duel.items().get(index).copied() else {
+        return "Nothing in that pocket.".into();
+    };
+    let name = pocketed.item.name;
+    let key = ITEM_KEYS[index].1;
+    if pocketed.spent == Spent::Pending {
+        return match duel.take_back(index) {
+            Ok(()) => format!("{name} back in your pocket."),
+            Err(ItemError::RowTooLong) => {
+                format!("Your row won't fit without {name}. Take a card back first.")
+            }
+            Err(_) => format!("{name} stays spent."),
+        };
+    }
+    match duel.spend(index) {
+        Ok(()) if duel.items()[index].spent == Spent::Pending => {
+            format!(
+                "{name}: {}  ({key} again puts it back.)",
+                pocketed.item.text
+            )
+        }
+        Ok(()) => format!("{name}: {}", pocketed.item.text),
+        Err(ItemError::NoUsesLeft) => format!("{name} has no uses left."),
+        Err(ItemError::AlreadySpent) => format!("{name} is already working."),
+        Err(ItemError::NotNow) if duel.phase() == Phase::PushYourLuck => {
+            "The rows are down. Push (P) or Hold (H).".into()
+        }
+        Err(ItemError::NotNow) => format!("{name} is spent at the Push / Hold prompt."),
+        Err(_) => "Nothing in that pocket.".into(),
+    }
+}
+
 /// Write the Chips back and hand over at `PostCombat` once one side's Chips are out.
 /// The only transition combat ever makes (ADR-0001).
 fn finish_if_over(
@@ -386,7 +458,7 @@ fn finish_if_over(
     if active.guide.is_none() {
         // The Arcade never touches the run.
         run.chips = active.duel.player_chips();
-        run.set_loaded_dice(active.duel.dice_left());
+        run.put_back(active.duel.items_left());
         if outcome == CombatOutcome::Won
             && let Encounter::Boss { boss, .. } = active.encounter
         {
@@ -998,6 +1070,8 @@ mod run_modifier_tests {
     use super::ActiveDuel;
     use super::tests::{FLOOR_MINION, dealt_table, press, state, table_for_run};
     use crate::boss::{PIT_BOSS, SLOTZ};
+    use crate::combat::duel::Spent;
+    use crate::item::LOADED_DICE;
     use crate::modifier::Side;
     use crate::run::{CombatOutcome, Reward, RunState};
     use crate::state::AppState;
@@ -1018,23 +1092,82 @@ mod run_modifier_tests {
     }
 
     #[test]
-    fn loaded_dice_come_to_the_table_and_what_is_left_goes_home() {
+    fn the_items_held_come_to_the_table_and_what_is_left_goes_home() {
         let mut run = RunState {
             chips: 40,
             ..RunState::new()
         };
-        run.apply(Reward::LoadedDice, 1);
+        run.apply(Reward::Item(&LOADED_DICE), 1);
         let mut app = table_for_run(run, 1, 0);
 
-        assert_eq!(app.world().resource::<ActiveDuel>().duel.dice_left(), 2);
+        let duel = &app.world().resource::<ActiveDuel>().duel;
+        assert_eq!(duel.items().len(), 1);
+        assert_eq!(duel.items()[0].uses, LOADED_DICE.uses);
 
-        // One Hand of nothing at all still clears an Edge of 0 on the dice.
+        // A Hand of nothing at all, with the dice on it, clears an Edge of 0.
+        press(&mut app, KeyCode::KeyA);
         press(&mut app, KeyCode::Enter);
+        assert_eq!(app.world().resource::<ActiveDuel>().duel.hand(), 5);
         press(&mut app, KeyCode::KeyH);
 
         assert_eq!(state(&app), AppState::PostCombat);
         assert_eq!(*app.world().resource::<CombatOutcome>(), CombatOutcome::Won);
-        assert_eq!(app.world().resource::<RunState>().loaded_dice(), 1);
+        assert_eq!(
+            app.world().resource::<RunState>().uses(&LOADED_DICE),
+            Some(LOADED_DICE.uses - 1)
+        );
+    }
+
+    #[test]
+    fn an_item_key_spends_it_and_a_second_press_puts_it_back() {
+        let mut run = RunState {
+            chips: 40,
+            ..RunState::new()
+        };
+        run.apply(Reward::Item(&LOADED_DICE), 1);
+        let mut app = table_for_run(run, 999, 0);
+
+        press(&mut app, KeyCode::KeyA);
+        assert_eq!(
+            app.world().resource::<ActiveDuel>().duel.items()[0].spent,
+            Spent::Pending
+        );
+        press(&mut app, KeyCode::KeyA);
+
+        let active = app.world().resource::<ActiveDuel>();
+        assert_eq!(active.duel.items()[0].spent, Spent::No);
+        assert_eq!(active.duel.items()[0].uses, LOADED_DICE.uses);
+        assert!(
+            active
+                .notice
+                .as_deref()
+                .unwrap()
+                .contains("back in your pocket")
+        );
+    }
+
+    #[test]
+    fn the_weighted_coin_waits_for_the_prompt() {
+        let mut run = RunState {
+            chips: 40,
+            ..RunState::new()
+        };
+        run.apply(Reward::Item(&crate::item::WEIGHTED_COIN), 1);
+        let mut app = table_for_run(run, 999, 20);
+
+        press(&mut app, KeyCode::KeyA);
+        assert_eq!(
+            app.world().resource::<ActiveDuel>().duel.items()[0].spent,
+            Spent::No,
+            "not while the row is being built"
+        );
+
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::KeyA);
+
+        let duel = &app.world().resource::<ActiveDuel>().duel;
+        assert_eq!(duel.coin().player_pct, 50);
+        assert_eq!(duel.items()[0].uses, crate::item::WEIGHTED_COIN.uses - 1);
     }
 
     #[test]

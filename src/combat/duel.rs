@@ -6,15 +6,14 @@
 //! Blind, and confirms. Both rows turn over, each resolves its Tells by slot,
 //! and the side that comes up short loses the difference off its own Chips.
 //!
-//! Anything that bends the duel (a boss's Table Rule, a Perk) does it through
-//! the hooks in [`crate::modifier`].
+//! Anything that bends the duel (a boss's Table Rule, a Perk, an Item) does
+//! it through the hooks in [`crate::modifier`].
 
 use std::fmt;
 
+use crate::item::{Held, Item, Lasts, When};
 use crate::modifier::{Modifier, Side};
-use crate::run::{
-    Card, CombatOutcome, Encounter, Enemy, LOADED_DICE_BONUS, RunState, Tell, xorshift64,
-};
+use crate::run::{Card, CombatOutcome, Encounter, Enemy, RunState, Tell, xorshift64};
 
 pub const DRAW_SIZE: usize = 7;
 
@@ -29,6 +28,50 @@ pub enum PlayError {
     NotAllIn,
     /// The rows are face up and the Push Your Luck prompt is up.
     HandIsFinal,
+}
+
+/// Why an Item couldn't be spent or taken back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemError {
+    NoSuchItem,
+    /// Every use is gone.
+    NoUsesLeft,
+    /// One use of each Item a Hand, and an Item lasting the encounter is
+    /// already working.
+    AlreadySpent,
+    /// Spent while building the row, and the rows are down; or spent at the
+    /// prompt, and the prompt isn't up.
+    NotNow,
+    /// Not spent this Hand.
+    NotSpent,
+    /// It has already shown or drawn something, or the rows are down.
+    CannotTakeBack,
+    /// Taking it back would leave more cards in the row than the Blind.
+    RowTooLong,
+}
+
+/// Where one held Item stands this Hand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Spent {
+    /// In the pocket.
+    No,
+    /// Spent this Hand, and not paid for until Confirm, so it can still be
+    /// taken back.
+    Pending,
+    /// Spent and paid for this Hand: it has shown or drawn something, or
+    /// the rows are down.
+    Final,
+    /// Working for the rest of the encounter.
+    Lasting,
+}
+
+/// An Item the player brought to the table.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pocketed {
+    pub item: &'static Item,
+    /// Uses left, not counting one still pending.
+    pub uses: u8,
+    pub spent: Spent,
 }
 
 /// Where the turn is. Playing is the player building their row against the
@@ -152,7 +195,7 @@ pub struct Showdown {
     pub row: Vec<Played>,
     /// The Opposing Cards, resolved left to right.
     pub opposing: Vec<Played>,
-    /// The Hand, Loaded Dice included. A lost Push zeroes it.
+    /// The Hand, the Items that bend it included. A lost Push zeroes it.
     pub hand: u32,
     /// The House Edge: what the Opposing Cards came to.
     pub house_edge: u32,
@@ -408,7 +451,8 @@ pub struct Duel {
     row: Vec<Placed>,
     /// The floor's Blind, before anything bends it.
     blind: u8,
-    /// The Table Rule, then Perks in the order taken.
+    /// The Table Rule, then Perks in the order taken. The Items being spent
+    /// follow them; see [`Duel::modifiers`].
     modifiers: Vec<&'static dyn Modifier>,
     /// The average Face Value of the player's whole Deck, which is all the
     /// enemy's strategy knows about the player's row.
@@ -418,8 +462,8 @@ pub struct Duel {
     turn: u32,
     phase: Phase,
     coin: Coin,
-    /// Hands still carrying the Loaded Dice bonus, carried in from the run.
-    dice_left: u8,
+    /// The Items carried in from the run, in the order taken.
+    pocket: Vec<Pocketed>,
     /// The Arcade's fixed row (#40), laid again every turn instead of one the
     /// enemy chose. `None` in a real duel.
     fixed: Option<Vec<(Card, bool)>>,
@@ -471,7 +515,7 @@ impl Duel {
             turn: 1,
             phase: Phase::Playing,
             coin,
-            dice_left: 0,
+            pocket: Vec::new(),
             fixed: None,
             showdown: None,
             last: None,
@@ -483,8 +527,7 @@ impl Duel {
 
     /// A duel against `encounter` with everything the run has picked up: the
     /// deck the rewards built and the enemy's, each shuffled off `seed`; the
-    /// floor's Blind; the Perks taken, in order; whatever is left of the
-    /// Loaded Dice. The game and the balance sim both start here, so the sim
+    /// floor's Blind; the Perks taken, in order; the Items held. The game and the balance sim both start here, so the sim
     /// plays the duel the player does.
     pub fn for_run(run: &RunState, encounter: Encounter, seed: u64) -> Self {
         let mut enemy = encounter.enemy(run, seed.rotate_left(29));
@@ -497,7 +540,7 @@ impl Duel {
             run.perks.iter().map(|perk| perk.modifier).collect(),
         )
         .with_seed(seed.rotate_left(17))
-        .with_loaded_dice(run.loaded_dice())
+        .with_items(&run.items)
     }
 
     /// Seeds the reshuffle of either discard pile and the coin.
@@ -521,15 +564,25 @@ impl Duel {
         self
     }
 
-    /// Loaded Dice carried in from the run: +5 on each of the next `hands`
-    /// Hands. Combat writes back whatever is left when the duel ends.
-    pub fn with_loaded_dice(mut self, hands: u8) -> Self {
-        self.dice_left = hands;
+    /// The Items carried in from the run. Combat writes back what is left
+    /// of them, [`Duel::items_left`], when the duel ends.
+    pub fn with_items(mut self, held: &[Held]) -> Self {
+        self.pocket = held
+            .iter()
+            .map(|h| Pocketed {
+                item: h.item,
+                uses: h.uses,
+                spent: Spent::No,
+            })
+            .collect();
         self
     }
 
+    /// The coin Push Your Luck will flip with, the Items spent at the prompt
+    /// included.
     pub fn coin(&self) -> Coin {
-        self.coin
+        self.spending()
+            .fold(self.coin, |coin, item| item.modifier.coin(coin))
     }
 
     /// Who is across the table.
@@ -537,9 +590,22 @@ impl Duel {
         self.enemy.name
     }
 
-    /// Hands still to come with the dice on them.
-    pub fn dice_left(&self) -> u8 {
-        self.dice_left
+    /// The Items held, in the order taken, and where each stands this Hand.
+    pub fn items(&self) -> &[Pocketed] {
+        &self.pocket
+    }
+
+    /// What the run keeps: every Item with a use left. One still working for
+    /// the encounter has had its use.
+    pub fn items_left(&self) -> Vec<Held> {
+        self.pocket
+            .iter()
+            .filter(|p| p.uses > 0)
+            .map(|p| Held {
+                item: p.item,
+                uses: p.uses,
+            })
+            .collect()
     }
 
     pub fn phase(&self) -> Phase {
@@ -549,10 +615,15 @@ impl Duel {
     /// The most cards `side` may put in its row this turn: the floor's
     /// Blind, bent by every modifier in order, and never below 1.
     pub fn blind(&self, side: Side) -> u8 {
-        self.modifiers
-            .iter()
+        self.modifiers()
             .fold(self.blind, |blind, m| m.blind(side, blind))
             .max(1)
+    }
+
+    /// How many cards `side`'s Draw refills to this turn.
+    pub fn draw_size(&self, side: Side) -> usize {
+        self.modifiers()
+            .fold(DRAW_SIZE, |size, m| m.draw(side, size))
     }
 
     /// The Payout The Hand would deal right now: its excess over the House
@@ -630,12 +701,15 @@ impl Duel {
     }
 
     /// The Hand: the player's row resolved against the Opposing Cards it can
-    /// see. Once the rows have turned over this is the settled number, Loaded
-    /// Dice and a lost Push included.
+    /// see. Once the rows have turned over this is the settled number, the
+    /// Items that bend it and a lost Push included.
     pub fn hand(&self) -> u32 {
         match &self.showdown {
             Some(showdown) => showdown.hand,
-            None => row_value(&resolve_row(&self.row, &self.opposing_face_up_cards())),
+            None => {
+                let (row, opposing) = self.table();
+                row_value(&resolve_row(&row, &self.face_up(&opposing)))
+            }
         }
     }
 
@@ -648,7 +722,10 @@ impl Duel {
     pub fn house_edge(&self) -> u32 {
         match &self.showdown {
             Some(showdown) => showdown.house_edge,
-            None => row_value(&resolve_row(&self.opposing_row(), &self.row_cards())),
+            None => {
+                let (row, opposing) = self.table();
+                row_value(&resolve_row(&opposing, &printed(&row)))
+            }
         }
     }
 
@@ -659,8 +736,9 @@ impl Duel {
     /// Value alone. The row never says more about a hidden card than the fact
     /// of its being hidden already does, so this only ever under-reads.
     pub fn showing(&self) -> (u32, usize) {
-        let row = self.row_cards();
-        let seen = self.opposing_face_up_cards();
+        let (row, opposing) = self.table();
+        let row = printed(&row);
+        let seen = self.face_up(&opposing);
         // The player's Lowballs muck what they can see across from them, and
         // the face-up Lowballs across muck what they can see of the row.
         let gone = mucks(&row, &seen);
@@ -670,23 +748,22 @@ impl Duel {
             .map(|(mucked, card)| card.filter(|_| !mucked))
             .collect();
         let face_up = |slot: usize| {
-            self.opposing
-                .get(slot)
-                .filter(|o| o.face_up && !gone[slot])
-                .map(|o| &o.card)
+            seen.get(slot)
+                .and_then(Option::as_ref)
+                .filter(|_| !gone[slot])
         };
         let mut total = 0;
         let mut hidden = 0;
-        for (slot, opposing) in self.opposing.iter().enumerate() {
-            if !opposing.face_up {
+        for (slot, card) in seen.iter().enumerate() {
+            let Some(card) = card else {
                 hidden += 1;
                 continue;
-            }
+            };
             if gone[slot] {
                 continue;
             }
-            let printed = opposing.card.face_value;
-            total += match opposing.card.tell {
+            let printed = card.face_value;
+            total += match card.tell {
                 Some(Tell::Streak) => match slot.checked_sub(1).and_then(face_up) {
                     Some(left) if left.tell.is_some() => printed * 2,
                     _ => printed,
@@ -835,23 +912,38 @@ impl Duel {
         for opposing in &mut self.opposing {
             opposing.face_up = true;
         }
-        let enemy = self.opposing_row();
-        let printed = |row: &[Placed]| -> Vec<Option<Card>> {
-            row.iter().map(|p| Some(p.card.clone())).collect()
-        };
-        let row = resolve_row(&self.row, &printed(&enemy));
-        let opposing = resolve_row(&enemy, &printed(&self.row));
+        let (mine, theirs) = self.table();
+        let mut row = resolve_row(&mine, &printed(&theirs));
+        let mut opposing = resolve_row(&theirs, &printed(&mine));
+        // A card a modifier took off the end of a row is Mucked.
+        row.extend(mucked(self.row.iter().skip(mine.len()).map(|p| &p.card)));
+        opposing.extend(mucked(
+            self.opposing.iter().skip(theirs.len()).map(|o| &o.card),
+        ));
         let mut hand = row_value(&row);
         let house_edge = row_value(&opposing);
         // The Bluffs go off between the rows turning over and The Hand
         // meeting the House Edge, and one can end the duel right there.
         let bluffs = self.call_bluffs(&row, &opposing);
         let over = self.outcome().is_some();
-        // The items that modify The Hand land here, after every card is
-        // down. A Hand that will never be paid keeps the dice in the bag.
-        if self.dice_left > 0 && !over {
-            self.dice_left -= 1;
-            hand += LOADED_DICE_BONUS;
+        // What bends The Hand lands here, after every card is down, and the
+        // Items spent on it are paid for. A Hand that will never be paid
+        // spends nothing.
+        if !over {
+            hand = self
+                .modifiers()
+                .fold(hand, |hand, m| m.after_showdown(hand, house_edge, &row));
+            // Then the Whiff that is left. The Hand comes up to meet it, so
+            // the House Edge still says what the Opposing Cards came to.
+            let short = house_edge.saturating_sub(hand);
+            let left = self.modifiers().fold(short, |whiff, m| m.whiff(whiff));
+            hand += short - left.min(short);
+            for pocketed in &mut self.pocket {
+                if pocketed.spent == Spent::Pending {
+                    pocketed.uses -= 1;
+                    pocketed.spent = Spent::Final;
+                }
+            }
         }
 
         self.showdown = Some(Showdown {
@@ -888,7 +980,7 @@ impl Duel {
         if self.phase != Phase::PushYourLuck {
             return None;
         }
-        let coin = self.coin;
+        let coin = self.coin();
         let flip = coin.resolve(std::iter::repeat_with(|| (self.next_rng() % 100) as u32));
 
         Some(self.resolve(Some(flip)))
@@ -928,6 +1020,13 @@ impl Duel {
             }
         }
         self.last = self.showdown.take();
+        // A use lasting the Hand is done; one lasting the encounter goes on.
+        for pocketed in &mut self.pocket {
+            pocketed.spent = match (pocketed.spent, pocketed.item.lasts) {
+                (Spent::Final, Lasts::Encounter) | (Spent::Lasting, _) => Spent::Lasting,
+                _ => Spent::No,
+            };
+        }
         self.start_turn();
 
         TurnResult {
@@ -938,13 +1037,129 @@ impl Duel {
         }
     }
 
-    /// Both sides draw up to 7, and the enemy commits its row.
+    /// Both sides draw up to 7, or whatever their Draw size has been bent
+    /// to, the enemy commits its row, and anything that reveals at the start
+    /// of a turn does.
     fn start_turn(&mut self) {
+        let sizes = (self.draw_size(Side::Player), self.draw_size(Side::Enemy));
         let mut rng = self.rng;
-        refill(&mut self.player, &mut rng);
-        refill(&mut self.enemy_cards, &mut rng);
+        refill(&mut self.player, sizes.0, &mut rng);
+        refill(&mut self.enemy_cards, sizes.1, &mut rng);
         self.rng = rng;
         self.lay_opposing();
+        let modifiers: Vec<_> = self.modifiers().collect();
+        self.reveal_by(&modifiers);
+    }
+
+    /// Spend a use of the held Item at `index`. One spent while building the
+    /// row is paid for at Confirm, and can be taken back until then unless it
+    /// has already shown or drawn something; one spent at the prompt is paid
+    /// for at once.
+    pub fn spend(&mut self, index: usize) -> Result<(), ItemError> {
+        let pocketed = *self.pocket.get(index).ok_or(ItemError::NoSuchItem)?;
+        if pocketed.spent != Spent::No {
+            return Err(ItemError::AlreadySpent);
+        }
+        if pocketed.uses == 0 {
+            return Err(ItemError::NoUsesLeft);
+        }
+        let now = match self.phase {
+            Phase::Playing => When::Row,
+            Phase::PushYourLuck => When::Prompt,
+        };
+        if pocketed.item.when != now {
+            return Err(ItemError::NotNow);
+        }
+        let size = self.draw_size(Side::Player);
+        self.pocket[index].spent = Spent::Pending;
+        let shown = self.reveal_by(&[pocketed.item.modifier]);
+        let more = self.draw_size(Side::Player).saturating_sub(size);
+        let mut rng = self.rng;
+        let drawn = (0..more)
+            .filter(|_| draw_one(&mut self.player, &mut rng))
+            .count();
+        self.rng = rng;
+        if shown || drawn > 0 || now == When::Prompt {
+            let pocketed = &mut self.pocket[index];
+            pocketed.uses -= 1;
+            pocketed.spent = Spent::Final;
+        }
+        Ok(())
+    }
+
+    /// Put back an Item spent on this Hand that hasn't shown or drawn
+    /// anything yet. Refused if the row would then hold more than the Blind.
+    pub fn take_back(&mut self, index: usize) -> Result<(), ItemError> {
+        let pocketed = self.pocket.get(index).ok_or(ItemError::NoSuchItem)?;
+        match pocketed.spent {
+            Spent::Pending => {}
+            Spent::No => return Err(ItemError::NotSpent),
+            Spent::Final | Spent::Lasting => return Err(ItemError::CannotTakeBack),
+        }
+        self.pocket[index].spent = Spent::No;
+        if self.row.len() > usize::from(self.blind(Side::Player)) {
+            self.pocket[index].spent = Spent::Pending;
+            return Err(ItemError::RowTooLong);
+        }
+        Ok(())
+    }
+
+    /// Every modifier bending the duel right now: the Table Rule, the Perks
+    /// in the order taken, then the Items being spent, in the order taken.
+    fn modifiers(&self) -> impl Iterator<Item = &'static dyn Modifier> + '_ {
+        self.modifiers
+            .iter()
+            .copied()
+            .chain(self.spending().map(|item| item.modifier))
+    }
+
+    /// The Items spent on this Hand, or still working for the encounter.
+    fn spending(&self) -> impl Iterator<Item = &'static Item> + '_ {
+        self.pocket
+            .iter()
+            .filter(|p| p.spent != Spent::No)
+            .map(|p| p.item)
+    }
+
+    /// Turn face up whatever `modifiers` reveal, each seeing what the ones
+    /// before it turned. Says whether anything turned over.
+    fn reveal_by(&mut self, modifiers: &[&'static dyn Modifier]) -> bool {
+        let mut shown = false;
+        for modifier in modifiers {
+            for slot in modifier.reveal(&self.opposing) {
+                if let Some(opposing) = self.opposing.get_mut(slot)
+                    && !opposing.face_up
+                {
+                    opposing.face_up = true;
+                    shown = true;
+                }
+            }
+        }
+        shown
+    }
+
+    /// Both rows as they will turn over, once every modifier has bent them
+    /// before the Tells resolve: the player's, then the enemy's.
+    fn table(&self) -> (Vec<Placed>, Vec<Placed>) {
+        let bend = |side: Side, row: Vec<Placed>| {
+            self.modifiers()
+                .fold(row, |row, m| m.before_showdown(side, row))
+        };
+        (
+            bend(Side::Player, self.row.clone()),
+            bend(Side::Enemy, self.opposing_row()),
+        )
+    }
+
+    /// `opposing`, the enemy's row as [`Duel::table`] bent it, as far as the
+    /// player can see it: a face-down card is nothing until the rows turn
+    /// over.
+    fn face_up(&self, opposing: &[Placed]) -> Vec<Option<Card>> {
+        opposing
+            .iter()
+            .zip(&self.opposing)
+            .map(|(bent, o)| o.face_up.then(|| bent.card.clone()))
+            .collect()
     }
 
     /// The enemy commits its row face down: the Arcade's fixed one, or what
@@ -1045,20 +1260,6 @@ impl Duel {
             .collect()
     }
 
-    /// The Opposing Cards the player can see. A Flop counts a face-down card
-    /// as nothing until the rows turn over.
-    fn opposing_face_up_cards(&self) -> Vec<Option<Card>> {
-        self.opposing
-            .iter()
-            .map(|o| o.face_up.then(|| o.card.clone()))
-            .collect()
-    }
-
-    /// The printed cards in the player's row, for the enemy's Flops.
-    fn row_cards(&self) -> Vec<Option<Card>> {
-        self.row.iter().map(|p| Some(p.card.clone())).collect()
-    }
-
     fn next_rng(&mut self) -> u64 {
         xorshift64(&mut self.rng)
     }
@@ -1074,19 +1275,39 @@ fn remove_both(draw: &mut Vec<Card>, card: usize, sacrifice: Option<usize>) {
     }
 }
 
-/// Draw up to 7. When the deck runs dry the discard is shuffled back in; a
-/// side with neither plays with what it has.
-fn refill(pile: &mut Pile, rng: &mut u64) {
-    while pile.draw.len() < DRAW_SIZE {
-        if pile.deck.is_empty() {
-            if pile.discard.is_empty() {
-                break;
-            }
-            pile.deck = shuffled(std::mem::take(&mut pile.discard), xorshift64(rng));
+/// Draw up to `size`. A side with nothing left to draw plays with what it
+/// has.
+fn refill(pile: &mut Pile, size: usize, rng: &mut u64) {
+    while pile.draw.len() < size && draw_one(pile, rng) {}
+}
+
+/// Draw one card, shuffling the discard back in when the deck runs dry. Says
+/// whether there was anything to draw.
+fn draw_one(pile: &mut Pile, rng: &mut u64) -> bool {
+    if pile.deck.is_empty() {
+        if pile.discard.is_empty() {
+            return false;
         }
-        let card = pile.deck.pop().expect("deck was just checked non-empty");
-        pile.draw.push(card);
+        pile.deck = shuffled(std::mem::take(&mut pile.discard), xorshift64(rng));
     }
+    let card = pile.deck.pop().expect("deck was just checked non-empty");
+    pile.draw.push(card);
+    true
+}
+
+/// The printed cards of a row, for the Tells across from it to read.
+fn printed(row: &[Placed]) -> Vec<Option<Card>> {
+    row.iter().map(|p| Some(p.card.clone())).collect()
+}
+
+/// Cards taken off the end of a row before the Showdown, as the Showdown
+/// shows them: Mucked, and worth nothing.
+fn mucked<'a>(cards: impl Iterator<Item = &'a Card>) -> impl Iterator<Item = Played> {
+    cards.map(|card| Played {
+        card: card.clone(),
+        value: 0,
+        mucked: true,
+    })
 }
 
 /// The average Face Value of a deck, to the nearest whole number.
@@ -2464,72 +2685,298 @@ mod push_your_luck_tests {
 }
 
 #[cfg(test)]
-mod loaded_dice_tests {
+mod item_tests {
     use super::cards::*;
     use super::*;
-    use crate::run::LOADED_DICE_BONUS;
+    use crate::item::{self, Held, LOADED_DICE, LOADED_DICE_BONUS};
 
     fn deck() -> Vec<Card> {
         (1..=18).map(card).collect()
     }
 
-    /// A duel facing a single card worth `edge`.
-    fn facing(edge: u32) -> Duel {
-        Duel::new(deck(), 40, 5, enemy(999)).facing(vec![card(edge)])
+    /// A duel facing a single card worth `edge`, holding `items`.
+    fn facing(edge: u32, items: &[&'static Item]) -> Duel {
+        holding(
+            Duel::new(deck(), 40, 5, enemy(999)).facing(vec![card(edge)]),
+            items,
+        )
+    }
+
+    fn holding(duel: Duel, items: &[&'static Item]) -> Duel {
+        let held: Vec<Held> = items.iter().map(|item| Held::new(item)).collect();
+        duel.with_items(&held)
+    }
+
+    fn uses(duel: &Duel) -> Vec<u8> {
+        duel.items().iter().map(|p| p.uses).collect()
     }
 
     #[test]
-    fn a_duel_with_no_dice_adds_nothing() {
-        let mut duel = facing(0);
+    fn an_item_held_but_not_spent_does_nothing() {
+        let mut duel = facing(0, &[&LOADED_DICE]);
 
         let turn = duel.end_turn();
 
         assert_eq!(turn.hand, 0);
-        assert_eq!(duel.dice_left(), 0);
+        assert_eq!(uses(&duel), vec![LOADED_DICE.uses]);
     }
 
     #[test]
     fn the_dice_land_on_the_hand_as_the_rows_turn_over() {
-        let mut duel = facing(0).with_loaded_dice(2);
+        let mut duel = facing(0, &[&LOADED_DICE]);
         duel.place(0, None).unwrap(); // 18
+        duel.spend(0).unwrap();
 
         // Nothing on The Hand until the showdown.
         assert_eq!(duel.hand(), 18);
         let turn = duel.end_turn();
 
         assert_eq!(turn.hand, 18 + LOADED_DICE_BONUS);
-        assert_eq!(duel.dice_left(), 1);
+        assert_eq!(uses(&duel), vec![LOADED_DICE.uses - 1]);
     }
 
     #[test]
-    fn the_dice_run_out_after_two_hands() {
-        let mut duel = facing(0).with_loaded_dice(2);
+    fn a_use_lasting_the_hand_is_gone_the_next_hand() {
+        let mut duel = facing(0, &[&LOADED_DICE]);
+        duel.spend(0).unwrap();
+        duel.end_turn();
 
-        let hands: Vec<u32> = (0..3).map(|_| duel.end_turn().hand).collect();
-
-        assert_eq!(hands, vec![LOADED_DICE_BONUS, LOADED_DICE_BONUS, 0]);
-        assert_eq!(duel.dice_left(), 0);
+        assert_eq!(duel.items()[0].spent, Spent::No);
+        assert_eq!(duel.end_turn().hand, 0);
     }
 
     #[test]
-    fn the_dice_soften_a_whiff_too() {
-        let mut duel = facing(30).with_loaded_dice(1);
+    fn an_item_spent_down_to_nothing_is_not_kept() {
+        let mut duel = facing(0, &[&LOADED_DICE]);
+        for _ in 0..LOADED_DICE.uses {
+            duel.spend(0).unwrap();
+            duel.end_turn();
+        }
 
+        assert_eq!(duel.spend(0), Err(ItemError::NoUsesLeft));
+        assert!(duel.items_left().is_empty());
+    }
+
+    #[test]
+    fn a_use_taken_back_before_confirm_costs_nothing() {
+        let mut duel = facing(0, &[&LOADED_DICE]);
+        duel.spend(0).unwrap();
+
+        duel.take_back(0).unwrap();
         let turn = duel.end_turn();
 
-        assert_eq!(turn.kind, Outcome::Whiff(30 - LOADED_DICE_BONUS));
-        assert_eq!(duel.dice_left(), 0);
+        assert_eq!(turn.hand, 0);
+        assert_eq!(uses(&duel), vec![LOADED_DICE.uses]);
     }
 
     #[test]
-    fn confirming_twice_only_spends_one_pair() {
-        let mut duel = facing(0).with_loaded_dice(2);
+    fn one_use_of_each_item_a_hand() {
+        let mut duel = facing(0, &[&LOADED_DICE, &item::INSURANCE]);
+
+        duel.spend(0).unwrap();
+        duel.spend(1).unwrap();
+
+        assert_eq!(duel.spend(0), Err(ItemError::AlreadySpent));
+        assert_eq!(duel.spend(9), Err(ItemError::NoSuchItem));
+    }
+
+    #[test]
+    fn confirming_twice_only_spends_one_use() {
+        let mut duel = facing(0, &[&LOADED_DICE]);
+        duel.spend(0).unwrap();
 
         duel.confirm(); // the prompt goes up
         duel.confirm(); // and stays up, spending nothing more
 
         assert_eq!(duel.hand(), LOADED_DICE_BONUS);
-        assert_eq!(duel.dice_left(), 1);
+        assert_eq!(uses(&duel), vec![LOADED_DICE.uses - 1]);
+    }
+
+    #[test]
+    fn row_items_wait_for_the_row_and_the_coin_for_the_prompt() {
+        let mut duel = facing(0, &[&LOADED_DICE, &item::WEIGHTED_COIN]);
+        assert_eq!(duel.spend(1), Err(ItemError::NotNow));
+
+        duel.place(0, None).unwrap();
+        duel.confirm();
+
+        assert_eq!(duel.spend(0), Err(ItemError::NotNow));
+        assert_eq!(duel.take_back(0), Err(ItemError::NotSpent));
+        duel.spend(1).unwrap();
+        assert_eq!(duel.take_back(1), Err(ItemError::CannotTakeBack));
+    }
+
+    #[test]
+    fn the_weighted_coin_flips_even() {
+        let mut duel = facing(0, &[&item::WEIGHTED_COIN]);
+        duel.place(0, None).unwrap();
+        duel.confirm();
+        assert_eq!(duel.coin(), Coin::BASE);
+
+        duel.spend(0).unwrap();
+
+        assert_eq!(duel.coin().player_pct, 50);
+        assert_eq!(uses(&duel), vec![item::WEIGHTED_COIN.uses - 1]);
+    }
+
+    /// A duel whose Opposing Cards are 3, 4 and 5, all face down.
+    fn three_face_down(items: &[&'static Item]) -> Duel {
+        let mut duel = Duel::new(deck(), 40, 5, enemy(999)).facing(vec![card(3), card(4), card(5)]);
+        for slot in 0..3 {
+            duel.hide_opposing(slot);
+        }
+        holding(duel, items)
+    }
+
+    fn face_up(duel: &Duel) -> Vec<bool> {
+        duel.opposing().iter().map(|o| o.face_up).collect()
+    }
+
+    #[test]
+    fn the_sunglasses_turn_over_the_leftmost_face_down_card_and_stay_spent() {
+        let mut duel = three_face_down(&[&item::SUNGLASSES]);
+        duel.reveal(&[0]);
+
+        duel.spend(0).unwrap();
+
+        assert_eq!(face_up(&duel), vec![true, true, false]);
+        assert_eq!(uses(&duel), vec![item::SUNGLASSES.uses - 1]);
+        assert_eq!(duel.take_back(0), Err(ItemError::CannotTakeBack));
+    }
+
+    #[test]
+    fn a_reveal_with_nothing_to_show_can_still_be_taken_back() {
+        let mut duel = three_face_down(&[&item::SUNGLASSES]);
+        duel.reveal(&[0, 1, 2]);
+
+        duel.spend(0).unwrap();
+        duel.take_back(0).unwrap();
+
+        assert_eq!(uses(&duel), vec![item::SUNGLASSES.uses]);
+    }
+
+    #[test]
+    fn the_two_way_mirror_turns_over_every_opposing_card() {
+        let mut duel = three_face_down(&[&item::TWO_WAY_MIRROR]);
+
+        duel.spend(0).unwrap();
+
+        assert_eq!(face_up(&duel), vec![true, true, true]);
+        assert_eq!(duel.showing(), (12, 0));
+    }
+
+    #[test]
+    fn the_ace_up_the_sleeve_is_one_more_card_in_the_row() {
+        let mut duel = facing(0, &[&item::ACE_UP_THE_SLEEVE]);
+        duel.set_blind(1);
+        duel.place(0, None).unwrap();
+        assert_eq!(duel.plays_left(), 0);
+
+        duel.spend(0).unwrap();
+        assert_eq!(duel.plays_left(), 1);
+        duel.place(0, None).unwrap();
+
+        assert_eq!(duel.take_back(0), Err(ItemError::RowTooLong));
+        duel.lift(1).unwrap();
+        duel.take_back(0).unwrap();
+        assert_eq!(duel.blind(Side::Player), 1);
+    }
+
+    #[test]
+    fn the_shaved_card_is_what_every_tell_reads() {
+        // The enemy's Flop across from it takes the shaved 7, not the 4.
+        let mut duel = holding(
+            Duel::new(vec![card(4)], 40, 5, enemy(999)).facing(vec![flop(1)]),
+            &[&item::SHAVED_CARD],
+        );
+        duel.place(0, None).unwrap();
+        duel.spend(0).unwrap();
+
+        assert_eq!(duel.hand(), 7);
+        assert_eq!(duel.house_edge(), 7);
+        let turn = duel.end_turn();
+        assert_eq!((turn.hand, turn.house_edge), (7, 7));
+    }
+
+    #[test]
+    fn sleight_of_hand_mucks_the_rightmost_opposing_card() {
+        let mut duel = three_face_down(&[&item::SLEIGHT_OF_HAND]);
+        duel.spend(0).unwrap();
+
+        duel.confirm();
+        let showdown = duel.showdown().unwrap();
+
+        assert_eq!(showdown.house_edge, 7);
+        assert!(showdown.opposing[2].mucked);
+        assert_eq!(showdown.opposing[2].value, 0);
+        assert_eq!(showdown.opposing.len(), 3);
+    }
+
+    #[test]
+    fn insurance_halves_a_whiff() {
+        let mut duel = facing(25, &[&item::INSURANCE]);
+        duel.place(0, None).unwrap(); // 18
+        duel.spend(0).unwrap();
+
+        let turn = duel.end_turn();
+
+        // Short by 7: 3 of it is left, and the Edge still reads 25.
+        assert_eq!(turn.kind, Outcome::Whiff(3));
+        assert_eq!(turn.house_edge, 25);
+    }
+
+    #[test]
+    fn the_shiny_card_sleeve_doubles_the_first_slot_for_the_encounter() {
+        let mut duel = facing(0, &[&item::SHINY_CARD_SLEEVE]);
+        duel.place(0, None).unwrap(); // 18
+        duel.spend(0).unwrap();
+        assert_eq!(duel.end_turn().hand, 36);
+        assert_eq!(duel.items()[0].spent, Spent::Lasting);
+        assert!(duel.items_left().is_empty(), "its one use is had");
+
+        duel.lay_out(vec![card(0)]);
+        duel.place(0, None).unwrap();
+        let first = duel.row()[0].card.face_value;
+
+        assert_eq!(duel.end_turn().hand, first * 2);
+        assert_eq!(duel.spend(0), Err(ItemError::AlreadySpent));
+    }
+
+    #[test]
+    fn deep_pockets_draws_one_now_and_eight_from_then_on() {
+        let mut duel = facing(0, &[&item::DEEP_POCKETS]);
+        assert_eq!(duel.draw().len(), 7);
+
+        duel.spend(0).unwrap();
+
+        assert_eq!(duel.draw().len(), 8);
+        assert_eq!(duel.take_back(0), Err(ItemError::CannotTakeBack));
+        duel.place(0, None).unwrap();
+        duel.end_turn();
+        assert_eq!(duel.draw().len(), 8);
+        assert_eq!(duel.items()[0].spent, Spent::Lasting);
+    }
+
+    #[test]
+    fn insurance_halves_the_whiff_left_whatever_order_the_items_were_taken_in() {
+        // 0+5 against 20 is short 15, and Insurance leaves 7 of it. Run
+        // before the dice, it would halve 20 to 10 and the dice would take
+        // that to 5.
+        for items in [
+            [&LOADED_DICE, &item::INSURANCE],
+            [&item::INSURANCE, &LOADED_DICE],
+        ] {
+            let mut duel = facing(20, &items);
+            duel.spend(0).unwrap();
+            duel.spend(1).unwrap();
+
+            assert_eq!(
+                duel.end_turn().kind,
+                Outcome::Whiff(7),
+                "{:?}",
+                items.map(|i| i.name)
+            );
+        }
     }
 }
 
@@ -2895,17 +3342,18 @@ mod bluff_tests {
     }
 
     #[test]
-    fn loaded_dice_are_not_spent_on_a_hand_that_never_paid() {
+    fn items_are_not_spent_on_a_hand_that_never_paid() {
         let deck = vec![bluff(9)];
         let mut duel = Duel::new(deck, 40, 1, enemy(5))
             .facing(vec![card(1)])
-            .with_loaded_dice(2);
+            .with_items(&[crate::item::Held::new(&crate::item::LOADED_DICE)]);
         duel.place(0, None).unwrap();
+        duel.spend(0).unwrap();
 
         duel.confirm();
 
         assert_eq!(duel.outcome(), Some(CombatOutcome::Won));
-        assert_eq!(duel.dice_left(), 2);
+        assert_eq!(duel.items_left()[0].uses, crate::item::LOADED_DICE.uses);
     }
 
     #[test]

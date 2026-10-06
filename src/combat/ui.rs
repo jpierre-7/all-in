@@ -14,9 +14,10 @@ use bevy::prelude::*;
 use super::duel::{
     Coin, Duel, Opposing, Outcome, Phase, Placed, Played, Push, Showdown, TurnResult,
 };
-use super::plugin::ActiveDuel;
+use super::duel::{Pocketed, Spent};
+use super::plugin::{ActiveDuel, ITEM_KEYS};
 use crate::boss::BOSSES;
-use crate::run::{Card, Encounter, LOADED_DICE_BONUS, Tell};
+use crate::run::{Card, Encounter, Tell};
 use crate::state::AppState;
 
 const INK: Color = Color::srgb(0.90, 0.87, 0.80);
@@ -304,11 +305,7 @@ pub fn redraw(
                 18.0,
                 DIM,
             );
-            if duel.dice_left() > 0 {
-                let hands = duel.dice_left();
-                let plural = if hands == 1 { "Hand" } else { "Hands" };
-                text(mid, format!("Loaded Dice: +{LOADED_DICE_BONUS} on each of your next {hands} {plural}."), 16.0, GOLD);
-            }
+            pocket(mid, duel.items());
             if let Some(guide) = &active.guide {
                 // The script speaks in gold; once it lets go, the hint sits back.
                 let (size, color) = if guide.is_free_play() { (16.0, DIM) } else { (20.0, GOLD) };
@@ -379,15 +376,78 @@ pub fn redraw(
         row(root, JustifyContent::SpaceBetween, |r| {
             text(r, "Lucky Jack", 24.0, INK);
             text(r, format!("Chips {}", duel.player_chips()), 24.0, GOLD);
-            let keys = match duel.phase() {
-                Phase::PushYourLuck => "P: Push   H: Hold   I: Help and Terms",
-                Phase::Playing => {
+            let keys = match (duel.phase(), duel.items().is_empty()) {
+                (Phase::PushYourLuck, true) => "P: Push   H: Hold   I: Help and Terms",
+                (Phase::PushYourLuck, false) => "P: Push   H: Hold   A-X: Item   I: Help and Terms",
+                (Phase::Playing, true) => {
                     "1-7: Place Card  Backspace/Esc: Cancel  Enter: Confirm  T: Toggle Peek  I: Help and Terms"
+                }
+                (Phase::Playing, false) => {
+                    "1-7: Place Card  A-X: Item  Backspace/Esc: Cancel  Enter: Confirm  T: Toggle Peek  I: Help and Terms"
                 }
             };
             text(r, keys, 14.0, DIM);
         });
     });
+}
+
+/// An Item in the pocket strip. Clickable, like its key; the plugin reads
+/// its `Interaction` and spends or puts back the Item at this place.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemButton(pub usize);
+
+/// The Items held, each with its key, its uses left and what one use does.
+/// Gold while spent on this Hand or working for the encounter; dim once its
+/// uses are gone.
+fn pocket(parent: &mut ChildSpawnerCommands, items: &[Pocketed]) {
+    if items.is_empty() {
+        return;
+    }
+    parent
+        .spawn(Node {
+            flex_direction: FlexDirection::Row,
+            flex_wrap: FlexWrap::Wrap,
+            justify_content: JustifyContent::Center,
+            column_gap: px(10),
+            row_gap: px(6),
+            max_width: px(1100),
+            ..default()
+        })
+        .with_children(|strip| {
+            for (i, pocketed) in items.iter().enumerate() {
+                let item = pocketed.item;
+                let (color, state) = match pocketed.spent {
+                    Spent::No if pocketed.uses == 0 => (DIM, String::new()),
+                    Spent::No => (INK, String::new()),
+                    Spent::Pending | Spent::Final => (GOLD, "  spent".into()),
+                    Spent::Lasting => (GOLD, "  working".into()),
+                };
+                let uses = if pocketed.uses == 1 { "use" } else { "uses" };
+                strip
+                    .spawn((
+                        Button,
+                        ItemButton(i),
+                        Node {
+                            width: px(210),
+                            flex_direction: FlexDirection::Column,
+                            padding: UiRect::all(px(6)),
+                            border: UiRect::all(px(1)),
+                            ..default()
+                        },
+                        BorderColor::all(color),
+                    ))
+                    .with_children(|button| {
+                        let key = ITEM_KEYS.get(i).map_or(' ', |(_, key)| *key);
+                        text(
+                            button,
+                            format!("{key}  {}  x{} {uses}{state}", item.name, pocketed.uses),
+                            14.0,
+                            color,
+                        );
+                        text(button, item.text, 12.0, DIM);
+                    });
+            }
+        });
 }
 
 /// The two rows facing each other: the Opposing Cards, then the player's row

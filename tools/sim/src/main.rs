@@ -11,6 +11,7 @@
 use std::thread;
 
 use all_in::combat::duel::{Duel, Phase};
+use all_in::item::When;
 use all_in::overworld::progression::RUN;
 use all_in::run::{
     Card, CombatOutcome, Encounter, Floor, Pack, Reward, RewardOffer, RunState, Tell, xorshift64,
@@ -212,6 +213,19 @@ fn smart_row(duel: &mut Duel) {
     }
 }
 
+/// Both players spend every Item they can, as soon as they can: the
+/// row-time ones before the row is built, so the smart player's search sees
+/// what a Reveal turned over or Deep Pockets drew, and Weighted Coin on every
+/// Push. A placeholder until the sim tunes the Items (#94).
+fn spend_items(duel: &mut Duel, when: When) {
+    for i in 0..duel.items().len() {
+        if duel.items()[i].item.when == when {
+            // Refused when it has no uses left or is already working.
+            let _ = duel.spend(i);
+        }
+    }
+}
+
 /// Push Your Luck. Naive always Holds. Smart Pushes a clearing Hand only
 /// when the double is the kill and the Hold isn't, and a Whiff only when
 /// Holding would kill it anyway.
@@ -270,6 +284,7 @@ fn play_duel(
     stats: &mut Stats,
 ) -> CombatOutcome {
     loop {
+        spend_items(duel, When::Row);
         match player {
             Player::Naive => naive_row(duel, rng),
             Player::Smart => smart_row(duel),
@@ -280,6 +295,9 @@ fn play_duel(
                 debug_assert_eq!(duel.phase(), Phase::PushYourLuck);
                 let push = pushes(duel, player);
                 stats.pushes[at] += u64::from(push);
+                if push {
+                    spend_items(duel, When::Prompt);
+                }
                 if push { duel.push() } else { duel.hold() }.expect("the prompt is up")
             }
         };
@@ -341,7 +359,7 @@ fn play_run(player: Player, pick: Pick, mut rng: u64, stats: &mut Stats) {
         }
         stats.won[at] += 1;
         run.chips = duel.player_chips();
-        run.set_loaded_dice(duel.dice_left());
+        run.put_back(duel.items_left());
         if let Encounter::Boss { boss, .. } = encounter {
             run.beat(boss);
         }

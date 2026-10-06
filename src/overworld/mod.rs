@@ -264,8 +264,8 @@ fn show_outcome(
         Screen::new()
             .title("A perk")
             .prose(narrative::PERK_PICK)
-            .option(1, one.label())
-            .option(2, two.label())
+            .option(1, &one.label())
+            .option(2, &two.label())
             .footer("Press 1 or 2. There is no going back.")
             .spawn(&mut commands, AppState::PostCombat);
         return;
@@ -421,8 +421,8 @@ fn spawn_offer(commands: &mut Commands, progress: &Progress) {
         RewardOffer::Pick(one, two) => Screen::new()
             .title("A perk")
             .prose(narrative::PERK_PICK)
-            .option(1, one.label())
-            .option(2, two.label())
+            .option(1, &one.label())
+            .option(2, &two.label())
             .footer("Press 1 or 2. There is no going back."),
     };
 
@@ -540,6 +540,7 @@ mod tests {
     use super::progression::{Progress, RUN};
     use super::{OpenPack, OverworldPlugin};
     use crate::boss::SLOTZ;
+    use crate::item::LOADED_DICE;
     use crate::run::{CombatOutcome, Encounter, Floor, Reward, RunState, Tell};
     use crate::state::AppState;
 
@@ -872,10 +873,13 @@ mod tests {
 
         duel(&mut app, true);
         assert_eq!(state(&app), AppState::Reward);
-        assert_eq!(app.world().resource::<RunState>().loaded_dice(), 0);
+        assert_eq!(app.world().resource::<RunState>().uses(&LOADED_DICE), None);
         press(&mut app, KeyCode::Enter);
 
-        assert_eq!(app.world().resource::<RunState>().loaded_dice(), 2);
+        assert_eq!(
+            app.world().resource::<RunState>().uses(&LOADED_DICE),
+            Some(2)
+        );
         assert_eq!(state(&app), AppState::FightOrFold);
     }
 
@@ -1016,7 +1020,10 @@ mod tests {
     #[test]
     fn folding_leaves_every_reward_behind() {
         let mut app = slotz_reward(KeyCode::Digit1);
-        assert_eq!(app.world().resource::<RunState>().loaded_dice(), 2);
+        assert_eq!(
+            app.world().resource::<RunState>().uses(&LOADED_DICE),
+            Some(2)
+        );
 
         press(&mut app, KeyCode::Enter); // onto the Pit
         assert_eq!(state(&app), AppState::FightOrFold);
