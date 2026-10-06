@@ -21,6 +21,7 @@ use bevy::prelude::*;
 
 use crate::boss::{PIT_BOSS, SLOTZ};
 use crate::combat::DuelSeed;
+use crate::item;
 use crate::overworld::progression::{Progress, RUN};
 use crate::run::{Encounter, Reward, RunState};
 
@@ -35,8 +36,10 @@ All In — dev entry point (debug builds only)
     --seed <n>        Pin the shuffle, the deal and the Push Your Luck coin,
                       so a Hand that went wrong can be played again.
     --with <a,b,...>  Rewards to start holding, as if they had been won:
-                      dice, streak, pyl, blind, pack. Needs --encounter,
-                      since starting in the Lobby ends the run.
+                      streak, pyl, blind, pack, or an Item: dice,
+                      sunglasses, mirror, ace, shaved, sleight, insurance,
+                      coin, sleeve, pockets. Needs --encounter, since
+                      starting in the Lobby ends the run.
     --help            This.
 
 With no flags the game opens in the Lobby, exactly as it ships.";
@@ -172,7 +175,16 @@ fn reward(name: &str) -> Result<Reward, String> {
     let slotz = SLOTZ.rewards.expect("Slotz pays a 1-of-2");
     let pit_boss = PIT_BOSS.rewards.expect("the Pit Boss pays a 1-of-2");
     match name {
-        "dice" => Ok(Reward::LoadedDice),
+        "dice" => Ok(Reward::Item(&item::LOADED_DICE)),
+        "sunglasses" => Ok(Reward::Item(&item::SUNGLASSES)),
+        "mirror" => Ok(Reward::Item(&item::TWO_WAY_MIRROR)),
+        "ace" => Ok(Reward::Item(&item::ACE_UP_THE_SLEEVE)),
+        "shaved" => Ok(Reward::Item(&item::SHAVED_CARD)),
+        "sleight" => Ok(Reward::Item(&item::SLEIGHT_OF_HAND)),
+        "insurance" => Ok(Reward::Item(&item::INSURANCE)),
+        "coin" => Ok(Reward::Item(&item::WEIGHTED_COIN)),
+        "sleeve" => Ok(Reward::Item(&item::SHINY_CARD_SLEEVE)),
+        "pockets" => Ok(Reward::Item(&item::DEEP_POCKETS)),
         "pyl" => Ok(slotz[0]),
         "streak" => Ok(slotz[1]),
         "blind" => Ok(pit_boss[0]),
@@ -280,7 +292,7 @@ mod tests {
     fn rewards_come_as_a_comma_separated_list() {
         assert_eq!(
             started(&["--encounter", "pit-boss", "--with", "blind,dice"]).rewards,
-            vec![reward("blind").unwrap(), Reward::LoadedDice]
+            vec![reward("blind").unwrap(), Reward::Item(&item::LOADED_DICE)]
         );
     }
 
@@ -288,7 +300,7 @@ mod tests {
     fn spaces_around_a_reward_name_do_not_count() {
         assert_eq!(
             started(&["--encounter", "pit-boss", "--with", "blind, dice"]).rewards,
-            vec![reward("blind").unwrap(), Reward::LoadedDice]
+            vec![reward("blind").unwrap(), Reward::Item(&item::LOADED_DICE)]
         );
     }
 
@@ -300,7 +312,7 @@ mod tests {
         assert_eq!(one, two);
         assert_eq!(one.encounter, Some(RUN[3]));
         assert_eq!(one.seed, Some(7));
-        assert_eq!(one.rewards, vec![Reward::LoadedDice]);
+        assert_eq!(one.rewards, vec![Reward::Item(&item::LOADED_DICE)]);
     }
 
     #[test]
@@ -349,7 +361,7 @@ mod tests {
 
         assert_eq!(run.perks.len(), 1);
         assert_eq!(run.perks[0].modifier.blind(Side::Player, 2), 3);
-        assert_eq!(run.loaded_dice(), 2);
+        assert_eq!(run.uses(&item::LOADED_DICE), Some(2));
         assert_eq!(run.deck.len(), RunState::new().deck.len() + 3);
     }
 }

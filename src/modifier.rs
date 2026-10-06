@@ -9,7 +9,7 @@
 
 use std::fmt::Debug;
 
-use crate::combat::duel::Coin;
+use crate::combat::duel::{Coin, Opposing, Placed, Played};
 
 /// Which side of the table a hook is asking about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,8 +26,33 @@ pub trait Modifier: Debug + Sync {
         blind
     }
 
+    /// How many cards `side`'s Draw refills to, given the answer so far.
+    fn draw(&self, _side: Side, size: usize) -> usize {
+        size
+    }
+
+    /// The slots of the Opposing Cards to turn face up before Confirm, as
+    /// they lie after the modifiers before this one have had their say. Asked
+    /// once the enemy has committed, and again whenever an Item is spent.
+    fn reveal(&self, _opposing: &[Opposing]) -> Vec<usize> {
+        Vec::new()
+    }
+
+    /// `side`'s row as it turns over, before any Tell resolves, so every Tell
+    /// reads the bent Face Values in the one pass. A card may only come off
+    /// the right-hand end: its slot is then empty, and the card is Mucked.
+    fn before_showdown(&self, _side: Side, row: Vec<Placed>) -> Vec<Placed> {
+        row
+    }
+
     /// The coin Push Your Luck is flipped with.
     fn coin(&self, coin: Coin) -> Coin {
         coin
+    }
+
+    /// The Hand once every Tell has resolved, given the answer so far, the
+    /// House Edge it will meet, and the player's resolved row.
+    fn after_showdown(&self, hand: u32, _house_edge: u32, _row: &[Played]) -> u32 {
+        hand
     }
 }

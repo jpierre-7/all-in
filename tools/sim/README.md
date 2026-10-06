@@ -28,7 +28,7 @@ against the baseline is the change you made and nothing else.
 A run is `overworld::progression::RUN`, the five encounters the game walks:
 the Floor minion, Slotz, the Pit minion, the Pit Boss, The House. Each duel
 starts at `Duel::for_run`, the same function the game calls, so the deck,
-the floor's Blind, the Perks and Loaded Dice come from the `RunState` exactly
+the floor's Blind, the Perks and the Items come from the `RunState` exactly
 as they would in play, and the enemy commits its row the way it does in play.
 Between encounters the run takes its reward through `Encounter::reward_offer`
 and `RunState::apply`, and a beaten boss unlocks its Boss Tell. A minion's
@@ -59,6 +59,12 @@ New Tells mostly need nothing here: both players read cards through the
 `score` to guess at it.
 A new decision does need a player model, like a new prompt or a choice
 that isn't a 1-of-2.
+
+Items are spent on demand in the game. Both players spend every Item they
+hold as soon as they can: the row-time ones before building the row, so
+smart's search sees what a Reveal showed or Deep Pockets drew, and Weighted
+Coin on every Push. Each Item's uses and offer weight are fields on its
+static in `src/item.rs`, for the sim to tune.
 
 ## Reading the output
 

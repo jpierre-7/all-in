@@ -7,6 +7,7 @@
 use bevy::prelude::*;
 
 use crate::boss::Boss;
+use crate::item::{Held, Item, LOADED_DICE};
 use crate::modifier::Modifier;
 
 // ---------------------------------------------------------------------------
@@ -147,18 +148,11 @@ pub struct CardReward {
     pub cards: fn(u64) -> Vec<Card>,
 }
 
-/// Dropped after beating a minion. Consumed by combat.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Item {
-    /// +5 to The Hand for the next `hands_left` Hands.
-    LoadedDice { hands_left: u8 },
-}
-
 /// What the reward screen hands out. Overworld renders the choice and calls
 /// `RunState::apply`; deck-changing rewards mutate the deck here, not in combat.
 #[derive(Debug, Clone, Copy)]
 pub enum Reward {
-    LoadedDice,
+    Item(&'static Item),
     Perk(&'static Perk),
     Cards(&'static CardReward),
 }
@@ -166,7 +160,7 @@ pub enum Reward {
 impl PartialEq for Reward {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::LoadedDice, Self::LoadedDice) => true,
+            (Self::Item(a), Self::Item(b)) => std::ptr::eq(*a, *b),
             (Self::Perk(a), Self::Perk(b)) => std::ptr::eq(*a, *b),
             (Self::Cards(a), Self::Cards(b)) => std::ptr::eq(*a, *b),
             _ => false,
@@ -176,11 +170,14 @@ impl PartialEq for Reward {
 
 impl Reward {
     /// The line the reward screen puts against the key that takes it.
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::LoadedDice => "Loaded Dice. +5 to each of your next two Hands.",
-            Self::Perk(perk) => perk.label,
-            Self::Cards(cards) => cards.label,
+            Self::Item(item) => {
+                let uses = if item.uses == 1 { "use" } else { "uses" };
+                format!("{}, {} {uses}. {}", item.name, item.uses, item.text)
+            }
+            Self::Perk(perk) => perk.label.into(),
+            Self::Cards(cards) => cards.label.into(),
         }
     }
 }
@@ -257,7 +254,9 @@ pub struct RunState {
     pub deck: Vec<Card>,
     /// In the order taken, which is the order the duel applies them in.
     pub perks: Vec<&'static Perk>,
-    pub items: Vec<Item>,
+    /// In the order taken, which is the order the duel applies them in.
+    /// Never two of the same Item, and never one with no uses left.
+    pub items: Vec<Held>,
     /// Every boss beaten this run. The Tells they unlocked follow from it.
     pub bosses_beaten: Vec<&'static Boss>,
 }
@@ -282,10 +281,7 @@ impl RunState {
     /// keeps this whole file deterministic under test.
     pub fn apply(&mut self, reward: Reward, seed: u64) {
         match reward {
-            Reward::LoadedDice => {
-                // A fresh pair on top of an existing one adds Hands, not clutter.
-                self.set_loaded_dice(self.loaded_dice().saturating_add(LOADED_DICE_HANDS));
-            }
+            Reward::Item(item) => self.take_item(item),
             Reward::Perk(perk) => self.take_perk(perk),
             Reward::Cards(cards) => self.deck.extend((cards.cards)(seed)),
         }
@@ -329,22 +325,28 @@ impl RunState {
         pool
     }
 
-    /// Hands still carrying the Loaded Dice bonus. Combat reads this on the
-    /// way in and writes back what is left with `set_loaded_dice`.
-    pub fn loaded_dice(&self) -> u8 {
+    /// The uses `item` has left, or `None` if it isn't held.
+    pub fn uses(&self, item: &Item) -> Option<u8> {
         self.items
             .iter()
-            .map(|Item::LoadedDice { hands_left }| *hands_left)
-            .sum()
+            .find(|held| held.item == item)
+            .map(|held| held.uses)
     }
 
-    /// Write back what combat left of the Loaded Dice. A spent pair is thrown
-    /// away rather than kept around at zero.
-    pub fn set_loaded_dice(&mut self, hands_left: u8) {
-        self.items
-            .retain(|item| !matches!(item, Item::LoadedDice { .. }));
-        if hands_left > 0 {
-            self.items.push(Item::LoadedDice { hands_left });
+    /// Write back what combat left of the Items, [`Duel::items_left`]. One
+    /// whose last use is spent is gone.
+    ///
+    /// [`Duel::items_left`]: crate::combat::duel::Duel::items_left
+    pub fn put_back(&mut self, items: Vec<Held>) {
+        self.items = items.into_iter().filter(|held| held.uses > 0).collect();
+    }
+
+    /// Never two of the same Item: one already held is topped back up to the
+    /// uses it comes with instead.
+    fn take_item(&mut self, item: &'static Item) {
+        match self.items.iter_mut().find(|held| held.item == item) {
+            Some(held) => held.uses = held.uses.max(item.uses),
+            None => self.items.push(Held::new(item)),
         }
     }
 
@@ -464,7 +466,7 @@ impl Encounter {
     pub fn reward_offer(self) -> Option<RewardOffer> {
         match self {
             Self::Boss { boss, .. } => boss.rewards.map(|[one, two]| RewardOffer::Pick(one, two)),
-            Self::Minion { .. } => Some(RewardOffer::Drop(Reward::LoadedDice)),
+            Self::Minion { .. } => Some(RewardOffer::Drop(Reward::Item(&LOADED_DICE))),
             Self::Practice => None,
         }
     }
@@ -600,10 +602,6 @@ pub fn xorshift64(state: &mut u64) -> u64 {
     *state ^= *state << 17;
     *state
 }
-
-/// Loaded Dice: this much on The Hand, for this many Hands (#12).
-pub const LOADED_DICE_BONUS: u32 = 5;
-pub const LOADED_DICE_HANDS: u8 = 2;
 
 /// The fixed starter deck (#3): 18 cards, 44% with a Tell. Ten vanilla
 /// cards 2..=8, four Streak 3..=6, four All In 2..=5. Prototyped on the
@@ -742,7 +740,6 @@ mod tests {
         assert!(run.perks.is_empty());
         assert!(run.items.is_empty());
         assert!(run.bosses_beaten.is_empty());
-        assert_eq!(run.loaded_dice(), 0);
     }
 
     #[test]
@@ -924,7 +921,7 @@ mod tests {
 
         assert_eq!(
             minion.reward_offer(),
-            Some(RewardOffer::Drop(Reward::LoadedDice))
+            Some(RewardOffer::Drop(Reward::Item(&LOADED_DICE)))
         );
         assert_eq!(
             boss(&SLOTZ).reward_offer(),
@@ -1032,36 +1029,49 @@ mod tests {
     }
 
     #[test]
-    fn loaded_dice_are_good_for_the_next_two_hands() {
+    fn an_item_comes_with_its_uses() {
         let mut run = RunState::new();
 
-        run.apply(Reward::LoadedDice, SEED);
+        run.apply(Reward::Item(&LOADED_DICE), SEED);
 
-        assert_eq!(run.loaded_dice(), LOADED_DICE_HANDS);
+        assert_eq!(run.uses(&LOADED_DICE), Some(LOADED_DICE.uses));
+        assert_eq!(run.uses(&crate::item::INSURANCE), None);
     }
 
     #[test]
-    fn a_second_pair_of_loaded_dice_adds_hands_rather_than_items() {
+    fn an_item_already_held_is_topped_up_not_doubled() {
         let mut run = RunState::new();
+        run.apply(Reward::Item(&LOADED_DICE), SEED);
+        run.put_back(vec![Held {
+            item: &LOADED_DICE,
+            uses: 1,
+        }]);
 
-        run.apply(Reward::LoadedDice, SEED);
-        run.apply(Reward::LoadedDice, SEED);
+        run.apply(Reward::Item(&LOADED_DICE), SEED);
 
         assert_eq!(run.items.len(), 1);
-        assert_eq!(run.loaded_dice(), LOADED_DICE_HANDS * 2);
+        assert_eq!(run.uses(&LOADED_DICE), Some(LOADED_DICE.uses));
     }
 
     #[test]
-    fn spent_loaded_dice_leave_nothing_in_the_pocket() {
+    fn an_item_whose_last_use_is_spent_is_gone() {
         let mut run = RunState::new();
-        run.apply(Reward::LoadedDice, SEED);
+        run.apply(Reward::Item(&LOADED_DICE), SEED);
+        run.apply(Reward::Item(&crate::item::INSURANCE), SEED);
 
-        run.set_loaded_dice(1);
-        assert_eq!(run.loaded_dice(), 1);
+        run.put_back(vec![
+            Held {
+                item: &LOADED_DICE,
+                uses: 0,
+            },
+            Held {
+                item: &crate::item::INSURANCE,
+                uses: 1,
+            },
+        ]);
 
-        run.set_loaded_dice(0);
-        assert_eq!(run.loaded_dice(), 0);
-        assert!(run.items.is_empty());
+        assert_eq!(run.uses(&LOADED_DICE), None);
+        assert_eq!(run.uses(&crate::item::INSURANCE), Some(1));
     }
 
     #[test]
@@ -1136,7 +1146,7 @@ mod tests {
 
     #[test]
     fn every_reward_says_what_it_is() {
-        let mut rewards = vec![Reward::LoadedDice];
+        let mut rewards: Vec<Reward> = crate::item::ITEMS.map(Reward::Item).to_vec();
         rewards.extend(slotz());
         rewards.extend(pit_boss());
         for reward in rewards {

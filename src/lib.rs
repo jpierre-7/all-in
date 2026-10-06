@@ -5,6 +5,7 @@ pub mod boss;
 pub mod combat;
 #[cfg(debug_assertions)]
 pub mod devstart;
+pub mod item;
 pub mod modifier;
 pub mod music;
 pub mod overworld;

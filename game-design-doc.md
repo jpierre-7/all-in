@@ -75,7 +75,7 @@ Before each encounter, the player chooses to:
 3. Player covers the row: click a card in the Draw to put it in the next empty slot, click a card already in the row to take it (and anything it burned) back out. Up to 5 cards (or the limit set by perks). Nothing resolves yet — a row is worth nothing until it is finished.
 4. Player **confirms**. Both rows turn over.
 5. Lowballs on both sides muck the higher cards across from them, all at once. Then each row resolves left to right over what is left, and then the Bluffs that weren't mucked hit, left to right. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop across and to either side. All of them read *Face Values*, so neither row depends on the other resolving first.
-6. Items that modify The Hand apply (Loaded Dice: +5). The Hand and House Edge are now final.
+6. Items that modify The Hand apply (Loaded Dice: +5, Insurance, Shiny Card Sleeve). The Hand and House Edge are now final.
 7. **Push Your Luck**: the player sees the House Edge and chooses **Push** or **Hold**, whether The Hand cleared it or fell short (PYL on a Whiff, #96).
    - Hold → step 8 as normal.
    - Push → flip the coin (45% player / 55% House by default; Slotz Option 1 makes it best-2-of-3 at 49/51 ≈ 48.5%).
@@ -97,13 +97,22 @@ Before each encounter, the player chooses to:
 
 Upon defeating an enemy, the player earns rewards depending on the enemy type. All collected perks and items persist through the current run and reset upon **Folding** or dying.
 
-### Minion Rewards (Random Item Drop)
+### Minion Rewards (Items)
 
-Defeating a minion grants 1 random item from the pool:
+Items are spent on demand, a use at a time, each with a set number of uses (#153). The pool is ten, fixed for the run; each Item's uses and offer weight live in `src/item.rs`. Full wording in `GLOSSARY.md`.
 
-- **Lucky Pocket Card:** Adds a random Tell to a card in the player's deck that does not already have a Tell.
-- **Loaded Dice:** Adds +5 to the next 2 Hand totals.
-- **Card Shark's Sunglasses:** Reveals the next encounter's starting House Edge beforehand.
+| Item | One use | Uses |
+|---|---|---|
+| Loaded Dice | +5 to The Hand | 2 |
+| Card Shark's Sunglasses | Reveal the leftmost face-down Opposing Card | 3 |
+| Two-Way Mirror | Reveal every Opposing Card | 1 |
+| Ace Up the Sleeve | +1 to your Blind | 2 |
+| Shaved Card | +3 to your first slot's Face Value, before Tells | 2 |
+| Sleight of Hand | The enemy's rightmost Opposing Card is Mucked | 1 |
+| Insurance | Halve a Whiff | 2 |
+| Weighted Coin | Push Your Luck flips 50/50 (spent at the prompt) | 2 |
+| Shiny Card Sleeve | Your first slot counts twice, for the encounter | 1 |
+| Deep Pockets | Draw one now; the Draw refills to 8, for the encounter | 1 |
 
 ### Boss Rewards (Pick 1 of 2 Perks)
 
