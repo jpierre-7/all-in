@@ -5,6 +5,7 @@
 //! `Encounter` and `CombatOutcome` are the whole combat ↔ overworld seam.
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::boss::Boss;
 use crate::modifier::Modifier;
@@ -20,7 +21,7 @@ use crate::modifier::Modifier;
 /// right, Flop across at the Opposing Card and its neighbours. All of them read
 /// Face Values, so no Tell ever depends on another Tell resolving first
 /// and the two rows can be worked out in either order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tell {
     /// Doubles the card's Face Value if the card in the slot to its left has any Tell.
     Streak,

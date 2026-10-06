@@ -9,5 +9,6 @@ pub mod modifier;
 pub mod music;
 pub mod overworld;
 pub mod run;
+pub mod save;
 pub mod state;
 pub mod theme;

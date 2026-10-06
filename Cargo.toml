@@ -9,6 +9,9 @@ members = ["tools/sim"]
 
 [dependencies]
 bevy = "0.19.1"
+directories = "6.0.0"
+ron = "0.12"
+serde = { version = "1.0.229", features = ["derive"] }
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
