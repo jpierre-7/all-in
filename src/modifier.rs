@@ -55,4 +55,11 @@ pub trait Modifier: Debug + Sync {
     fn after_showdown(&self, hand: u32, _house_edge: u32, _row: &[Played]) -> u32 {
         hand
     }
+
+    /// The Whiff The Hand is short by, given the answer so far. Asked after
+    /// every modifier's `after_showdown`, so it bends the Whiff that is
+    /// actually left, whatever order the modifiers came in.
+    fn whiff(&self, whiff: u32) -> u32 {
+        whiff
+    }
 }

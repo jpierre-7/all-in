@@ -933,6 +933,11 @@ impl Duel {
             hand = self
                 .modifiers()
                 .fold(hand, |hand, m| m.after_showdown(hand, house_edge, &row));
+            // Then the Whiff that is left. The Hand comes up to meet it, so
+            // the House Edge still says what the Opposing Cards came to.
+            let short = house_edge.saturating_sub(hand);
+            let left = self.modifiers().fold(short, |whiff, m| m.whiff(whiff));
+            hand += short - left.min(short);
             for pocketed in &mut self.pocket {
                 if pocketed.spent == Spent::Pending {
                     pocketed.uses -= 1;
@@ -2953,14 +2958,25 @@ mod item_tests {
     }
 
     #[test]
-    fn items_after_the_perks_each_see_the_last_answer() {
-        // Dice first, then Insurance: 0+5 against 15 is short 10, halved to
-        // 5. The other way round, 0 is short 15, halved to 7, then +5: 3.
-        let mut duel = facing(15, &[&LOADED_DICE, &item::INSURANCE]);
-        duel.spend(0).unwrap();
-        duel.spend(1).unwrap();
+    fn insurance_halves_the_whiff_left_whatever_order_the_items_were_taken_in() {
+        // 0+5 against 20 is short 15, and Insurance leaves 7 of it. Run
+        // before the dice, it would halve 20 to 10 and the dice would take
+        // that to 5.
+        for items in [
+            [&LOADED_DICE, &item::INSURANCE],
+            [&item::INSURANCE, &LOADED_DICE],
+        ] {
+            let mut duel = facing(20, &items);
+            duel.spend(0).unwrap();
+            duel.spend(1).unwrap();
 
-        assert_eq!(duel.end_turn().kind, Outcome::Whiff(5));
+            assert_eq!(
+                duel.end_turn().kind,
+                Outcome::Whiff(7),
+                "{:?}",
+                items.map(|i| i.name)
+            );
+        }
     }
 }
 

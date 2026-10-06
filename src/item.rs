@@ -266,12 +266,8 @@ pub static INSURANCE: Item = Item {
 struct Insurance;
 
 impl Modifier for Insurance {
-    /// Raises The Hand by half the shortfall, rounded up, so the Whiff left
-    /// is half of it rounded down and the House Edge still says what the
-    /// Opposing Cards came to.
-    fn after_showdown(&self, hand: u32, house_edge: u32, _row: &[Played]) -> u32 {
-        let short = house_edge.saturating_sub(hand);
-        hand + short.div_ceil(2)
+    fn whiff(&self, whiff: u32) -> u32 {
+        whiff / 2
     }
 }
 
@@ -398,9 +394,8 @@ mod tests {
 
     #[test]
     fn insurance_leaves_half_the_whiff_rounded_down() {
-        for (hand, edge, whiff) in [(0, 7, 3), (4, 10, 3), (9, 10, 0), (12, 10, 0)] {
-            let bent = Insurance.after_showdown(hand, edge, &[]);
-            assert_eq!(edge.saturating_sub(bent), whiff, "{hand} against {edge}");
+        for (short, left) in [(7, 3), (6, 3), (1, 0), (0, 0)] {
+            assert_eq!(Insurance.whiff(short), left, "short by {short}");
         }
     }
 }
