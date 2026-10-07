@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::boss::Boss;
 use crate::item::{Held, Item};
 use crate::modifier::Modifier;
+use crate::wheel::Spun;
 
 // ---------------------------------------------------------------------------
 // Cards
@@ -279,6 +280,14 @@ pub struct RunState {
     pub items: Vec<Held>,
     /// Every boss beaten this run. The Tells they unlocked follow from it.
     pub bosses_beaten: Vec<&'static Boss>,
+    /// Boss Tells open from the start of this run as if their boss were
+    /// already beaten: Inside Man's.
+    pub open_tells: Vec<Tell>,
+    /// The Wheel as it stood when the run began, Hot Square and all. Locked
+    /// for the run.
+    pub wheel: Spun,
+    /// Lucky Coin's re-flips left this run.
+    pub reflips: u8,
 }
 
 impl RunState {
@@ -290,6 +299,9 @@ impl RunState {
             perks: Vec::new(),
             items: Vec::new(),
             bosses_beaten: Vec::new(),
+            open_tells: Vec::new(),
+            wheel: Spun::default(),
+            reflips: 0,
         }
     }
 
@@ -332,14 +344,15 @@ impl RunState {
         }
     }
 
-    /// Every Tell this run has unlocked: the ones open from the start, then
-    /// each beaten boss's Boss Tell. Minion decks, Packs and the Cage deal
-    /// from this.
+    /// Every Tell this run has unlocked: the ones open from the start, the
+    /// ones Inside Man opened, then each beaten boss's Boss Tell. Minion
+    /// decks, Packs and the Cage deal from this.
     pub fn tell_pool(&self) -> Vec<Tell> {
         let mut pool = Tell::OPEN.to_vec();
-        for boss in &self.bosses_beaten {
-            if !pool.contains(&boss.tell) {
-                pool.push(boss.tell);
+        let opened = self.open_tells.iter().copied();
+        for tell in opened.chain(self.bosses_beaten.iter().map(|boss| boss.tell)) {
+            if !pool.contains(&tell) {
+                pool.push(tell);
             }
         }
         pool

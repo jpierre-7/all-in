@@ -8,6 +8,7 @@
 //! row it can build from the Draw and Pushes only when it can't lose by it.
 //! Real players land in between. See `tools/sim/README.md`.
 
+use std::collections::BTreeMap;
 use std::thread;
 
 use all_in::combat::duel::{Duel, Phase};
@@ -16,6 +17,7 @@ use all_in::overworld::progression::RUN;
 use all_in::run::{
     Card, CombatOutcome, Encounter, Floor, Pack, Reward, RewardOffer, RunState, Tell, xorshift64,
 };
+use all_in::wheel::{self, MAX_RANK, Spun, Square};
 
 /// A duel still going after this many turns is a stall, counted as a loss.
 const TURN_CAP: u32 = 300;
@@ -58,6 +60,33 @@ struct Args {
     players: Vec<Player>,
     pick: Pick,
     minion: Minion,
+    /// The Wheel every run starts under, spun afresh each run. Empty is no
+    /// Wheel at all.
+    wheel: BTreeMap<Square, u8>,
+}
+
+/// `bankroll=3,lucky-coin=2`: each square by its name in lower case with
+/// dashes, and its rank.
+fn parse_wheel(spec: &str) -> Result<BTreeMap<Square, u8>, String> {
+    let mut board = BTreeMap::new();
+    for part in spec.split(',').filter(|p| !p.is_empty()) {
+        let (name, rank) = part
+            .split_once('=')
+            .ok_or(format!("--wheel: {part} is not square=rank"))?;
+        let square = Square::ALL
+            .into_iter()
+            .find(|sq| sq.name().to_lowercase().replace(' ', "-") == name)
+            .ok_or(format!("--wheel: no square called {name}"))?;
+        let rank: u8 = rank.parse().map_err(|e| format!("--wheel: {part}: {e}"))?;
+        if !(1..=MAX_RANK).contains(&rank) {
+            return Err(format!("--wheel: {part}: a rank is 1 to {MAX_RANK}"));
+        }
+        if !square.ready() {
+            return Err(format!("--wheel: {name} doesn't do anything yet"));
+        }
+        board.insert(square, rank);
+    }
+    Ok(board)
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -67,6 +96,7 @@ fn parse_args() -> Result<Args, String> {
         players: vec![Player::Naive, Player::Smart],
         pick: Pick::Random,
         minion: Minion::Random,
+        wheel: BTreeMap::new(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -103,6 +133,7 @@ fn parse_args() -> Result<Args, String> {
                     }
                 }
             }
+            "--wheel" => args.wheel = parse_wheel(&value()?)?,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown flag {other}")),
         }
@@ -112,7 +143,7 @@ fn parse_args() -> Result<Args, String> {
 
 const USAGE: &str = "usage: cargo run --release -p sim -- [--runs N] [--seed N] \
 [--player naive|smart|both] [--pick first|second|random] \
-[--minion items|cards|skip|random]";
+[--minion items|cards|skip|random] [--wheel square=rank,...]";
 
 // ---------------------------------------------------------------------------
 // Building a row
@@ -404,9 +435,35 @@ fn keep(pack: &Pack, player: Player, rng: &mut u64) -> Vec<usize> {
     order
 }
 
+/// The run The Wheel starts: the spin, then Trim and Pocket Change. Smart
+/// trims its lowest plain cards; naive trims nothing. Both take the first
+/// Item offered.
+fn start_run(board: &BTreeMap<Square, u8>, player: Player, rng: &mut u64) -> RunState {
+    if board.is_empty() {
+        return RunState::new();
+    }
+    let spun = Spun::new(board, wheel::spin(xorshift64(rng)));
+    let mut run = wheel::start_run(spun, xorshift64(rng));
+    if player == Player::Smart {
+        let mut plain: Vec<usize> = (0..run.deck.len())
+            .filter(|&i| run.deck[i].tell.is_none())
+            .collect();
+        plain.sort_by_key(|&i| run.deck[i].face_value);
+        plain.truncate(run.wheel.trims());
+        assert!(
+            wheel::trim(&mut run, &plain),
+            "the sim trims what Trim allows"
+        );
+    }
+    if let Some(&item) = run.wheel.pocket_pick(xorshift64(rng)).first() {
+        run.apply(Reward::Item(item), 0);
+    }
+    run
+}
+
 fn play_run(player: Player, args: &Args, mut rng: u64, stats: &mut Stats) {
     stats.runs += 1;
-    let mut run = RunState::new();
+    let mut run = start_run(&args.wheel, player, &mut rng);
     for (at, &encounter) in RUN.iter().enumerate() {
         stats.reached[at] += 1;
         stats.arrive_chips[at] += u64::from(run.chips);
@@ -417,6 +474,7 @@ fn play_run(player: Player, args: &Args, mut rng: u64, stats: &mut Stats) {
         stats.won[at] += 1;
         run.chips = duel.player_chips();
         run.put_back(duel.items_left());
+        run.reflips = duel.reflips_left();
         if let Encounter::Boss { boss, .. } = encounter {
             run.beat(boss);
         }
@@ -546,8 +604,18 @@ fn main() {
             std::process::exit(if e.is_empty() { 0 } else { 2 });
         }
     };
+    let wheel = if args.wheel.is_empty() {
+        "no Wheel".to_string()
+    } else {
+        let squares: Vec<String> = args
+            .wheel
+            .iter()
+            .map(|(square, rank)| format!("{} {rank}", square.name()))
+            .collect();
+        format!("Wheel {}", squares.join(", "))
+    };
     println!(
-        "all-in sim: {} runs per player, seed {}, boss picks {:?}\n",
+        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}\n",
         args.runs, args.seed, args.pick
     );
     for &player in &args.players {

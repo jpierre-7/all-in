@@ -3,8 +3,8 @@
 //! answers some of a fixed set of hooks and leaves the rest alone.
 //!
 //! The duel takes one list of them, in a fixed order: the Table Rule, then
-//! Perks in the order taken, then Items, each seeing the answer the one
-//! before it gave. A hook is added here only when a chosen boss, Perk or Item
+//! Perks in the order taken, then what The Wheel adds, then Items, each
+//! seeing the answer the one before it gave. A hook is added here only when a chosen boss, Perk or Item
 //! needs it, and taken out again when nothing answers it.
 
 use std::fmt::Debug;
@@ -32,9 +32,10 @@ pub trait Modifier: Debug + Sync {
     }
 
     /// The slots of the Opposing Cards to turn face up before Confirm, as
-    /// they lie after the modifiers before this one have had their say. Asked
-    /// once the enemy has committed, and again whenever an Item is spent.
-    fn reveal(&self, _opposing: &[Opposing]) -> Vec<usize> {
+    /// they lie after the modifiers before this one have had their say, on
+    /// `turn` of the duel, counting from 1. Asked once the enemy has
+    /// committed, and again whenever an Item is spent.
+    fn reveal(&self, _turn: u32, _opposing: &[Opposing]) -> Vec<usize> {
         Vec::new()
     }
 

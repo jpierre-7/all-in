@@ -175,6 +175,16 @@ impl DuelSeed {
     }
 }
 
+/// The next seed off the pinned stream, or off the clock in a normal game.
+/// Every duel rolls one, and so does The Wheel's spin, so a pinned session
+/// spins the same way too.
+pub fn roll_seed(pinned: Option<ResMut<DuelSeed>>, time: &Time) -> u64 {
+    match pinned {
+        Some(mut pinned) => pinned.next(),
+        None => time.elapsed_secs_f64().to_bits() | 1,
+    }
+}
+
 fn start_duel(
     mut commands: Commands,
     encounter: Res<Encounter>,
@@ -182,10 +192,7 @@ fn start_duel(
     time: Res<Time>,
     pinned: Option<ResMut<DuelSeed>>,
 ) {
-    let seed = match pinned {
-        Some(mut pinned) => pinned.next(),
-        None => time.elapsed_secs_f64().to_bits() | 1,
-    };
+    let seed = roll_seed(pinned, &time);
     // Everything the run has picked up lands here, in one place: the deck the
     // rewards built, the Perks taken, and the Items held.
     let tutorial = *encounter == Encounter::Practice;
@@ -338,6 +345,7 @@ fn take_input(
         if !pushed && !held {
             return;
         }
+        let reflips = active.duel.reflips_left();
         let result = if pushed {
             active.duel.push()
         } else {
@@ -345,7 +353,9 @@ fn take_input(
         };
         let Some(result) = result else { return };
         active.last_turn = Some(result);
-        active.notice = None;
+        active.notice = (active.duel.reflips_left() < reflips).then(|| {
+            "Lucky Coin: the first flip went the House's way, so it flipped again.".into()
+        });
         finish_if_over(&mut commands, &mut active, &mut run, &mut next);
         return;
     }
@@ -459,6 +469,7 @@ fn finish_if_over(
         // The Arcade never touches the run.
         run.chips = active.duel.player_chips();
         run.put_back(active.duel.items_left());
+        run.reflips = active.duel.reflips_left();
         if outcome == CombatOutcome::Won
             && let Encounter::Boss { boss, .. } = active.encounter
         {
@@ -1070,7 +1081,7 @@ mod run_modifier_tests {
     use super::ActiveDuel;
     use super::tests::{FLOOR_MINION, dealt_table, press, state, table_for_run};
     use crate::boss::{PIT_BOSS, SLOTZ};
-    use crate::combat::duel::Spent;
+    use crate::combat::duel::{Coin, Spent};
     use crate::item::LOADED_DICE;
     use crate::modifier::Side;
     use crate::run::{CombatOutcome, Reward, RunState};
@@ -1116,6 +1127,42 @@ mod run_modifier_tests {
             app.world().resource::<RunState>().uses(&LOADED_DICE),
             Some(LOADED_DICE.uses - 1)
         );
+    }
+
+    #[test]
+    fn a_lucky_coin_re_flip_spent_at_the_table_is_gone_from_the_run() {
+        let mut run = RunState {
+            chips: 40,
+            reflips: 2,
+            ..RunState::new()
+        };
+        run.apply(Reward::Item(&LOADED_DICE), 1);
+        let mut app = table_for_run(run, 1, 0);
+        fn duel(app: &mut App) -> &mut crate::combat::duel::Duel {
+            &mut app
+                .world_mut()
+                .resource_mut::<ActiveDuel>()
+                .into_inner()
+                .duel
+        }
+        assert_eq!(duel(&mut app).reflips_left(), 2);
+
+        // The dice's Hand of 5 over an Edge of 0, Pushed on a coin that
+        // can't land our way: the re-flip is spent and the Push still lost.
+        press(&mut app, KeyCode::KeyA);
+        press(&mut app, KeyCode::Enter);
+        duel(&mut app).set_coin(Coin::RIGGED);
+        press(&mut app, KeyCode::KeyP);
+        assert_eq!(duel(&mut app).reflips_left(), 1);
+        let notice = app.world().resource::<ActiveDuel>().notice.clone();
+        assert!(notice.is_some_and(|n| n.contains("Lucky Coin")));
+
+        // Then win it on a Hold, and the one left goes home.
+        press(&mut app, KeyCode::KeyA);
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::KeyH);
+        assert_eq!(state(&app), AppState::PostCombat);
+        assert_eq!(app.world().resource::<RunState>().reflips, 1);
     }
 
     #[test]

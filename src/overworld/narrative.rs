@@ -29,6 +29,25 @@ the Big Shots Table is set for one.";
 pub const LOBBY_OPT_INFO: &str = "Case the joint";
 pub const LOBBY_OPT_TUTORIAL: &str = "Warm up on the arcade";
 pub const LOBBY_OPT_BEGIN: &str = "Walk the Floor";
+pub const LOBBY_OPT_WHEEL: &str = "Step up to The Wheel";
+
+pub const WHEEL: &str = "\
+A roulette wheel nobody else seems to see, past the cashier's cage. The
+croupier taps the felt. \"Golden Chips go down between nights, Jack. Where
+they land is what you walk in with. One square comes up hot each night.\"";
+
+pub const SPIN: &str = "\
+The croupier sends the ball round before you've even reached the stairs.";
+
+pub const SPIN_ZERO: &str = "\
+It drops into the green zero. Nothing comes up hot tonight.";
+
+pub const TRIM: &str = "\
+Trim. Take the cards you'd rather not draw out of your deck before the
+night starts. They're gone for this run.";
+
+pub const POCKET_CHANGE: &str = "\
+Pocket Change. The croupier slides three things across the felt. Take one.";
 
 pub const INFO_ROOM: &str = "\
 A cork board behind the coat check where somebody has pinned up the odds
