@@ -12,7 +12,7 @@
 use std::fmt;
 
 use crate::item::{Held, Item, Lasts, When};
-use crate::modifier::{Modifier, Side};
+use crate::modifier::{Modifier, Side, Turn};
 use crate::run::{Card, CombatOutcome, Encounter, Enemy, RunState, Tell, xorshift64};
 
 pub const DRAW_SIZE: usize = 7;
@@ -243,6 +243,29 @@ impl fmt::Display for LowballPeek {
     }
 }
 
+/// What a Counterweight would be worth in the player's next slot, as far as
+/// the player can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CounterweightPeek {
+    /// The card across is face up, or there is none: exactly this.
+    Worth(u32),
+    /// The card across is face up and a Lowball under it: it is Mucked.
+    Mucked,
+    /// The card across is still face down.
+    Hidden,
+}
+
+/// `= N`, or `= ?` while the card across is face down.
+impl fmt::Display for CounterweightPeek {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CounterweightPeek::Worth(n) => write!(f, "= {n}"),
+            CounterweightPeek::Mucked => write!(f, "Mucked"),
+            CounterweightPeek::Hidden => write!(f, "= ?"),
+        }
+    }
+}
+
 /// One card an enemy commits: its place in the Draw, and for an All In the
 /// place of the card it burns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -362,6 +385,16 @@ fn flop_value(across: &[Option<Card>], slot: usize) -> u32 {
         .sum()
 }
 
+/// What a Counterweight printed `printed` in `slot` is worth: the higher of
+/// that and the Face Value of the card across from it. A slot with nothing
+/// in it, or a card it can't see yet, leaves it its own.
+fn counterweight_value(across: &[Option<Card>], slot: usize, printed: u32) -> u32 {
+    across
+        .get(slot)
+        .and_then(Option::as_ref)
+        .map_or(printed, |card| card.face_value.max(printed))
+}
+
 /// Which of `targets` the Lowballs in `lowballs` muck, slot by slot: a
 /// Lowball mucks the card across from it when that card's Face Value is
 /// higher than its own. Both rows are read on their print, so two Lowballs
@@ -421,6 +454,7 @@ pub fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
                 }
                 Some(Tell::Copycat) => standing(slot + 1).map_or(printed, |next| next.face_value),
                 Some(Tell::Flop) => flop_value(&across, slot),
+                Some(Tell::Counterweight) => counterweight_value(&across, slot, printed),
                 _ => printed,
             };
             Played {
@@ -460,6 +494,8 @@ pub struct Duel {
     player_chips: u32,
     enemy: Enemy,
     turn: u32,
+    /// What the turn before this one dealt. `None` on the first.
+    dealt: Option<Outcome>,
     phase: Phase,
     coin: Coin,
     /// Lucky Coin's re-flips left for the run: a lost Push flips again, once,
@@ -516,6 +552,7 @@ impl Duel {
             player_chips,
             enemy,
             turn: 1,
+            dealt: None,
             phase: Phase::Playing,
             coin,
             reflips: 0,
@@ -637,8 +674,12 @@ impl Duel {
     /// The most cards `side` may put in its row this turn: the floor's
     /// Blind, bent by every modifier in order, and never below 1.
     pub fn blind(&self, side: Side) -> u8 {
+        let turn = Turn {
+            number: self.turn,
+            last: self.dealt,
+        };
         self.modifiers()
-            .fold(self.blind, |blind, m| m.blind(side, blind))
+            .fold(self.blind, |blind, m| m.blind(side, turn, blind))
             .max(1)
     }
 
@@ -792,6 +833,7 @@ impl Duel {
                 },
                 Some(Tell::Copycat) => face_up(slot + 1).map_or(printed, |next| next.face_value),
                 Some(Tell::Flop) => flop_value(&across, slot),
+                Some(Tell::Counterweight) => counterweight_value(&across, slot, printed),
                 _ => printed,
             };
         }
@@ -813,6 +855,23 @@ impl Duel {
                 .map(|o| o.card.face_value)
                 .sum(),
             hidden: read().filter(|o| !o.face_up).count(),
+        })
+    }
+
+    /// What a Counterweight printed `face_value` would be worth in the next
+    /// empty slot, against the Opposing Card across from it. `None` when the
+    /// row is full.
+    pub fn counterweight_next(&self, face_value: u32) -> Option<CounterweightPeek> {
+        if self.plays_left() == 0 {
+            return None;
+        }
+        Some(match self.opposing.get(self.row.len()) {
+            None => CounterweightPeek::Worth(face_value),
+            Some(o) if !o.face_up => CounterweightPeek::Hidden,
+            Some(o) if o.card.tell == Some(Tell::Lowball) && o.card.face_value < face_value => {
+                CounterweightPeek::Mucked
+            }
+            Some(o) => CounterweightPeek::Worth(o.card.face_value.max(face_value)),
         })
     }
 
@@ -1033,6 +1092,7 @@ impl Duel {
         }
 
         self.turn += 1;
+        self.dealt = Some(kind);
         self.phase = Phase::Playing;
         for placed in std::mem::take(&mut self.row) {
             self.player.discard.extend(placed.sacrifice);
@@ -1428,7 +1488,7 @@ impl Duel {
 
 #[cfg(test)]
 pub(crate) mod cards {
-    use crate::modifier::{Modifier, Side};
+    use crate::modifier::{Modifier, Side, Turn};
     use crate::run::{Card, Enemy, Tell};
 
     pub fn card(face_value: u32) -> Card {
@@ -1480,6 +1540,13 @@ pub(crate) mod cards {
             tell: Some(Tell::Lowball),
         }
     }
+    pub fn counterweight(face_value: u32) -> Card {
+        Card {
+            name: "counterweight",
+            face_value,
+            tell: Some(Tell::Counterweight),
+        }
+    }
 
     /// An enemy whose Deck is nothing but plain 6s, so whatever it commits is
     /// worth 6 a card. Most tests lay their own row down with `Duel::facing`.
@@ -1503,7 +1570,7 @@ pub(crate) mod cards {
     pub struct SetBlind(pub Side, pub u8);
 
     impl Modifier for SetBlind {
-        fn blind(&self, side: Side, blind: u8) -> u8 {
+        fn blind(&self, side: Side, _turn: Turn, blind: u8) -> u8 {
             if side == self.0 { self.1 } else { blind }
         }
     }
@@ -3128,16 +3195,16 @@ mod greedy_tests {
 mod modifier_tests {
     use super::cards::*;
     use super::*;
-    use crate::boss::{PIT_BOSS, SLOTZ};
+    use crate::boss::SLOTZ;
     use crate::modifier::Side;
-    use crate::run::{Encounter, Floor, Reward, RunState};
+    use crate::run::{Encounter, Floor, RunState};
 
     /// A modifier that adds to one side's Blind.
     #[derive(Debug)]
     struct AddBlind(Side, u8);
 
     impl Modifier for AddBlind {
-        fn blind(&self, side: Side, blind: u8) -> u8 {
+        fn blind(&self, side: Side, _turn: Turn, blind: u8) -> u8 {
             if side == self.0 {
                 blind + self.1
             } else {
@@ -3197,26 +3264,6 @@ mod modifier_tests {
 
         assert_eq!(pit.blind(Side::Player), 3);
         assert_eq!(pit.blind(Side::Enemy), 3);
-    }
-
-    #[test]
-    fn the_pit_boss_perk_raises_only_the_players_blind() {
-        let Some([Reward::Perk(_), _]) = PIT_BOSS.rewards else {
-            panic!("the Pit Boss offers its Perk first");
-        };
-        let mut run = RunState::new();
-        run.apply(PIT_BOSS.rewards.unwrap()[0], 1);
-
-        let duel = Duel::for_run(
-            &run,
-            Encounter::Minion {
-                floor: Floor::TheFloor,
-            },
-            7,
-        );
-
-        assert_eq!(duel.blind(Side::Player), 3);
-        assert_eq!(duel.blind(Side::Enemy), 2);
     }
 
     #[test]
@@ -3481,5 +3528,197 @@ mod bluff_tests {
                 sacrifice: None
             }]
         );
+    }
+}
+
+#[cfg(test)]
+mod counterweight_tests {
+    use super::cards::*;
+    use super::*;
+
+    /// A duel holding exactly `draw` in the Draw, facing exactly `across`.
+    fn table(draw: Vec<Card>, across: Vec<Card>) -> Duel {
+        let plays = draw.len() as u8;
+        let deck: Vec<Card> = draw.into_iter().rev().collect();
+        Duel::new(deck, 40, plays, enemy(999)).facing(across)
+    }
+
+    /// Both rows' values once they turned over, player's first.
+    fn turned_over(mut duel: Duel) -> (Vec<u32>, Vec<u32>) {
+        while !duel.draw().is_empty() && duel.plays_left() > 0 {
+            duel.place(0, None).unwrap();
+        }
+        duel.confirm();
+        let showdown = duel.showdown().or(duel.last_showdown()).unwrap();
+        let values = |row: &[Played]| row.iter().map(|p| p.value).collect();
+        (values(&showdown.row), values(&showdown.opposing))
+    }
+
+    #[test]
+    fn a_counterweight_takes_the_higher_of_its_own_and_the_card_across() {
+        let duel = table(
+            vec![counterweight(3), counterweight(7)],
+            vec![card(6), card(2)],
+        );
+        assert_eq!(turned_over(duel).0, vec![6, 7]);
+    }
+
+    #[test]
+    fn it_reads_the_face_value_across_and_none_of_its_tell() {
+        // The Streak across doubles to 12, but the Counterweight reads its 6.
+        let duel = table(vec![card(1), counterweight(2)], vec![all_in(1), streak(6)]);
+        assert_eq!(turned_over(duel).0, vec![1, 6]);
+    }
+
+    #[test]
+    fn across_an_empty_slot_it_keeps_its_own() {
+        let duel = table(vec![card(1), counterweight(4)], vec![card(9)]);
+        assert_eq!(turned_over(duel).0, vec![1, 4]);
+    }
+
+    #[test]
+    fn the_enemys_counterweight_matches_the_players_heavy_card() {
+        let duel = table(
+            vec![card(8), card(1)],
+            vec![counterweight(2), counterweight(3)],
+        );
+        assert_eq!(turned_over(duel), (vec![8, 1], vec![8, 3]));
+    }
+
+    #[test]
+    fn a_lowball_across_mucks_it_before_it_reads_anything() {
+        let duel = table(vec![counterweight(5)], vec![lowball(2)]);
+        assert_eq!(turned_over(duel), (vec![0], vec![2]));
+    }
+
+    #[test]
+    fn a_face_up_counterweight_shows_what_it_takes_off_your_row() {
+        let mut duel = table(vec![card(7)], vec![counterweight(2)]);
+        assert_eq!(duel.showing(), (2, 0));
+        duel.place(0, None).unwrap();
+        assert_eq!(duel.showing(), (7, 0));
+    }
+
+    #[test]
+    fn greedy_scores_it_against_the_players_average() {
+        // In the first slot it is worth the average 6, over the plain 5. The
+        // player's Blind is 1, so in the second slot it would face nothing.
+        let draw = [card(5), counterweight(2)];
+        let first = |card| Pick {
+            card,
+            sacrifice: None,
+        };
+        assert_eq!(greedy(&draw, 1, 6, 1), vec![first(1)]);
+        assert_eq!(greedy(&draw, 2, 6, 1), vec![first(1), first(0)]);
+    }
+
+    #[test]
+    fn a_counterweight_in_the_draw_peeks_exact_only_across_a_face_up_card() {
+        let mut deck = vec![card(1); 16];
+        deck.extend([card(1), card(1), card(1), card(1), counterweight(4)]);
+        let mut duel = Duel::new(deck, 40, 5, enemy(999)).with_opposing(vec![
+            (card(9), true),
+            (card(2), true),
+            (card(7), false),
+            (lowball(1), true),
+        ]);
+
+        let peek = |duel: &Duel| duel.counterweight_next(4).map(|p| p.to_string());
+        assert_eq!(peek(&duel), Some("= 9".into()));
+        duel.place(1, None).unwrap();
+        assert_eq!(peek(&duel), Some("= 4".into()), "a 2 across");
+        duel.place(1, None).unwrap();
+        assert_eq!(peek(&duel), Some("= ?".into()), "face down");
+        duel.place(1, None).unwrap();
+        assert_eq!(peek(&duel), Some("Mucked".into()), "a Lowball under it");
+        duel.place(1, None).unwrap();
+        assert_eq!(peek(&duel), Some("= 4".into()), "nothing across");
+        duel.place(0, None).unwrap();
+        assert_eq!(peek(&duel), None, "the row is full");
+    }
+}
+
+#[cfg(test)]
+mod pit_boss_tests {
+    use super::cards::*;
+    use super::*;
+    use crate::boss::PIT_BOSS;
+    use crate::run::{Perk, Reward};
+
+    /// The Pit Boss's two Perks: Beam Swings Your Way, then Read the Pan.
+    fn perks() -> (&'static Perk, &'static Perk) {
+        let Some([Reward::Perk(your_way), Reward::Perk(pan)]) = PIT_BOSS.rewards else {
+            panic!("the Pit Boss pays two Perks");
+        };
+        (your_way, pan)
+    }
+
+    /// The player plays every card they may, or none, and Holds.
+    fn play(duel: &mut Duel, cards: usize) -> Outcome {
+        for _ in 0..cards {
+            duel.place(0, None).unwrap();
+        }
+        duel.end_turn().kind
+    }
+
+    #[test]
+    fn the_beam_swings_back_the_turn_after_the_player_wins() {
+        let enemy = Enemy {
+            table_rule: PIT_BOSS.table_rule,
+            ..enemy_with(999, vec![card(1); 30])
+        };
+        let mut duel = Duel::new(vec![card(9); 30], 40, 2, enemy);
+
+        assert_eq!(duel.blind(Side::Enemy), 2, "turn one plays the floor's");
+        assert!(matches!(play(&mut duel, 2), Outcome::Payout(_)));
+        assert_eq!(duel.blind(Side::Enemy), 3);
+        assert_eq!(duel.opposing().len(), 3, "and commits under it");
+        assert_eq!(duel.blind(Side::Player), 2);
+
+        assert!(matches!(play(&mut duel, 2), Outcome::Payout(_)));
+        assert_eq!(duel.blind(Side::Enemy), 3, "two wins are still +1");
+
+        assert!(matches!(play(&mut duel, 0), Outcome::Whiff(_)));
+        assert_eq!(duel.blind(Side::Enemy), 2);
+    }
+
+    #[test]
+    fn beam_swings_your_way_the_turn_after_the_player_loses() {
+        let (your_way, _) = perks();
+        let mut duel = Duel::modified(
+            vec![card(9); 30],
+            40,
+            2,
+            enemy_with(999, vec![card(1); 30]),
+            vec![your_way.modifier],
+        );
+
+        assert_eq!(duel.blind(Side::Player), 2);
+        assert!(matches!(play(&mut duel, 0), Outcome::Whiff(_)));
+        assert_eq!(duel.blind(Side::Player), 3);
+        assert_eq!(duel.blind(Side::Enemy), 2);
+        assert!(matches!(play(&mut duel, 3), Outcome::Payout(_)));
+        assert_eq!(duel.blind(Side::Player), 2);
+    }
+
+    #[test]
+    fn read_the_pan_turns_the_heaviest_opposing_card_face_up_every_turn() {
+        let (_, pan) = perks();
+        let deck = (1..=30).map(|n| card(n % 7 + 1)).collect();
+        let mut duel = Duel::modified(
+            vec![card(4); 30],
+            40,
+            3,
+            enemy_with(999, deck),
+            vec![pan.modifier],
+        );
+
+        for _ in 0..4 {
+            let up: Vec<&Opposing> = duel.opposing().iter().filter(|o| o.face_up).collect();
+            assert_eq!(up.len(), 1);
+            let heaviest = duel.opposing().iter().map(|o| o.card.face_value).max();
+            assert_eq!(Some(up[0].card.face_value), heaviest);
+            play(&mut duel, 3);
+        }
     }
 }

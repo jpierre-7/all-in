@@ -12,7 +12,7 @@
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
 
-use super::duel::{Duel, FlopPeek, LowballPeek};
+use super::duel::{CounterweightPeek, Duel, FlopPeek, LowballPeek};
 use super::info::{self, InfoOpen, get_keywords};
 use super::plugin::ActiveDuel;
 use super::ui::{CardSlot, Zone};
@@ -77,6 +77,9 @@ pub struct Tag {
     /// A Lowball in the Draw: whether it would muck the card across from the
     /// next empty slot, said only when that card is face up.
     pub lowball: Option<LowballPeek>,
+    /// A Counterweight in the Draw: what it would be worth in the next empty
+    /// slot, `?` while the card across is face down.
+    pub counterweight: Option<CounterweightPeek>,
 }
 
 /// The card in a slot, as the player is entitled to see it. A face-down
@@ -227,12 +230,19 @@ fn wanted(
         Some(Tell::Lowball) if card.zone == Zone::Draw => active.duel.lowball_next(held.face_value),
         _ => None,
     };
+    let counterweight = match held.tell {
+        Some(Tell::Counterweight) if card.zone == Zone::Draw => {
+            active.duel.counterweight_next(held.face_value)
+        }
+        _ => None,
+    };
     Some(Tag {
         card,
         term,
         burn,
         flop,
         lowball,
+        counterweight,
     })
 }
 
@@ -360,6 +370,9 @@ pub fn show(
             if let Some(lowball) = tag.lowball {
                 text(body, format!("Next slot: {lowball}"), 16.0, NEON);
             }
+            if let Some(counterweight) = tag.counterweight {
+                text(body, format!("Next slot: {counterweight}"), 16.0, NEON);
+            }
             if let Some(term) = tag.term {
                 nest(body, tag.card.slot, term);
             }
@@ -424,6 +437,7 @@ mod tests {
             Tell::Flop,
             Tell::Bluff,
             Tell::Lowball,
+            Tell::Counterweight,
         ];
         for tell in tells {
             let found: Vec<_> = terms(tell).collect();

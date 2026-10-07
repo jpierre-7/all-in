@@ -9,7 +9,7 @@
 
 use std::fmt::Debug;
 
-use crate::combat::duel::{Coin, Opposing, Placed, Played};
+use crate::combat::duel::{Coin, Opposing, Outcome, Placed, Played};
 
 /// Which side of the table a hook is asking about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,11 +18,41 @@ pub enum Side {
     Enemy,
 }
 
+/// Where the duel stands as a turn starts: what a hook that bends the turn
+/// may read about the turns before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Turn {
+    /// Counting from 1.
+    pub number: u32,
+    /// What the turn before dealt, once Push Your Luck was settled. `None`
+    /// on the first turn.
+    pub last: Option<Outcome>,
+}
+
+impl Turn {
+    /// The first turn of a duel.
+    pub const FIRST: Turn = Turn {
+        number: 1,
+        last: None,
+    };
+
+    /// The player dealt a Payout last turn. A tie is not a win.
+    pub fn player_won_last(&self) -> bool {
+        matches!(self.last, Some(Outcome::Payout(n)) if n > 0)
+    }
+
+    /// The player took a Whiff last turn. A tie, or a Whiff a Push forgave,
+    /// is not a loss.
+    pub fn player_lost_last(&self) -> bool {
+        matches!(self.last, Some(Outcome::Whiff(n)) if n > 0)
+    }
+}
+
 /// A Table Rule, a Perk or an Item. Every hook defaults to doing nothing.
 pub trait Modifier: Debug + Sync {
-    /// `side`'s Blind, given the answer so far. The duel never lets it drop
-    /// below 1.
-    fn blind(&self, _side: Side, blind: u8) -> u8 {
+    /// `side`'s Blind on `turn`, given the answer so far. The duel never lets
+    /// it drop below 1.
+    fn blind(&self, _side: Side, _turn: Turn, blind: u8) -> u8 {
         blind
     }
 

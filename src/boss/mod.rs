@@ -74,11 +74,6 @@ mod tests {
                 boss.tell.name()
             );
             for other in BOSSES.iter().filter(|other| *other != &boss) {
-                // The Pit Boss carries Streak, open from the start, as a
-                // stand-in until its own Boss Tell is picked.
-                if Tell::OPEN.contains(&other.tell) {
-                    continue;
-                }
                 assert!(
                     boss.deck.iter().all(|c| c.tell != Some(other.tell)),
                     "{}'s Deck holds {}'s {}",
@@ -87,6 +82,18 @@ mod tests {
                     other.tell.name()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn no_boss_tell_is_open_from_the_start() {
+        for boss in BOSSES {
+            assert!(
+                !Tell::OPEN.contains(&boss.tell),
+                "{}'s {} is open from the start, so beating it unlocks nothing",
+                boss.name,
+                boss.tell.name()
+            );
         }
     }
 

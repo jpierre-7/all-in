@@ -1088,23 +1088,22 @@ mod run_modifier_tests {
     use crate::boss::{PIT_BOSS, SLOTZ};
     use crate::combat::duel::{Coin, Spent};
     use crate::item::LOADED_DICE;
-    use crate::modifier::Side;
     use crate::run::{CombatOutcome, Reward, RunState};
     use crate::state::AppState;
 
     #[test]
-    fn the_pit_boss_perk_raises_the_players_blind_at_the_table() {
+    fn read_the_pan_turns_a_card_over_at_the_table() {
         let plain = dealt_table(RunState::new(), FLOOR_MINION);
         let mut run = RunState::new();
-        run.apply(PIT_BOSS.rewards.expect("a 1-of-2")[0], 1);
+        run.apply(PIT_BOSS.rewards.expect("a 1-of-2")[1], 1);
         let perked = dealt_table(run, FLOOR_MINION);
 
-        let blinds = |app: &App| {
+        let face_up = |app: &App| {
             let duel = &app.world().resource::<ActiveDuel>().duel;
-            (duel.blind(Side::Player), duel.blind(Side::Enemy))
+            duel.opposing().iter().filter(|o| o.face_up).count()
         };
-        assert_eq!(blinds(&plain), (2, 2));
-        assert_eq!(blinds(&perked), (3, 2));
+        assert_eq!(face_up(&plain), 0);
+        assert_eq!(face_up(&perked), 1);
     }
 
     #[test]
@@ -1823,6 +1822,7 @@ mod peek_tests {
                 burn: None,
                 flop: None,
                 lowball: None,
+                counterweight: None,
             }
         );
     }
