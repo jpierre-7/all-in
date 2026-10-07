@@ -1,20 +1,22 @@
-//! THE PIT BOSS, the boss of The Pit. Its Boss Tell isn't picked yet, so it
-//! carries Streak as a stand-in.
+//! THE PIT BOSS, the boss of The Pit. Its Boss Tell is Counterweight.
 //!
-//! The Deck is a stand-in until the boss proposals pick its real one: the
-//! Face Values it used to be dealt from (4 to 9), with only the Tells open
-//! from the start, since the other two belong to Slotz and The House.
+//! A brass scale: its Deck is light cards that weigh whatever you put across
+//! them. The Counterweights match your heavy cards, so the only way round
+//! them is to play fewer, and you can't see where they sit without a reveal.
+//! Its Table Rule, The Beam Swings Back, raises its Blind the turn after you
+//! win one.
 
 use super::{Boss, card};
-use crate::modifier::{Modifier, Side};
-use crate::run::{Card, CardReward, Perk, Reward, Tell, xorshift64};
+use crate::combat::duel::Opposing;
+use crate::modifier::{Modifier, Side, Turn};
+use crate::run::{Perk, Reward, Tell};
 
+const COUNTERWEIGHT: Option<Tell> = Some(Tell::Counterweight);
 const STREAK: Option<Tell> = Some(Tell::Streak);
-const ALL_IN: Option<Tell> = Some(Tell::AllIn);
 
 pub static PIT_BOSS: Boss = Boss {
     name: "THE PIT BOSS",
-    chips: 40,
+    chips: 35,
     portrait: "portraits/pit_boss.png",
     intro: "\
 THE PIT BOSS. A brass balance scale the height of a man, two pans
@@ -28,104 +30,140 @@ sound in the Pit is brass settling. \"Upstairs,\" it says at last. \"He's
 been expecting you.\"",
     deck: &[
         card("Brass Weight", 4, None),
-        card("Counterweight", 5, None),
         card("Full Pan", 5, None),
         card("Tipped Beam", 6, None),
         card("Heavy Stack", 7, None),
-        card("Lead Chip", 8, None),
-        card("Thumb on the Scale", 9, None),
-        card("Balanced Books", 4, STREAK),
-        card("Even Money", 5, STREAK),
-        card("Double Weight", 6, STREAK),
-        card("Tipping Point", 7, STREAK),
-        card("House Marker", 3, ALL_IN),
-        card("Collateral", 4, ALL_IN),
-        card("Everything on the Pan", 5, ALL_IN),
+        card("Counterweight", 3, COUNTERWEIGHT),
+        card("Balanced Books", 3, COUNTERWEIGHT),
+        card("Even Money", 4, COUNTERWEIGHT),
+        card("Equal Measure", 4, COUNTERWEIGHT),
+        card("Thumb on the Scale", 5, COUNTERWEIGHT),
+        // A Counterweight carries a Tell, so a Streak after one doubles.
+        card("Tipping Point", 4, STREAK),
+        card("Double Weight", 5, STREAK),
     ],
-    tell: Tell::Streak,
-    table_rule: None,
-    rewards: Some([Reward::Perk(&SIXTH_CARD), Reward::Cards(&RANDOM_CARDS)]),
+    tell: Tell::Counterweight,
+    table_rule: Some(&BeamSwingsBack),
+    rewards: Some([
+        Reward::Perk(&BEAM_SWINGS_YOUR_WAY),
+        Reward::Perk(&READ_THE_PAN),
+    ]),
     pack_tells: 3,
 };
 
-/// One more card in the player's row every turn.
-pub static SIXTH_CARD: Perk = Perk {
-    label: "Your Blind is one card higher.",
-    modifier: &BlindPlusOne,
-};
-
+/// The Beam Swings Back: the turn after the player wins one, the Pit Boss's
+/// Blind is 1 higher. Two wins in a row are still only 1.
 #[derive(Debug)]
-struct BlindPlusOne;
+struct BeamSwingsBack;
 
-impl Modifier for BlindPlusOne {
-    fn blind(&self, side: Side, blind: u8) -> u8 {
+impl Modifier for BeamSwingsBack {
+    fn blind(&self, side: Side, blind: u8, turn: Turn) -> u8 {
         match side {
-            Side::Player => blind.saturating_add(1),
-            Side::Enemy => blind,
+            Side::Enemy if turn.player_won_last() => blind.saturating_add(1),
+            _ => blind,
         }
     }
 }
 
-/// Four cards off the Pit's own table: two with a random Tell and two plain.
-pub static RANDOM_CARDS: CardReward = CardReward {
-    label: "Four cards off the Pit's table: two with Tells, two plain.",
-    cards: random_cards,
+/// The turn after the player loses one, their Blind is 1 higher.
+pub static BEAM_SWINGS_YOUR_WAY: Perk = Perk {
+    label: "Beam Swings Your Way: lose a turn, and your Blind is one card higher the next.",
+    modifier: &BeamSwingsYourWay,
 };
 
-/// Each card's Tell is any of the four, whatever the run has unlocked. Face
-/// Values stay inside the starter deck's ranges so the pack thickens the deck
-/// without rewriting its maths.
-fn random_cards(seed: u64) -> Vec<Card> {
-    const TELLED: [&str; 6] = [
-        "Sleeve Ace",
-        "Tipped Dealer",
-        "Marker from the Pit",
-        "Cooler Deck",
-        "Late Bet",
-        "Chip on the Rail",
-    ];
-    const PLAIN: [&str; 6] = [
-        "House Matchbook",
-        "Parking Stub",
-        "Cocktail Napkin",
-        "Loose Change",
-        "Cigarette Burn",
-        "Plastic Chip",
-    ];
+#[derive(Debug)]
+struct BeamSwingsYourWay;
 
-    let mut rng = seed | 1;
-    let mut roll = |n: u64| xorshift64(&mut rng) % n;
-    // Names come out of the hat rather than off it, so a pack never holds the
-    // same card twice.
-    let mut telled = TELLED.to_vec();
-    let mut plain = PLAIN.to_vec();
+impl Modifier for BeamSwingsYourWay {
+    fn blind(&self, side: Side, blind: u8, turn: Turn) -> u8 {
+        match side {
+            Side::Player if turn.player_lost_last() => blind.saturating_add(1),
+            _ => blind,
+        }
+    }
+}
 
-    let mut cards = Vec::with_capacity(4);
-    for _ in 0..2 {
-        let name = telled.swap_remove(roll(telled.len() as u64) as usize);
-        // Each Tell keeps the range the starter deck gives it: Streak 3..=6,
-        // All In 2..=5. Copycat prints 2..=5 too (#110): the print only
-        // counts when no card follows, so a low one pushes it into the
-        // sequence rather than the last slot. Flop's print never counts for
-        // itself, only for a Copycat or an enemy Flop reading it (#113).
-        let (tell, face_value) = match roll(4) {
-            0 => (Tell::Streak, 3 + roll(4) as u32),
-            1 => (Tell::AllIn, 2 + roll(4) as u32),
-            2 => (Tell::Copycat, 2 + roll(4) as u32),
-            _ => (Tell::Flop, 2 + roll(4) as u32),
+/// The heaviest Opposing Card turns face up at the start of every turn.
+pub static READ_THE_PAN: Perk = Perk {
+    label: "Read the Pan: the heaviest Opposing Card turns face up every turn. Not against The House.",
+    modifier: &ReadThePan,
+};
+
+#[derive(Debug)]
+struct ReadThePan;
+
+impl Modifier for ReadThePan {
+    /// The highest Face Value, the leftmost of a tie. The House lays nothing
+    /// down until Confirm, so against it there is nothing here to turn.
+    fn reveal(&self, _turn: u32, opposing: &[Opposing]) -> Vec<usize> {
+        let heaviest = opposing
+            .iter()
+            .enumerate()
+            .rev()
+            .max_by_key(|(_, o)| o.card.face_value)
+            .map(|(slot, _)| slot);
+        heaviest.into_iter().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::duel::Outcome;
+    use crate::run::Card;
+
+    /// `modifier`'s answer for `side` at a floor Blind of 3, the turn after
+    /// one that dealt `last`.
+    fn blind_after(modifier: &dyn Modifier, side: Side, last: Option<Outcome>) -> u8 {
+        let turn = match last {
+            None => Turn::FIRST,
+            last => Turn { number: 2, last },
         };
-        cards.push(Card {
-            name,
-            face_value,
-            tell: Some(tell),
-        });
+        modifier.blind(side, 3, turn)
     }
-    for _ in 0..2 {
-        cards.push(Card {
-            name: plain.swap_remove(roll(plain.len() as u64) as usize),
-            face_value: 2 + roll(7) as u32, // 2..=8, the starter deck's vanilla range
-            tell: None,
-        });
+
+    #[test]
+    fn the_beam_swings_back_after_a_payout_and_only_then() {
+        let enemy = |last| blind_after(&BeamSwingsBack, Side::Enemy, last);
+        assert_eq!(enemy(None), 3, "turn one");
+        assert_eq!(enemy(Some(Outcome::Payout(5))), 4);
+        assert_eq!(enemy(Some(Outcome::Payout(0))), 3, "a tie");
+        assert_eq!(enemy(Some(Outcome::Whiff(5))), 3);
+        assert_eq!(
+            blind_after(&BeamSwingsBack, Side::Player, Some(Outcome::Payout(5))),
+            3
+        );
     }
-    cards
+
+    #[test]
+    fn beam_swings_your_way_after_a_whiff_and_only_then() {
+        let player = |last| blind_after(&BeamSwingsYourWay, Side::Player, last);
+        assert_eq!(player(None), 3, "turn one");
+        assert_eq!(player(Some(Outcome::Whiff(5))), 4);
+        assert_eq!(player(Some(Outcome::Whiff(0))), 3, "a Push forgave it");
+        assert_eq!(player(Some(Outcome::Payout(5))), 3);
+        assert_eq!(
+            blind_after(&BeamSwingsYourWay, Side::Enemy, Some(Outcome::Whiff(5))),
+            3
+        );
+    }
+
+    fn face_down(face_value: u32) -> Opposing {
+        Opposing {
+            card: Card {
+                name: "weight",
+                face_value,
+                tell: None,
+            },
+            sacrifice: None,
+            face_up: false,
+        }
+    }
+
+    #[test]
+    fn read_the_pan_turns_the_heaviest_the_leftmost_of_a_tie() {
+        let row = [face_down(4), face_down(8), face_down(2), face_down(8)];
+        assert_eq!(ReadThePan.reveal(1, &row), vec![1]);
+        assert_eq!(ReadThePan.reveal(1, &[]), Vec::<usize>::new());
+    }
 }

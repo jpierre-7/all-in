@@ -40,7 +40,8 @@ the rarest, since the stronger Items are rarer. Cards opens `Pack::minion`
 and keeps one the same way as a Boss Pack, below. A boss opens its Boss Pack first (`Encounter::boss_pack`,
 `RunState::keep`): naive keeps two at random, smart the two highest Face
 Values. Then `--pick` decides which side of the boss's 1-of-2 the player
-takes (the first is the perk: Slotz's coin, the Pit Boss's +1 Blind).
+takes (Slotz's first is its coin, the Pit Boss's first Beam Swings Your
+Way and its second Read the Pan).
 
 With `--wheel`, every run starts under that board the way the game starts
 one once The Wheel is open (`wheel::start_run`): the spin picks a Hot Square
@@ -61,15 +62,16 @@ Two players, after the starter-deck prototype:
 
 Smart sees only what a player sees: face-down Opposing Cards count for
 nothing, and so does a Flop's read of them. The one guess it makes is
-across a Lowball: a face-down card there counts as the enemy Deck's average
-Face Value (`Duel::enemy_average`), mucked if the Lowball prints under it,
+across a Lowball or a Counterweight: a face-down card there counts as the
+enemy Deck's average Face Value (`Duel::enemy_average`), mucked if the
+Lowball prints under it and taken if the Counterweight prints under it,
 the way the enemy's greedy guesses at the player's row. Real players land between the
 two. A duel still going after 300 turns is a stall, and it is counted as a
 loss and flagged in the table.
 
 New Tells mostly need nothing here: both players read cards through the
-`Duel`. A Tell whose worth hangs on a face-down card (Lowball) needs smart's
-`score` to guess at it.
+`Duel`. A Tell whose worth hangs on a face-down card (Lowball, Counterweight)
+needs smart's `score` to guess at it.
 A new decision does need a player model, like a new prompt or a choice
 that isn't a 1-of-2.
 
@@ -99,25 +101,32 @@ smart: win 8.3%  mean encounters won 2.84  (20000 runs)
 
 ## Baseline
 
-`main` at 3a8da7a (Flop with neighbours, #149), `--runs 20000`, default seed,
-random picks:
+`main` at 9f5aa3f with the Pit Boss built (#161), `--runs 20000`, default
+seed, random picks:
 
 ```
-naive: win 0.0%  mean encounters won 2.00  (20000 runs)
+naive: win 0.0%  mean encounters won 0.97  (20000 runs)
   encounter     reached   won%   chips   turns   hand   edge  whiff%   push%
-  Floor minion    20000  100.0    50.0     4.1   17.8   10.9     2.2     0.0
-  Slotz           20000   99.1    49.8     8.6   21.4   18.3    25.1     0.0
-  Pit minion      19828    1.0    41.6     8.3   25.2   29.9    68.1     0.0
-  Pit Boss          190    0.0    17.2     4.0   26.2   30.8    69.3     0.0
-  The House           0    0.0     0.0     0.0    0.0    0.0     0.0     0.0
+  Floor minion    20000   95.5    50.0    11.6   10.6    9.2    29.0     0.0
+  SLOTZ           19091    1.7    42.2    16.5   11.9   14.0    71.9     0.0
+  Pit minion        322    3.7    38.5     9.6   15.8   19.4    74.8     0.0
+  THE PIT BOSS       12    0.0    18.7     5.3   17.6   20.9    81.2     0.0
+  THE HOUSE           0    0.0     0.0     0.0    0.0    0.0     0.0     0.0
 
-smart: win 8.3%  mean encounters won 2.84  (20000 runs)
+smart: win 9.2%  mean encounters won 2.66  (20000 runs)
   encounter     reached   won%   chips   turns   hand   edge  whiff%   push%
-  Floor minion    20000   99.2    50.0     2.5   24.7   10.9    32.8    59.1
-  Slotz           19842   91.3    41.9     3.4   27.3   16.2    27.0    41.7
-  Pit minion      18110   71.7    33.6     5.4   31.3   26.8    31.4    20.3
-  Pit Boss        12984   32.0    25.9     7.5   33.0   32.3    40.5    19.4
-  The House        4151   39.9    19.1     6.6   25.6   22.9    31.3    21.5
+  Floor minion    20000   99.5    50.0     4.6   15.2    9.3    26.5    28.4
+  SLOTZ           19895   92.7    42.1    10.9   16.5   14.0    28.8    10.4
+  Pit minion      18438   49.9    30.2     8.3   21.3   20.3    40.3    13.9
+  THE PIT BOSS     9197   42.1    19.9     8.2   23.7   22.2    37.8    15.1
+  THE HOUSE        3875   47.4    12.4     3.7   31.4   26.9    34.3    30.2
 ```
 
-Smart with fixed picks: `--pick first` 3.4%, `--pick second` 14.2%.
+Smart with fixed picks: `--pick first` 10.8%, `--pick second` 8.0%. With
+The Beam Swings Back switched off, smart beats the Pit Boss 66.0% of the
+time instead of 42.1%, and wins 16.1% of runs.
+
+The worktrees share one `target/`, and every worktree's sim builds to the
+same `target/release/sim`, so `cargo run` can start a binary built from
+another worktree's source and call it fresh. Touch `src/lib.rs` and
+`tools/sim/src/main.rs` before a run that a baseline will be taken from.

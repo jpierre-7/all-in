@@ -51,6 +51,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | **Copycat** | Tell: worth the Face Value of the card in the slot to its right; its own if nothing follows. |
 | **Flop** | Tell: worth the Face Values of the Opposing Card across from it and that card's two neighbours; never its own. |
 | **Lowball** | Tell: if the card across from it has a higher Face Value, that card is **Mucked**: taken off the table before any Tell resolves, counting nothing, its slot read as empty. Either side can play it. |
+| **Counterweight** | Tell: takes the higher of its own Face Value and that of the card across from it; across an empty slot it keeps its own. The Pit Boss's Boss Tell. |
 | **Rising Blinds** | Difficulty escalates as combat goes on: the enemy lays one more Opposing Card every 5 turns. Past your Plays you can't cover them all. |
 | **Plays** | Limited number of cards you may put in your row per turn (Draw of 7, up to 5 placed by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final. Cleared House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Fell short: Push to have the Whiff forgiven, or lose and it doubles. Coin is 45/55 in the House's favor. |
@@ -125,8 +126,8 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
   - **Option 2:** Adds 3x "Streak" Tell cards to the player's deck.
 
 - **Boss: Pit Boss (The Pit)**
-  - **Option 1:** You can play up to 6 cards per turn, but Rising Blinds add an Opposing Card every turn (5× the base rate). Pays in short fights, punishes long ones.
-  - **Option 2:** Adds 4x random cards to deck (2x with random Tells, 2x normal/vanilla cards).
+  - **Option 1: Beam Swings Your Way.** If you took a Whiff last turn, your Blind is 1 higher this turn.
+  - **Option 2: Read the Pan.** The heaviest Opposing Card turns face up at the start of every turn. Against The House, which plays last, it shows nothing.
 
 - **Secret Boss: The Man Who Beat the House (The Back Room)**
   - **Reward:** Guaranteed transformation — turns **all cards** in player's deck to have the **"All In"** Tell.
@@ -149,6 +150,7 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 - **Copycat** — reads the slot to its right
 - **Flop** — reads the Opposing Card across from it and that card's neighbours
 - **Lowball** — reads the card across from it; mucks it if it is higher
+- **Counterweight** — reads the card across from it; takes its Face Value if that is higher
 
 **Stretch Tells (cut if behind schedule):** Echo, Brittle, Copycat (built, #110), Flop (built, #88), [others TBD]
 
@@ -208,7 +210,7 @@ What the sim said (under the Hole Card rule, removed in #145): a careless player
 
 1. **Lobby:** Story intro → Tutorial arcade / Info room / Start run.
 2. **The Floor:** 1 Minion encounter → Boss: **Slotz**.
-3. **The Pit:** 1 Minion encounter → Boss: **Pit Boss**.
+3. **The Pit:** 1 Minion encounter → Boss: **Pit Boss**. Its Boss Tell is **Counterweight**, and its Table Rule, **The Beam Swings Back**, raises its Blind by 1 the turn after you win one.
 4. **The Back Room (Optional/Secret):** Boss: **The Man Who Beat the House** (Plays +1, transforms deck).
 5. **The Big Shots Table (Final Boss):** Boss: **The House**. See "The House" below.
 

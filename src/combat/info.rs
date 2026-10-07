@@ -87,6 +87,10 @@ const GLOSSARY: &[(&str, &str)] = &[
         "Tell: if the card across from it has a higher Face Value, that card is Mucked.",
     ),
     (
+        "Counterweight",
+        "Tell: worth the higher of its own Face Value and the card across from it. Its own across an empty slot.",
+    ),
+    (
         "Mucked",
         "Taken off the table as the rows turn over, before any Tell resolves. It counts nothing, its Tell doesn't fire, and its slot reads as empty.",
     ),

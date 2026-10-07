@@ -42,6 +42,9 @@ pub enum Tell {
     /// At the Showdown, mucks the card across from it if that card's Face
     /// Value is higher than its own.
     Lowball,
+    /// Takes the higher of its own Face Value and that of the card across
+    /// from it, and none of its Tell; its own across an empty slot.
+    Counterweight,
 }
 
 impl Tell {
@@ -98,6 +101,13 @@ impl Tell {
                 "Mucked",
                 ".",
             ],
+            Tell::Counterweight => vec![
+                "Takes the higher of its own",
+                "Face Value",
+                "and that of the card across from it, and none of its",
+                "Tell",
+                ". Its own across an empty slot.",
+            ],
         }
     }
 
@@ -109,6 +119,7 @@ impl Tell {
             Tell::Flop => "Flop",
             Tell::Bluff => "Bluff",
             Tell::Lowball => "Lowball",
+            Tell::Counterweight => "Counterweight",
         }
     }
 }
@@ -626,7 +637,7 @@ pub const STARTING_CHIPS: u32 = 50;
 
 /// The one xorshift64 the whole game rolls on: the duel's reshuffle, the
 /// deal into the Draw, the Push Your Luck coin, minion decks, Packs, and the
-/// Pit Boss's card Perk.
+/// card rewards.
 /// Not cryptography - it is a card game, and one stream is easier to reason
 /// about than three.
 pub fn xorshift64(state: &mut u64) -> u64 {
@@ -806,7 +817,6 @@ mod tests {
     fn a_boss_tell_already_in_the_pool_is_not_listed_twice() {
         let mut run = RunState::new();
 
-        // The Pit Boss carries Streak until its own Boss Tell is picked.
         run.beat(&PIT_BOSS);
         run.beat(&THE_HOUSE);
         run.beat(&THE_HOUSE);
@@ -818,6 +828,7 @@ mod tests {
                 Tell::AllIn,
                 Tell::Bluff,
                 Tell::Lowball,
+                Tell::Counterweight,
                 Tell::Flop
             ]
         );
@@ -1181,33 +1192,15 @@ mod tests {
     }
 
     #[test]
-    fn the_pit_boss_card_reward_adds_two_tells_and_two_plain_cards() {
-        let mut run = RunState::new();
-        let before = run.deck.len();
+    fn both_pit_boss_rewards_are_perks_and_leave_the_deck_alone() {
+        let deck = RunState::new().deck.len();
+        for reward in pit_boss() {
+            let mut run = RunState::new();
+            run.apply(reward, SEED);
 
-        run.apply(pit_boss()[1], SEED);
-
-        let added = &run.deck[before..];
-        assert_eq!(added.len(), 4);
-        assert_eq!(tells(added), 2);
-        assert!(added.iter().all(|c| (2..=8).contains(&c.face_value)));
-
-        let names: std::collections::HashSet<_> = added.iter().map(|c| c.name).collect();
-        assert_eq!(names.len(), 4, "no pack deals the same card twice");
-    }
-
-    #[test]
-    fn the_pit_boss_cards_are_rolled_from_the_seed() {
-        let mut one = RunState::new();
-        let mut two = RunState::new();
-        let mut same = RunState::new();
-
-        one.apply(pit_boss()[1], SEED);
-        two.apply(pit_boss()[1], SEED ^ 0xffff);
-        same.apply(pit_boss()[1], SEED);
-
-        assert_eq!(one.deck, same.deck, "the same seed deals the same cards");
-        assert_ne!(one.deck, two.deck, "a different seed deals different ones");
+            assert_eq!(run.perks.len(), 1);
+            assert_eq!(run.deck.len(), deck);
+        }
     }
 
     #[test]

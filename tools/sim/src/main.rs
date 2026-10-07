@@ -202,21 +202,24 @@ fn naive_row(duel: &mut Duel, rng: &mut u64) {
 /// What the smart player thinks a finished row is worth: The Hand less what
 /// it can see of the Opposing Cards. Face-down cards are the same whatever
 /// it plays, so leaving them out moves every row by the same amount, except
-/// across a Lowball: there it guesses the card back is the enemy's average,
-/// the way the enemy's greedy guesses at the player's row.
+/// across a Lowball or a Counterweight: there it guesses the card back is the
+/// enemy's average, the way the enemy's greedy guesses at the player's row.
 fn score(duel: &Duel) -> i64 {
     let (showing, _) = duel.showing();
     let average = duel.enemy_average();
-    let mucked: u32 = duel
+    let guessed: u32 = duel
         .row()
         .iter()
         .zip(duel.opposing())
-        .filter(|(p, o)| {
-            !o.face_up && p.card.tell == Some(Tell::Lowball) && p.card.face_value < average
+        .filter(|(_, o)| !o.face_up)
+        .map(|(p, _)| match p.card.tell {
+            Some(Tell::Lowball) if p.card.face_value < average => average,
+            // The Hand already counts its own Face Value.
+            Some(Tell::Counterweight) => average.saturating_sub(p.card.face_value),
+            _ => 0,
         })
-        .map(|_| average)
         .sum();
-    i64::from(duel.hand()) - i64::from(showing) + i64::from(mucked)
+    i64::from(duel.hand()) - i64::from(showing) + i64::from(guessed)
 }
 
 /// Every row the Draw can make, by putting cards down and lifting them back

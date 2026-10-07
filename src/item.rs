@@ -7,7 +7,7 @@
 //! and reads them off these fields.
 
 use crate::combat::duel::{Coin, Opposing, Placed, Played};
-use crate::modifier::{Modifier, Side};
+use crate::modifier::{Modifier, Side, Turn};
 use crate::run::xorshift64;
 
 /// How long one use of an Item bends the duel.
@@ -234,7 +234,7 @@ pub static ACE_UP_THE_SLEEVE: Item = Item {
 struct AceUpTheSleeve;
 
 impl Modifier for AceUpTheSleeve {
-    fn blind(&self, side: Side, blind: u8) -> u8 {
+    fn blind(&self, side: Side, blind: u8, _turn: Turn) -> u8 {
         match side {
             Side::Player => blind.saturating_add(1),
             Side::Enemy => blind,

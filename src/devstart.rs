@@ -36,7 +36,7 @@ All In — dev entry point (debug builds only)
     --seed <n>        Pin the shuffle, the deal and the Push Your Luck coin,
                       so a Hand that went wrong can be played again.
     --with <a,b,...>  Rewards to start holding, as if they had been won:
-                      streak, pyl, blind, pack, or an Item: dice,
+                      streak, pyl, blind, pan, or an Item: dice,
                       sunglasses, mirror, ace, shaved, sleight, insurance,
                       coin, sleeve, pockets. Needs --encounter, since
                       starting in the Lobby ends the run.
@@ -188,7 +188,7 @@ fn reward(name: &str) -> Result<Reward, String> {
         "pyl" => Ok(slotz[0]),
         "streak" => Ok(slotz[1]),
         "blind" => Ok(pit_boss[0]),
-        "pack" => Ok(pit_boss[1]),
+        "pan" => Ok(pit_boss[1]),
         other => Err(format!("There is no reward called `{other}`.")),
     }
 }
@@ -241,7 +241,8 @@ impl DevStart {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modifier::Side;
+    use crate::combat::duel::Outcome as Dealt;
+    use crate::modifier::{Side, Turn};
 
     /// One argument per element, the way a shell hands them over.
     fn parsed(args: &[&str]) -> Result<Outcome, String> {
@@ -360,7 +361,11 @@ mod tests {
         }
 
         assert_eq!(run.perks.len(), 1);
-        assert_eq!(run.perks[0].modifier.blind(Side::Player, 2), 3);
+        let lost = Turn {
+            number: 2,
+            last: Some(Dealt::Whiff(4)),
+        };
+        assert_eq!(run.perks[0].modifier.blind(Side::Player, 2, lost), 3);
         assert_eq!(run.uses(&item::LOADED_DICE), Some(2));
         assert_eq!(run.deck.len(), RunState::new().deck.len() + 3);
     }
