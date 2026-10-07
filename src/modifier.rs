@@ -61,10 +61,20 @@ pub trait Modifier: Debug + Sync {
         size
     }
 
+    /// Whether the enemy commits its row at Confirm, once the player's row
+    /// is down, rather than face down at the start of the turn, given the
+    /// answer so far. An enemy that plays last sees the row it plays against,
+    /// so it scores its own exactly, and there is nothing to reveal before
+    /// Confirm.
+    fn plays_last(&self, plays_last: bool) -> bool {
+        plays_last
+    }
+
     /// The slots of the Opposing Cards to turn face up before Confirm, as
     /// they lie after the modifiers before this one have had their say, on
     /// `turn` of the duel, counting from 1. Asked once the enemy has
-    /// committed, and again whenever an Item is spent.
+    /// committed, and again whenever an Item is spent. Against an enemy that
+    /// plays last, nothing is committed yet when it is asked.
     fn reveal(&self, _turn: u32, _opposing: &[Opposing]) -> Vec<usize> {
         Vec::new()
     }

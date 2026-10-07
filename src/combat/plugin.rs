@@ -450,6 +450,10 @@ fn spend_or_take_back(duel: &mut Duel, index: usize) -> String {
             "The rows are down. Push (P) or Hold (H).".into()
         }
         Err(ItemError::NotNow) => format!("{name} is spent at the Push / Hold prompt."),
+        Err(ItemError::NothingToReveal) => format!(
+            "{} plays after you: nothing is face down to turn over. {name} stays in your pocket.",
+            duel.enemy_name()
+        ),
         Err(_) => "Nothing in that pocket.".into(),
     }
 }

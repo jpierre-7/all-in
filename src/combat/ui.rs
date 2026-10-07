@@ -482,7 +482,16 @@ fn facing_rows(root: &mut ChildSpawnerCommands, active: &ActiveDuel, art: &Art) 
                 );
             }
         });
-        text(table, "- across from -", 13.0, DIM);
+        // An enemy that plays last has nothing on the table until Confirm.
+        let across = if duel.plays_last() && duel.opposing().is_empty() {
+            format!(
+                "- {} lays its row across from yours at Confirm -",
+                duel.enemy_name()
+            )
+        } else {
+            "- across from -".to_string()
+        };
+        text(table, across, 13.0, DIM);
         row(table, JustifyContent::Center, |r| {
             for i in 0..duel.slots() {
                 let placed: Option<&Placed> = duel.row().get(i);
@@ -711,6 +720,10 @@ fn edge_line(parent: &mut ChildSpawnerCommands, duel: &Duel) {
             24.0,
             NEON,
         );
+        return;
+    }
+    if duel.plays_last() {
+        text(parent, "House Edge ?   (played after yours)", 24.0, INK);
         return;
     }
     let (showing, hidden) = duel.showing();

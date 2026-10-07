@@ -21,6 +21,7 @@ but it's too slow to tune with.
 | `--pick`   | `first`, `second`, `random`           | `random`    |
 | `--minion` | `items`, `cards`, `skip`, `random`    | `random`    |
 | `--wheel`  | `square=rank,...`, e.g. `bankroll=3,lucky-coin=2` | no Wheel |
+| `--carry`  | (no value)                            | off         |
 
 The same seed gives the same numbers, whatever the thread count, so a diff
 against the baseline is the change you made and nothing else.
@@ -50,6 +51,13 @@ trims its lowest plain cards and naive trims nothing; both take the first
 Item Pocket Change offers. Squares are named in lower case with dashes
 (`early-read`), ranks 1 to 3, and only the squares that do something yet are
 accepted.
+
+With `--carry`, a duel lost before The House doesn't end the run: the
+player goes on at the Chips it sat down with and takes the reward as if it
+had won, so every run reaches The House. Few runs reach it otherwise, so
+this is how The House is tuned. A carried run is weaker than one that got
+there by winning (it lost somewhere on the way), so The House's won% reads
+lower than a real arrival's.
 
 Two players, after the starter-deck prototype:
 
@@ -102,8 +110,8 @@ smart: win 8.3%  mean encounters won 2.84  (20000 runs)
 
 ## Baseline
 
-`main` at 064f2b1 (the Pit Boss, #161) with Slotz built (#160), `--runs
-20000`, default seed, random picks:
+`main` at 9faf08a (Slotz, #160, and the Pit Boss, #161) with The House
+built (#162), `--runs 20000`, default seed, random picks:
 
 ```
 naive: win 0.0%  mean encounters won 1.01  (20000 runs)
@@ -114,16 +122,19 @@ naive: win 0.0%  mean encounters won 1.01  (20000 runs)
   THE PIT BOSS       44    0.0    14.6     4.9   18.7   21.4    71.3     0.0
   THE HOUSE           0    0.0     0.0     0.0    0.0    0.0     0.0     0.0
 
-smart: win 13.5%  mean encounters won 2.81  (20000 runs)
+smart: win 8.3%  mean encounters won 2.76  (20000 runs)
   encounter     reached   won%   chips   turns   hand   edge  whiff%   push%
   Floor minion    20000   99.5    50.0     4.6   15.2    9.3    26.5    28.4
   SLOTZ           19895   90.2    42.1     5.2   17.2   12.3    33.0    27.8
   Pit minion      17947   58.5    35.1     8.4   21.6   20.4    40.2    13.5
   THE PIT BOSS    10493   49.1    23.4     8.3   24.1   22.3    38.1    14.1
-  THE HOUSE        5154   52.4    15.0     3.8   31.9   27.2    34.7    28.9
+  THE HOUSE        5154   32.2    15.0     5.0   32.0   31.4    41.7    26.9
 ```
 
-Smart with fixed picks: `--pick first` 13.1%, `--pick second` 14.3%.
+Smart with fixed picks: `--pick first` 8.4%, `--pick second` 7.6%.
+
+With `--carry`, The House row: smart 33.1% won (arriving with 17.8 Chips),
+naive 0.6% (40.1 Chips).
 
 The worktrees share one build directory, and every worktree's `all-in` lib
 builds to the same path in it, so a build can take a lib compiled from
