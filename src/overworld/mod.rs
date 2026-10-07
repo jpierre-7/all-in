@@ -9,6 +9,7 @@ pub mod combat_stub;
 pub mod narrative;
 pub mod progression;
 pub mod screens;
+mod wheel;
 
 use bevy::prelude::*;
 
@@ -20,6 +21,7 @@ use screens::{
 use crate::boss::SLOTZ;
 use crate::item::{self, Item};
 use crate::run::{Card, CombatOutcome, Encounter, Pack, Reward, RewardOffer, RunState};
+use crate::save::SaveSlot;
 use crate::state::AppState;
 
 pub struct OverworldPlugin;
@@ -35,6 +37,9 @@ impl Plugin for OverworldPlugin {
         app.init_state::<AppState>()
             .insert_resource(Progress::new())
             .insert_resource(RunState::new())
+            // `SavePlugin` loads the real one over this; without it the game
+            // plays on a fresh slot.
+            .init_resource::<SaveSlot>()
             .add_systems(Startup, (spawn_camera, load_overworld_art))
             .add_systems(Update, apply_backdrop)
             .add_systems(OnEnter(AppState::Title), show_title)
@@ -67,6 +72,7 @@ impl Plugin for OverworldPlugin {
                     take_reward.run_if(in_state(AppState::Reward)),
                 ),
             );
+        wheel::add_systems(app);
     }
 }
 
@@ -119,7 +125,7 @@ fn back_to_lobby(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<App
 // Lobby
 // ---------------------------------------------------------------------------
 
-fn show_lobby(mut commands: Commands, folded: Option<Res<Folded>>) {
+fn show_lobby(mut commands: Commands, folded: Option<Res<Folded>>, slot: Res<SaveSlot>) {
     let mut screen = Screen::new().title("The Lobby");
 
     if folded.is_some() {
@@ -127,13 +133,26 @@ fn show_lobby(mut commands: Commands, folded: Option<Res<Folded>>) {
         commands.remove_resource::<Folded>();
     }
 
-    screen
+    screen = screen
         .prose(narrative::LOBBY)
         .option(1, narrative::LOBBY_OPT_INFO)
         .option(2, narrative::LOBBY_OPT_TUTORIAL)
-        .option(3, narrative::LOBBY_OPT_BEGIN)
-        .footer("Press 1, 2 or 3 — or Enter to walk the Floor.")
-        .spawn(&mut commands, AppState::Lobby);
+        .option(3, narrative::LOBBY_OPT_BEGIN);
+    // The Wheel opens once The House has been beaten.
+    let footer = if slot.house_beaten {
+        screen = screen.option(
+            4,
+            &format!(
+                "{}  ({} Golden Chips in hand)",
+                narrative::LOBBY_OPT_WHEEL,
+                slot.golden_chips
+            ),
+        );
+        "Press 1 to 4 — or Enter to walk the Floor."
+    } else {
+        "Press 1, 2 or 3 — or Enter to walk the Floor."
+    };
+    screen.footer(footer).spawn(&mut commands, AppState::Lobby);
 }
 
 /// Every way back into the Lobby ends a run, so the reset lives here: Fold and
@@ -146,13 +165,21 @@ fn end_the_run(mut run: ResMut<RunState>, mut progress: ResMut<Progress>) {
 fn pick_from_lobby(
     keys: Res<ButtonInput<KeyCode>>,
     progress: Res<Progress>,
+    slot: Res<SaveSlot>,
     mut next: ResMut<NextState<AppState>>,
 ) {
+    // Once The Wheel is open, every run starts with its spin.
+    let begin = if slot.house_beaten {
+        AppState::Spin
+    } else {
+        progress.arrival()
+    };
     match digit_pressed(&keys) {
         Some(1) => next.set(AppState::InfoRoom),
         Some(2) => next.set(AppState::Tutorial),
-        Some(3) => next.set(progress.arrival()),
-        _ if confirm(&keys) => next.set(progress.arrival()),
+        Some(3) => next.set(begin),
+        Some(4) if slot.house_beaten => next.set(AppState::Wheel),
+        _ if confirm(&keys) => next.set(begin),
         _ => {}
     }
 }
@@ -619,7 +646,9 @@ mod tests {
     use super::{OpenItems, OpenPack, OverworldPlugin};
     use crate::boss::SLOTZ;
     use crate::run::{CombatOutcome, Encounter, Floor, Reward, RunState, Tell};
+    use crate::save::SaveSlot;
     use crate::state::AppState;
+    use crate::wheel::Square;
 
     /// The shell with no window, no renderer and no real input device: enough
     /// to drive every transition the overworld owns.
@@ -1171,6 +1200,115 @@ mod tests {
         assert!(run.perks.is_empty());
         assert!(run.items.is_empty());
         assert_eq!(run.deck.len(), crate::run::starter_deck().len());
+    }
+
+    // --- The Wheel (#167) ---
+
+    fn slot(app: &mut App) -> Mut<'_, SaveSlot> {
+        app.world_mut().resource_mut::<SaveSlot>()
+    }
+
+    /// In the Lobby, with The House beaten and `chips` Golden Chips in hand.
+    fn lobby_with_the_wheel(chips: u32) -> App {
+        let mut app = opened();
+        *slot(&mut app) = SaveSlot {
+            golden_chips: chips,
+            house_beaten: true,
+            ..SaveSlot::default()
+        };
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Lobby);
+        app
+    }
+
+    #[test]
+    fn the_wheel_stays_shut_until_the_house_is_beaten() {
+        let mut app = opened();
+        press(&mut app, KeyCode::Enter);
+
+        press(&mut app, KeyCode::Digit4);
+        assert_eq!(state(&app), AppState::Lobby);
+
+        // And no spin: the run starts on the Floor, as it always has.
+        press(&mut app, KeyCode::Digit3);
+        assert_eq!(state(&app), AppState::FloorIntro);
+    }
+
+    #[test]
+    fn golden_chips_go_on_and_come_off_a_square_at_the_wheel() {
+        let mut app = lobby_with_the_wheel(2);
+
+        press(&mut app, KeyCode::Digit4);
+        assert_eq!(state(&app), AppState::Wheel);
+        // The cursor starts on Bankroll.
+        press(&mut app, KeyCode::ArrowRight);
+        press(&mut app, KeyCode::ArrowRight);
+        press(&mut app, KeyCode::ArrowRight); // none left in hand
+        assert_eq!(slot(&mut app).wheel[&Square::Bankroll], 2);
+        assert_eq!(slot(&mut app).golden_chips, 0);
+
+        press(&mut app, KeyCode::ArrowLeft);
+        press(&mut app, KeyCode::ArrowDown); // Seed Money: coming soon
+        press(&mut app, KeyCode::ArrowRight);
+        assert_eq!(slot(&mut app).wheel[&Square::Bankroll], 1);
+        assert_eq!(slot(&mut app).golden_chips, 1);
+
+        press(&mut app, KeyCode::Escape);
+        assert_eq!(state(&app), AppState::Lobby);
+    }
+
+    #[test]
+    fn once_the_wheel_is_open_a_run_starts_with_the_spin() {
+        let mut app = lobby_with_the_wheel(0);
+        slot(&mut app).wheel.insert(Square::Bankroll, 2);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Spin);
+        let run = app.world().resource::<RunState>();
+        let bankroll = 5 * u32::from(run.wheel.rank(Square::Bankroll));
+        assert!(bankroll >= 10, "rank 2, or 3 if it came up hot");
+        assert_eq!(run.chips, crate::run::STARTING_CHIPS + bankroll);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::FloorIntro);
+        assert_eq!(
+            app.world().resource::<RunState>().chips,
+            crate::run::STARTING_CHIPS + bankroll,
+            "the Floor keeps what the spin gave"
+        );
+    }
+
+    #[test]
+    fn trim_takes_the_marked_cards_out_before_the_floor() {
+        let mut app = lobby_with_the_wheel(0);
+        slot(&mut app).wheel.insert(Square::Trim, 1);
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Enter); // past the spin
+        let deck = app.world().resource::<RunState>().deck.clone();
+
+        press(&mut app, KeyCode::ArrowDown);
+        press(&mut app, KeyCode::Space);
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(state(&app), AppState::FloorIntro);
+        let run = app.world().resource::<RunState>();
+        assert_eq!(run.deck.len(), deck.len() - 1);
+        assert!(!run.deck.contains(&deck[1]));
+    }
+
+    #[test]
+    fn pocket_change_at_rank_three_puts_its_pick_of_three() {
+        let mut app = lobby_with_the_wheel(0);
+        slot(&mut app).wheel.insert(Square::PocketChange, 3);
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Enter); // past the spin
+
+        assert_eq!(state(&app), AppState::Spin, "the pick is up");
+        assert!(app.world().resource::<RunState>().items.is_empty());
+        press(&mut app, KeyCode::Digit2);
+
+        assert_eq!(state(&app), AppState::FloorIntro);
+        assert_eq!(app.world().resource::<RunState>().items.len(), 1);
     }
 
     #[test]

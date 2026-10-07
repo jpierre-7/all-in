@@ -11,8 +11,14 @@ pub enum AppState {
     Title,
     /// Lucky Jack's backstory, shown once, on the way in from the Title.
     Opening,
-    /// Three options: Info Room, Tutorial, Begin Run.
+    /// Three options: Info Room, Tutorial, Begin Run. A fourth, The Wheel,
+    /// once The House has been beaten.
     Lobby,
+    /// The Wheel: Golden Chips placed and moved between runs.
+    Wheel,
+    /// The start of a run once The Wheel is open: the spin, then Trim and
+    /// Pocket Change if they have a choice to put.
+    Spin,
     InfoRoom,
     Tutorial,
     /// Arrival prose for the current floor.

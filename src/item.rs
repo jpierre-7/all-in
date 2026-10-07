@@ -81,13 +81,49 @@ pub static ITEMS: [&Item; 10] = [
     &DEEP_POCKETS,
 ];
 
+/// How often an Item turns up, read off its weight, so retuning a weight on
+/// the sim moves the Item between rarities with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Rarity {
+    Common,
+    Uncommon,
+    Rare,
+}
+
+/// The lightest weight a common Item has.
+pub const COMMON_WEIGHT: u32 = 8;
+/// The lightest weight an uncommon Item has. Anything lighter is rare.
+pub const UNCOMMON_WEIGHT: u32 = 5;
+
+impl Item {
+    pub fn rarity(&self) -> Rarity {
+        if self.weight >= COMMON_WEIGHT {
+            Rarity::Common
+        } else if self.weight >= UNCOMMON_WEIGHT {
+            Rarity::Uncommon
+        } else {
+            Rarity::Rare
+        }
+    }
+}
+
 /// Up to `count` different Items, none of them already `held`, each drawn by
 /// its weight. Fewer when fewer are left to offer.
 pub fn offer(held: &[Held], count: usize, seed: u64) -> Vec<&'static Item> {
+    offer_where(held, count, seed, |_| true)
+}
+
+/// [`offer`], from only the Items `keep` lets through.
+pub fn offer_where(
+    held: &[Held],
+    count: usize,
+    seed: u64,
+    keep: impl Fn(&Item) -> bool,
+) -> Vec<&'static Item> {
     let mut left: Vec<&'static Item> = ITEMS
         .iter()
         .copied()
-        .filter(|item| held.iter().all(|h| h.item != *item))
+        .filter(|item| keep(item) && held.iter().all(|h| h.item != *item))
         .collect();
     let mut rng = seed | 1;
     let mut offered = Vec::with_capacity(count);
@@ -156,7 +192,7 @@ pub static SUNGLASSES: Item = Item {
 struct Sunglasses;
 
 impl Modifier for Sunglasses {
-    fn reveal(&self, opposing: &[Opposing]) -> Vec<usize> {
+    fn reveal(&self, _turn: u32, opposing: &[Opposing]) -> Vec<usize> {
         opposing
             .iter()
             .position(|o| !o.face_up)
@@ -179,7 +215,7 @@ pub static TWO_WAY_MIRROR: Item = Item {
 struct TwoWayMirror;
 
 impl Modifier for TwoWayMirror {
-    fn reveal(&self, opposing: &[Opposing]) -> Vec<usize> {
+    fn reveal(&self, _turn: u32, opposing: &[Opposing]) -> Vec<usize> {
         (0..opposing.len()).collect()
     }
 }
@@ -390,6 +426,27 @@ mod tests {
                 .count()
         };
         assert!(first(&SHINY_CARD_SLEEVE) < first(&LOADED_DICE));
+    }
+
+    #[test]
+    fn every_rarity_has_an_item_in_it() {
+        for rarity in [Rarity::Common, Rarity::Uncommon, Rarity::Rare] {
+            assert!(
+                ITEMS.iter().any(|item| item.rarity() == rarity),
+                "{rarity:?}"
+            );
+        }
+        assert_eq!(LOADED_DICE.rarity(), Rarity::Common);
+        assert_eq!(SHINY_CARD_SLEEVE.rarity(), Rarity::Rare);
+    }
+
+    #[test]
+    fn a_narrowed_offer_only_holds_what_it_lets_through() {
+        for seed in 1..100 {
+            let offered = offer_where(&[], 3, seed, |item| item.rarity() == Rarity::Uncommon);
+            assert_eq!(offered.len(), 3, "there are three uncommons");
+            assert!(offered.iter().all(|item| item.rarity() == Rarity::Uncommon));
+        }
     }
 
     #[test]

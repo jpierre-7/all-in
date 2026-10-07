@@ -462,6 +462,9 @@ pub struct Duel {
     turn: u32,
     phase: Phase,
     coin: Coin,
+    /// Lucky Coin's re-flips left for the run: a lost Push flips again, once,
+    /// while there is one.
+    reflips: u8,
     /// The Items carried in from the run, in the order taken.
     pocket: Vec<Pocketed>,
     /// The Arcade's fixed row (#40), laid again every turn instead of one the
@@ -515,6 +518,7 @@ impl Duel {
             turn: 1,
             phase: Phase::Playing,
             coin,
+            reflips: 0,
             pocket: Vec::new(),
             fixed: None,
             showdown: None,
@@ -527,8 +531,9 @@ impl Duel {
 
     /// A duel against `encounter` with everything the run has picked up: the
     /// deck the rewards built and the enemy's, each shuffled off `seed`; the
-    /// floor's Blind; the Perks taken, in order; the Items held. The game and the balance sim both start here, so the sim
-    /// plays the duel the player does.
+    /// floor's Blind; the Perks taken, in order, then what The Wheel adds;
+    /// the Items held; Lucky Coin's re-flips. The game and the balance sim
+    /// both start here, so the sim plays the duel the player does.
     pub fn for_run(run: &RunState, encounter: Encounter, seed: u64) -> Self {
         let mut enemy = encounter.enemy(run, seed.rotate_left(29));
         enemy.deck = shuffled(enemy.deck, seed.rotate_left(41));
@@ -537,10 +542,15 @@ impl Duel {
             run.chips,
             encounter.blind(),
             enemy,
-            run.perks.iter().map(|perk| perk.modifier).collect(),
+            run.perks
+                .iter()
+                .map(|perk| perk.modifier)
+                .chain(run.wheel.modifiers(encounter))
+                .collect(),
         )
         .with_seed(seed.rotate_left(17))
         .with_items(&run.items)
+        .with_reflips(run.reflips)
     }
 
     /// Seeds the reshuffle of either discard pile and the coin.
@@ -562,6 +572,18 @@ impl Duel {
     pub fn with_coin(mut self, coin: Coin) -> Self {
         self.coin = coin;
         self
+    }
+
+    /// Lucky Coin's re-flips the run has left. Combat writes back what is
+    /// left of them, [`Duel::reflips_left`], when the duel ends.
+    pub fn with_reflips(mut self, reflips: u8) -> Self {
+        self.reflips = reflips;
+        self
+    }
+
+    /// Lucky Coin's re-flips still to come this run.
+    pub fn reflips_left(&self) -> u8 {
+        self.reflips
     }
 
     /// The Items carried in from the run. Combat writes back what is left
@@ -975,13 +997,18 @@ impl Duel {
     /// Answer the prompt with Push: flip the coin. On a clearing Hand, win
     /// and the Payout doubles; lose and The Hand becomes 0, a full Whiff for
     /// the whole House Edge. On a Whiff, win and it is forgiven; lose and it
-    /// doubles. `None` when no prompt is up.
+    /// doubles. A lost flip is flipped again, once, while Lucky Coin has a
+    /// re-flip left. `None` when no prompt is up.
     pub fn push(&mut self) -> Option<TurnResult> {
         if self.phase != Phase::PushYourLuck {
             return None;
         }
         let coin = self.coin();
-        let flip = coin.resolve(std::iter::repeat_with(|| (self.next_rng() % 100) as u32));
+        let mut flip = coin.resolve(std::iter::repeat_with(|| (self.next_rng() % 100) as u32));
+        if flip == Push::Lost && self.reflips > 0 {
+            self.reflips -= 1;
+            flip = coin.resolve(std::iter::repeat_with(|| (self.next_rng() % 100) as u32));
+        }
 
         Some(self.resolve(Some(flip)))
     }
@@ -1126,7 +1153,7 @@ impl Duel {
     fn reveal_by(&mut self, modifiers: &[&'static dyn Modifier]) -> bool {
         let mut shown = false;
         for modifier in modifiers {
-            for slot in modifier.reveal(&self.opposing) {
+            for slot in modifier.reveal(self.turn, &self.opposing) {
                 if let Some(opposing) = self.opposing.get_mut(slot)
                     && !opposing.face_up
                 {
@@ -2681,6 +2708,46 @@ mod push_your_luck_tests {
             }
         }
         assert_eq!(seen, (true, true));
+    }
+
+    #[test]
+    fn a_lost_push_spends_one_lucky_coin_re_flip_and_only_one() {
+        let mut duel = hand_of(30, 20).with_coin(Coin::RIGGED).with_reflips(2);
+        duel.confirm();
+
+        assert_eq!(duel.push().unwrap().pyl, Some(Push::Lost));
+        assert_eq!(duel.reflips_left(), 1);
+    }
+
+    #[test]
+    fn a_won_push_or_a_hold_spends_no_re_flip() {
+        let mut won = hand_of(30, 20).with_reflips(1);
+        won.confirm();
+        won.push();
+        assert_eq!(won.reflips_left(), 1);
+
+        let mut held = hand_of(30, 20).with_coin(Coin::RIGGED).with_reflips(1);
+        held.confirm();
+        held.hold();
+        assert_eq!(held.reflips_left(), 1);
+    }
+
+    #[test]
+    fn a_re_flip_wins_pushes_the_first_flip_lost() {
+        let wins = |reflips: u8| {
+            (1..400u64)
+                .filter(|&seed| {
+                    let mut duel = hand_of(30, 20)
+                        .with_seed(seed * 2 + 1)
+                        .with_coin(Coin::BASE)
+                        .with_reflips(reflips);
+                    duel.confirm();
+                    duel.push().unwrap().pyl == Some(Push::Won)
+                })
+                .count()
+        };
+        // 45% a flip, so about 70% with a second chance at every lost one.
+        assert!(wins(1) > wins(0) + 60, "{} against {}", wins(1), wins(0));
     }
 }
 

@@ -20,6 +20,7 @@ but it's too slow to tune with.
 | `--player` | `naive`, `smart`, `both`              | `both`      |
 | `--pick`   | `first`, `second`, `random`           | `random`    |
 | `--minion` | `items`, `cards`, `skip`, `random`    | `random`    |
+| `--wheel`  | `square=rank,...`, e.g. `bankroll=3,lucky-coin=2` | no Wheel |
 
 The same seed gives the same numbers, whatever the thread count, so a diff
 against the baseline is the change you made and nothing else.
@@ -40,6 +41,14 @@ and keeps one the same way as a Boss Pack, below. A boss opens its Boss Pack fir
 `RunState::keep`): naive keeps two at random, smart the two highest Face
 Values. Then `--pick` decides which side of the boss's 1-of-2 the player
 takes (the first is the perk: Slotz's coin, the Pit Boss's +1 Blind).
+
+With `--wheel`, every run starts under that board the way the game starts
+one once The Wheel is open (`wheel::start_run`): the spin picks a Hot Square
+off the run's seed, then Trim and Pocket Change put their choices. Smart
+trims its lowest plain cards and naive trims nothing; both take the first
+Item Pocket Change offers. Squares are named in lower case with dashes
+(`early-read`), ranks 1 to 3, and only the squares that do something yet are
+accepted.
 
 Two players, after the starter-deck prototype:
 

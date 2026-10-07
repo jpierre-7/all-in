@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::run::{Card, Tell};
 use crate::state::AppState;
+use crate::wheel::{GOLDEN_CHIPS_PER_WIN, Square};
 
 /// The slot every game plays in until there's a picker.
 pub const SLOT: u8 = 1;
@@ -35,24 +36,6 @@ pub struct SaveSlot {
     pub house_beaten: bool,
     /// Picked after a House win, for the next run only.
     pub legacy_perk: Option<LegacyPerk>,
-}
-
-/// The twelve squares of The Wheel. The green zero takes no chips, so it
-/// isn't one.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Square {
-    Bankroll,
-    SeedMoney,
-    Compound,
-    Sweetener,
-    Regular,
-    FatPack,
-    PocketChange,
-    SecondLook,
-    LuckyCoin,
-    InsideMan,
-    Trim,
-    EarlyRead,
 }
 
 /// The Legacy pool. Victory Lap carries the deck The House was beaten with,
@@ -177,9 +160,11 @@ impl Plugin for SavePlugin {
     }
 }
 
-/// The Ending is only reached by beating The House.
+/// The Ending is only reached by beating The House, and each time pays
+/// Golden Chips.
 fn beat_the_house(mut slot: ResMut<SaveSlot>) {
     slot.house_beaten = true;
+    slot.golden_chips += GOLDEN_CHIPS_PER_WIN;
 }
 
 /// A failed write is logged and the game plays on: the slot in memory is
@@ -331,15 +316,32 @@ mod tests {
         assert!(!file.exists());
     }
 
-    #[test]
-    fn beating_the_house_is_saved() {
-        let file = slot_file(&scratch("house"), SLOT);
-        let mut app = app_saving_to(&file);
+    fn beat_the_house_in(app: &mut App) {
         app.world_mut()
             .resource_mut::<NextState<AppState>>()
             .set(AppState::Ending);
         app.update();
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Lobby);
+        app.update();
+    }
+
+    #[test]
+    fn beating_the_house_is_saved() {
+        let file = slot_file(&scratch("house"), SLOT);
+        let mut app = app_saving_to(&file);
+        beat_the_house_in(&mut app);
         assert!(load(&file).house_beaten);
+    }
+
+    #[test]
+    fn every_win_over_the_house_pays_three_golden_chips() {
+        let file = slot_file(&scratch("golden"), SLOT);
+        let mut app = app_saving_to(&file);
+        beat_the_house_in(&mut app);
+        beat_the_house_in(&mut app);
+        assert_eq!(load(&file).golden_chips, 6);
     }
 
     #[test]

@@ -324,7 +324,7 @@ pub fn redraw(
                     text(mid, format!("Push Your Luck?   Hold and take the Whiff of {held}, or Push: the coin lands your way and it's forgiven."), 24.0, GOLD);
                     text(mid, format!("Lose and the Whiff doubles to {lost}, out of your own Chips."), 18.0, NEON);
                 }
-                text(mid, coin_line(duel.coin()), 18.0, DIM);
+                text(mid, coin_line(duel.coin(), duel.reflips_left()), 18.0, DIM);
             }
             if let Some(turn) = &active.last_turn {
                 text(mid, turn_line(turn), 18.0, INK);
@@ -741,12 +741,17 @@ fn showdown_line(showdown: &Showdown) -> String {
     )
 }
 
-/// What the coin is, in the player's terms.
-fn coin_line(coin: Coin) -> String {
+/// What the coin is, in the player's terms, and Lucky Coin's re-flips.
+fn coin_line(coin: Coin, reflips: u8) -> String {
     let house = 100 - coin.player_pct;
-    match coin.best_of {
+    let flip = match coin.best_of {
         1 => format!("One flip, {}/{house} the House's way.", coin.player_pct),
         n => format!("Best {} of {n} at {}/{house}.", n / 2 + 1, coin.player_pct),
+    };
+    match reflips {
+        0 => flip,
+        1 => format!("{flip}  Lucky Coin: 1 re-flip left if it lands the House's way."),
+        n => format!("{flip}  Lucky Coin: {n} re-flips left if it lands the House's way."),
     }
 }
 

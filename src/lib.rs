@@ -13,3 +13,4 @@ pub mod run;
 pub mod save;
 pub mod state;
 pub mod theme;
+pub mod wheel;
