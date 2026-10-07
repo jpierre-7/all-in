@@ -97,7 +97,9 @@ Before each encounter, the player chooses to:
 
 Upon defeating an enemy, the player earns rewards depending on the enemy type. All collected perks and items persist through the current run and reset upon **Folding** or dying.
 
-### Minion Rewards (Items)
+### Minion Rewards (Items or a Pack)
+
+After beating a minion the player picks, sight unseen, one of three: **Items** (three different Items not already held, keep one), **Cards** (a Pack of three cards off the run's unlocked Tells, keep one), or nothing (#124).
 
 Items are spent on demand, a use at a time, each with a set number of uses (#153). The pool is ten, fixed for the run; each Item's uses and offer weight live in `src/item.rs`. Full wording in `GLOSSARY.md`.
 

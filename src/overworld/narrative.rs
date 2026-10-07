@@ -151,9 +151,16 @@ His hand goes under his jacket.
 
 BANG.";
 
-pub const ITEM_DROP: &str = "\
-Nobody's coming back for what's left on the felt, so it goes in your coat
-pocket on the way past.";
+pub const MINION_REWARD: &str = "\
+Nobody's coming back for what's left on the felt. A few things from their
+pockets, or the cards they were holding, still face down. Your coat has
+room for one or the other.";
+
+pub const MINION_ITEMS: &str = "\
+Three things from their pockets. One goes in your coat on the way past.";
+
+pub const MINION_PACK: &str = "\
+You turn their cards over. Three of them. Your coat has room for one.";
 
 pub const BOSS_PACK: &str = "\
 It leaves its cards face up on the felt on the way out, and nobody at the

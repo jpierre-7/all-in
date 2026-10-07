@@ -18,7 +18,8 @@ use screens::{
 };
 
 use crate::boss::SLOTZ;
-use crate::run::{Card, CombatOutcome, Encounter, Pack, RewardOffer, RunState};
+use crate::item::{self, Item};
+use crate::run::{Card, CombatOutcome, Encounter, Pack, Reward, RewardOffer, RunState};
 use crate::state::AppState;
 
 pub struct OverworldPlugin;
@@ -326,16 +327,26 @@ fn leave_outcome(
 // Reward
 // ---------------------------------------------------------------------------
 
-/// The Boss Pack on the table, and which of its cards the player has marked
-/// to keep. Only there between a boss's win and the Perk pick.
+/// A Pack on the table, and which of its cards the player has marked to
+/// keep. Only there between a boss's win and the Perk pick, or after
+/// choosing a minion's cards.
 #[derive(Resource)]
 struct OpenPack {
     pack: Pack,
     picked: Vec<usize>,
+    title: &'static str,
+    prose: &'static str,
 }
 
-/// The reward screen on the felt now, so a mark in the Boss Pack or moving
-/// on to the Perk pick can redraw it.
+/// The Items a minion's reward put on the table, after choosing Items.
+#[derive(Resource)]
+struct OpenItems(Vec<&'static Item>);
+
+/// A minion's three, in the order the screen lists the keys.
+const MINION_ITEMS: usize = 3;
+
+/// The reward screen on the felt now, so a mark in a Pack, opening a
+/// minion's reward or moving on to the Perk pick can redraw it.
 #[derive(Component)]
 struct RewardScreen;
 
@@ -348,7 +359,7 @@ fn show_reward(
 ) {
     // The Arcade's sign-off (#73). This gate is load-bearing: during the
     // Arcade, Progress still sits at the first encounter, so falling through
-    // would render its Loaded Dice drop.
+    // would render its minion reward.
     if tutorial.is_some() {
         Screen::new()
             .prose(narrative::TUTORIAL_PERK_TAKEN)
@@ -367,6 +378,8 @@ fn show_reward(
         let open = OpenPack {
             pack,
             picked: Vec::new(),
+            title: "The Boss Pack",
+            prose: narrative::BOSS_PACK,
         };
         spawn_pack(&mut commands, &open);
         commands.insert_resource(open);
@@ -376,9 +389,7 @@ fn show_reward(
 }
 
 fn spawn_pack(commands: &mut Commands, open: &OpenPack) {
-    let mut screen = Screen::new()
-        .title("The Boss Pack")
-        .prose(narrative::BOSS_PACK);
+    let mut screen = Screen::new().title(open.title).prose(open.prose);
     for (i, card) in open.pack.cards.iter().enumerate() {
         let mark = if open.picked.contains(&i) {
             "KEEP "
@@ -387,8 +398,9 @@ fn spawn_pack(commands: &mut Commands, open: &OpenPack) {
         };
         screen = screen.option(i as u8 + 1, &format!("{mark}{}", card_line(card)));
     }
+    let them = if open.pack.keep == 1 { "it" } else { "them" };
     let footer = format!(
-        "Press 1 to {} to mark {} to keep, again to put one back. Enter takes them. ({} of {})",
+        "Press 1 to {} to mark {} to keep, again to put one back. Enter takes {them}. ({} of {})",
         open.pack.cards.len(),
         open.pack.keep,
         open.picked.len(),
@@ -406,18 +418,20 @@ fn card_line(card: &Card) -> String {
     }
 }
 
-/// The drop or the Perk pick for the encounter just won.
+/// The minion's choice or the Perk pick for the encounter just won.
 fn spawn_offer(commands: &mut Commands, progress: &Progress) {
     let Some(offer) = progress.reward_offer() else {
         return;
     };
 
     let screen = match offer {
-        RewardOffer::Drop(reward) => Screen::new()
-            .title("Something drops")
-            .prose(narrative::ITEM_DROP)
-            .prose(reward.label())
-            .footer(narrative::ANY_KEY),
+        RewardOffer::ItemsOrPack => Screen::new()
+            .title("Something's left on the felt")
+            .prose(narrative::MINION_REWARD)
+            .option(1, "Items: three of them, keep one.")
+            .option(2, "Cards: a Pack of three, keep one.")
+            .option(3, "Leave it.")
+            .footer("Press 1, 2 or 3. You don't get to look first."),
         RewardOffer::Pick(one, two) => Screen::new()
             .title("A perk")
             .prose(narrative::PERK_PICK)
@@ -430,8 +444,18 @@ fn spawn_offer(commands: &mut Commands, progress: &Progress) {
     commands.entity(root).insert(RewardScreen);
 }
 
+fn spawn_items(commands: &mut Commands, open: &OpenItems) {
+    let mut screen = Screen::new().title("Items").prose(narrative::MINION_ITEMS);
+    for (i, &item) in open.0.iter().enumerate() {
+        screen = screen.option(i as u8 + 1, &Reward::Item(item).label());
+    }
+    let footer = format!("Press 1 to {}. The rest stay on the felt.", open.0.len());
+    let root = screen.footer(footer).spawn(commands, AppState::Reward);
+    commands.entity(root).insert(RewardScreen);
+}
+
 /// The reward is granted here rather than on the way in, so there is one place
-/// the run changes and it is the same place for a drop, a Pack and a pick.
+/// the run changes and it is the same place for an Item, a Pack and a pick.
 #[allow(clippy::too_many_arguments)]
 fn take_reward(
     mut commands: Commands,
@@ -439,6 +463,7 @@ fn take_reward(
     time: Res<Time>,
     tutorial: Option<Res<InTutorial>>,
     open: Option<ResMut<OpenPack>>,
+    items: Option<Res<OpenItems>>,
     shown: Query<Entity, With<RewardScreen>>,
     mut run: ResMut<RunState>,
     mut progress: ResMut<Progress>,
@@ -470,8 +495,27 @@ fn take_reward(
             spawn_pack(&mut commands, &open);
         } else if confirm(&keys) && run.keep(&open.pack, &open.picked) {
             commands.remove_resource::<OpenPack>();
-            redraw(&mut commands, &shown);
-            spawn_offer(&mut commands, &progress);
+            // A minion's Pack is the whole reward; a boss's comes before
+            // its Perk pick.
+            if progress.reward_offer() == Some(RewardOffer::ItemsOrPack) {
+                progress.advance();
+                next.set(progress.arrival());
+            } else {
+                redraw(&mut commands, &shown);
+                spawn_offer(&mut commands, &progress);
+            }
+        }
+        return;
+    }
+
+    // A minion's Items: a number keeps that one and the rest are gone.
+    if let Some(items) = items {
+        let picked = digit_pressed(&keys).and_then(|n| items.0.get(usize::from(n) - 1));
+        if let Some(&item) = picked {
+            commands.remove_resource::<OpenItems>();
+            run.apply(Reward::Item(item), time.elapsed_secs_f64().to_bits());
+            progress.advance();
+            next.set(progress.arrival());
         }
         return;
     }
@@ -481,7 +525,41 @@ fn take_reward(
     };
 
     let taken = match offer {
-        RewardOffer::Drop(reward) => any_key(&keys).then_some(reward),
+        // Opening one swaps the screen; only leaving it walks on. Enter
+        // does nothing, so the choice is never made for you.
+        RewardOffer::ItemsOrPack => {
+            let seed = time.elapsed_secs_f64().to_bits();
+            match digit_pressed(&keys) {
+                Some(1) => {
+                    let open = OpenItems(item::offer(&run.items, MINION_ITEMS, seed));
+                    // Every Item already held: nothing to offer, so the
+                    // choice stays on the table.
+                    if open.0.is_empty() {
+                        return;
+                    }
+                    redraw(&mut commands, &shown);
+                    spawn_items(&mut commands, &open);
+                    commands.insert_resource(open);
+                }
+                Some(2) => {
+                    let open = OpenPack {
+                        pack: Pack::minion(&run, seed),
+                        picked: Vec::new(),
+                        title: "A Pack",
+                        prose: narrative::MINION_PACK,
+                    };
+                    redraw(&mut commands, &shown);
+                    spawn_pack(&mut commands, &open);
+                    commands.insert_resource(open);
+                }
+                Some(3) => {
+                    progress.advance();
+                    next.set(progress.arrival());
+                }
+                _ => {}
+            }
+            return;
+        }
         // Enter advances every other screen in the shell, so it deliberately
         // does nothing here: a perk is picked once and never given back.
         RewardOffer::Pick(one, two) => match digit_pressed(&keys) {
@@ -538,9 +616,8 @@ mod tests {
 
     use super::combat_stub::CombatStubPlugin;
     use super::progression::{Progress, RUN};
-    use super::{OpenPack, OverworldPlugin};
+    use super::{OpenItems, OpenPack, OverworldPlugin};
     use crate::boss::SLOTZ;
-    use crate::item::LOADED_DICE;
     use crate::run::{CombatOutcome, Encounter, Floor, Reward, RunState, Tell};
     use crate::state::AppState;
 
@@ -785,7 +862,7 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
         duel(&mut app, true);
-        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Digit3);
 
         // Deep enough into the run for a reset to show.
         assert_eq!(progress(&app).encounter(), Some(RUN[1]));
@@ -803,11 +880,12 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
 
-        // The Floor: a minion, then Slotz. A drop is dismissed with any key;
-        // a boss pick only answers to 1 or 2.
+        // The Floor: a minion, then Slotz. The minion pays an Item; a boss
+        // pick only answers to 1 or 2.
         duel(&mut app, true);
         assert_eq!(state(&app), AppState::Reward);
-        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Digit1);
+        press(&mut app, KeyCode::Digit1);
         assert_eq!(state(&app), AppState::FightOrFold);
         duel(&mut app, true);
         keep_two(&mut app);
@@ -817,6 +895,8 @@ mod tests {
         assert_eq!(state(&app), AppState::FloorIntro);
         press(&mut app, KeyCode::Enter);
         duel(&mut app, true);
+        press(&mut app, KeyCode::Digit2);
+        press(&mut app, KeyCode::Digit1);
         press(&mut app, KeyCode::Enter);
         assert_eq!(state(&app), AppState::FightOrFold);
         duel(&mut app, true);
@@ -841,7 +921,7 @@ mod tests {
 
         // Get one encounter deep, then Fold.
         duel(&mut app, true);
-        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Digit3);
         assert_eq!(progress(&app).encounter(), Some(RUN[1]));
         press(&mut app, KeyCode::Digit2);
         assert_eq!(state(&app), AppState::Lobby);
@@ -865,21 +945,74 @@ mod tests {
         assert_eq!(state(&app), AppState::Lobby);
     }
 
-    #[test]
-    fn beating_a_minion_drops_the_loaded_dice() {
+    /// Walk to the Floor minion's reward, still unchosen.
+    fn minion_reward() -> App {
         let mut app = opened();
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
-
         duel(&mut app, true);
         assert_eq!(state(&app), AppState::Reward);
-        assert_eq!(app.world().resource::<RunState>().uses(&LOADED_DICE), None);
+        app
+    }
+
+    #[test]
+    fn skipping_a_minions_reward_takes_nothing_and_walks_on() {
+        let mut app = minion_reward();
+        let deck = deck_len(&app);
+
+        // Enter picks nothing for you: the choice is sealed once made.
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Reward);
+
+        press(&mut app, KeyCode::Digit3);
+
+        assert_eq!(state(&app), AppState::FightOrFold);
+        assert!(app.world().resource::<RunState>().items.is_empty());
+        assert_eq!(deck_len(&app), deck);
+    }
+
+    #[test]
+    fn choosing_items_offers_three_and_keeps_the_one_pressed() {
+        let mut app = minion_reward();
+
+        press(&mut app, KeyCode::Digit1);
+        let offered = app.world().resource::<OpenItems>().0.clone();
+        assert_eq!(offered.len(), 3);
+        assert_eq!(state(&app), AppState::Reward);
+
+        press(&mut app, KeyCode::Digit2);
+
+        let run = app.world().resource::<RunState>();
+        assert_eq!(run.items.len(), 1);
+        assert_eq!(run.uses(offered[1]), Some(offered[1].uses));
+        assert!(app.world().get_resource::<OpenItems>().is_none());
+        assert_eq!(state(&app), AppState::FightOrFold);
+    }
+
+    #[test]
+    fn choosing_cards_opens_a_pack_of_three_and_keeps_the_one_marked() {
+        let mut app = minion_reward();
+        let deck = deck_len(&app);
+
+        press(&mut app, KeyCode::Digit2);
+        let cards = pack_cards(&app);
+        assert_eq!(cards.len(), 3);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Reward, "nothing marked yet");
+        press(&mut app, KeyCode::Digit3);
+        press(&mut app, KeyCode::Digit1);
+        assert_eq!(
+            app.world().resource::<OpenPack>().picked,
+            vec![2],
+            "only one can be marked"
+        );
         press(&mut app, KeyCode::Enter);
 
-        assert_eq!(
-            app.world().resource::<RunState>().uses(&LOADED_DICE),
-            Some(2)
-        );
+        let run = app.world().resource::<RunState>();
+        assert_eq!(run.deck.len(), deck + 1);
+        assert_eq!(run.deck.last(), Some(&cards[2]));
+        assert!(run.items.is_empty());
         assert_eq!(state(&app), AppState::FightOrFold);
     }
 
@@ -898,7 +1031,7 @@ mod tests {
         press(&mut app, KeyCode::Enter);
         begin_run(&mut app);
         duel(&mut app, true); // the Floor minion
-        press(&mut app, KeyCode::Enter); // pocket the drop
+        press(&mut app, KeyCode::Digit3); // skip its reward
         duel(&mut app, true); // Slotz
         assert_eq!(state(&app), AppState::Reward);
         app
@@ -1019,11 +1152,15 @@ mod tests {
 
     #[test]
     fn folding_leaves_every_reward_behind() {
-        let mut app = slotz_reward(KeyCode::Digit1);
-        assert_eq!(
-            app.world().resource::<RunState>().uses(&LOADED_DICE),
-            Some(2)
-        );
+        let mut app = minion_reward();
+        press(&mut app, KeyCode::Digit1); // Items
+        press(&mut app, KeyCode::Digit1); // keep the first
+        duel(&mut app, true); // Slotz
+        keep_two(&mut app);
+        press(&mut app, KeyCode::Digit1);
+        let run = app.world().resource::<RunState>();
+        assert_eq!(run.items.len(), 1);
+        assert_eq!(run.perks.len(), 1);
 
         press(&mut app, KeyCode::Enter); // onto the Pit
         assert_eq!(state(&app), AppState::FightOrFold);
