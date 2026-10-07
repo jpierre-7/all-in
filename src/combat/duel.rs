@@ -679,7 +679,7 @@ impl Duel {
             last: self.dealt,
         };
         self.modifiers()
-            .fold(self.blind, |blind, m| m.blind(side, blind, turn))
+            .fold(self.blind, |blind, m| m.blind(side, turn, blind))
             .max(1)
     }
 
@@ -1570,7 +1570,7 @@ pub(crate) mod cards {
     pub struct SetBlind(pub Side, pub u8);
 
     impl Modifier for SetBlind {
-        fn blind(&self, side: Side, blind: u8, _turn: Turn) -> u8 {
+        fn blind(&self, side: Side, _turn: Turn, blind: u8) -> u8 {
             if side == self.0 { self.1 } else { blind }
         }
     }
@@ -3204,7 +3204,7 @@ mod modifier_tests {
     struct AddBlind(Side, u8);
 
     impl Modifier for AddBlind {
-        fn blind(&self, side: Side, blind: u8, _turn: Turn) -> u8 {
+        fn blind(&self, side: Side, _turn: Turn, blind: u8) -> u8 {
             if side == self.0 {
                 blind + self.1
             } else {

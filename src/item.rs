@@ -234,7 +234,7 @@ pub static ACE_UP_THE_SLEEVE: Item = Item {
 struct AceUpTheSleeve;
 
 impl Modifier for AceUpTheSleeve {
-    fn blind(&self, side: Side, blind: u8, _turn: Turn) -> u8 {
+    fn blind(&self, side: Side, _turn: Turn, blind: u8) -> u8 {
         match side {
             Side::Player => blind.saturating_add(1),
             Side::Enemy => blind,

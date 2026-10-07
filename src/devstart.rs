@@ -365,7 +365,7 @@ mod tests {
             number: 2,
             last: Some(Dealt::Whiff(4)),
         };
-        assert_eq!(run.perks[0].modifier.blind(Side::Player, 2, lost), 3);
+        assert_eq!(run.perks[0].modifier.blind(Side::Player, lost, 2), 3);
         assert_eq!(run.uses(&item::LOADED_DICE), Some(2));
         assert_eq!(run.deck.len(), RunState::new().deck.len() + 3);
     }

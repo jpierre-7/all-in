@@ -57,7 +57,7 @@ been expecting you.\"",
 struct BeamSwingsBack;
 
 impl Modifier for BeamSwingsBack {
-    fn blind(&self, side: Side, blind: u8, turn: Turn) -> u8 {
+    fn blind(&self, side: Side, turn: Turn, blind: u8) -> u8 {
         match side {
             Side::Enemy if turn.player_won_last() => blind.saturating_add(1),
             _ => blind,
@@ -75,7 +75,7 @@ pub static BEAM_SWINGS_YOUR_WAY: Perk = Perk {
 struct BeamSwingsYourWay;
 
 impl Modifier for BeamSwingsYourWay {
-    fn blind(&self, side: Side, blind: u8, turn: Turn) -> u8 {
+    fn blind(&self, side: Side, turn: Turn, blind: u8) -> u8 {
         match side {
             Side::Player if turn.player_lost_last() => blind.saturating_add(1),
             _ => blind,
@@ -119,7 +119,7 @@ mod tests {
             None => Turn::FIRST,
             last => Turn { number: 2, last },
         };
-        modifier.blind(side, 3, turn)
+        modifier.blind(side, turn, 3)
     }
 
     #[test]

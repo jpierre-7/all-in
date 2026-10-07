@@ -52,7 +52,7 @@ impl Turn {
 pub trait Modifier: Debug + Sync {
     /// `side`'s Blind on `turn`, given the answer so far. The duel never lets
     /// it drop below 1.
-    fn blind(&self, _side: Side, blind: u8, _turn: Turn) -> u8 {
+    fn blind(&self, _side: Side, _turn: Turn, blind: u8) -> u8 {
         blind
     }
 
