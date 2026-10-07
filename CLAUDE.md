@@ -22,5 +22,8 @@ Never commit build output. Before every commit, check `git status` and `git diff
 
 ## Builds and worktrees
 
-- Cargo builds go in `target/`, which is gitignored. If you need a second build, such as a `main` baseline for the balance sim, set `CARGO_TARGET_DIR` to a folder under `target/` or outside the repo. Never create a new top-level build folder.
+- Cargo builds go in `target/`, which is gitignored. Never create a new top-level build folder.
+- Every worktree builds into the main checkout's `target/`, so Bevy and the other dependencies compile once instead of once per worktree (about 16 minutes cold, under a minute warm). Run each cargo command with:
+  `CARGO_TARGET_DIR="$(git rev-parse --path-format=absolute --git-common-dir)/../target"`
+  This covers a `main` baseline for the balance sim too. Cargo locks the folder while it builds, so a build may wait for another agent's to finish. The folder is shared, so leave it in place: `cargo clean` makes every worktree rebuild from scratch.
 - When several agents work at once, each works in its own worktree at `../all-in-<ticket>`, on a new branch from `origin/main`, and leaves the main checkout on `main` and untouched. Remove temporary worktrees when you're done.
