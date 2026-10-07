@@ -123,7 +123,8 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 
 - **Boss: Slotz (The Floor)**
   - **Option 1:** All "Push Your Luck" flips become best 2-out-of-3 at 49% player / 51% House (≈48.5% overall, up from the base 45%).
-  - **Option 2:** Adds 3x "Streak" Tell cards to the player's deck.
+  - **Option 2:** Jackpot: +5 to The Hand when three cards in the player's row came to the same number after their Tells resolved.
+  - **Table Rule:** All Night. Slotz's Blind goes up by 1 every 3 turns, to at most 2 above the floor's.
 
 - **Boss: Pit Boss (The Pit)**
   - **Option 1: Beam Swings Your Way.** If you took a Whiff last turn, your Blind is 1 higher this turn.

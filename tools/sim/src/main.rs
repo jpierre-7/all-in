@@ -11,11 +11,12 @@
 use std::collections::BTreeMap;
 use std::thread;
 
-use all_in::combat::duel::{Duel, Phase};
+use all_in::combat::duel::{Duel, Phase, resolve_row, row_value};
 use all_in::item::{self, When};
 use all_in::overworld::progression::RUN;
 use all_in::run::{
-    Card, CombatOutcome, Encounter, Floor, Pack, Reward, RewardOffer, RunState, Tell, xorshift64,
+    Card, CombatOutcome, Encounter, Floor, Pack, Perk, Reward, RewardOffer, RunState, Tell,
+    xorshift64,
 };
 use all_in::wheel::{self, MAX_RANK, Spun, Square};
 
@@ -204,7 +205,9 @@ fn naive_row(duel: &mut Duel, rng: &mut u64) {
 /// it plays, so leaving them out moves every row by the same amount, except
 /// across a Lowball or a Counterweight: there it guesses the card back is the
 /// enemy's average, the way the enemy's greedy guesses at the player's row.
-fn score(duel: &Duel) -> i64 {
+/// It counts what its Perks add to The Hand once the row resolves (Jackpot),
+/// read against the face-up cards alone.
+fn score(duel: &Duel, perks: &[&Perk]) -> i64 {
     let (showing, _) = duel.showing();
     let average = duel.enemy_average();
     let guessed: u32 = duel
@@ -219,12 +222,23 @@ fn score(duel: &Duel) -> i64 {
             _ => 0,
         })
         .sum();
-    i64::from(duel.hand()) - i64::from(showing) + i64::from(guessed)
+    let across: Vec<Option<Card>> = duel
+        .opposing()
+        .iter()
+        .map(|o| o.face_up.then(|| o.card.clone()))
+        .collect();
+    let resolved = resolve_row(duel.row(), &across);
+    let plain = row_value(&resolved);
+    let bent = perks.iter().fold(plain, |hand, perk| {
+        perk.modifier.after_showdown(hand, 0, &resolved)
+    });
+    i64::from(duel.hand()) + i64::from(bent) - i64::from(plain) - i64::from(showing)
+        + i64::from(guessed)
 }
 
 /// Every row the Draw can make, by putting cards down and lifting them back
 /// off, which is how a player rearranges a row on the table.
-fn search(duel: &mut Duel, path: &mut Vec<Move>, best: &mut (i64, Vec<Move>)) {
+fn search(duel: &mut Duel, perks: &[&Perk], path: &mut Vec<Move>, best: &mut (i64, Vec<Move>)) {
     let draw = duel.draw().to_vec();
     let mut tried: Vec<&Move> = Vec::new();
     let mut moves: Vec<Move> = Vec::new();
@@ -251,22 +265,22 @@ fn search(duel: &mut Duel, path: &mut Vec<Move>, best: &mut (i64, Vec<Move>)) {
         placed_any = true;
         place(duel, mv);
         path.push(mv.clone());
-        search(duel, path, best);
+        search(duel, perks, path, best);
         path.pop();
         let last = duel.row().len() - 1;
         duel.lift(last).expect("the card just placed is in the row");
     }
     if !placed_any && !path.is_empty() {
-        let s = score(duel);
+        let s = score(duel, perks);
         if s > best.0 {
             *best = (s, path.clone());
         }
     }
 }
 
-fn smart_row(duel: &mut Duel) {
+fn smart_row(duel: &mut Duel, perks: &[&Perk]) {
     let mut best = (i64::MIN, Vec::new());
-    search(duel, &mut Vec::new(), &mut best);
+    search(duel, perks, &mut Vec::new(), &mut best);
     for mv in &best.1 {
         place(duel, mv);
     }
@@ -337,6 +351,7 @@ impl Stats {
 
 fn play_duel(
     duel: &mut Duel,
+    perks: &[&Perk],
     player: Player,
     rng: &mut u64,
     at: usize,
@@ -346,7 +361,7 @@ fn play_duel(
         spend_items(duel, When::Row);
         match player {
             Player::Naive => naive_row(duel, rng),
-            Player::Smart => smart_row(duel),
+            Player::Smart => smart_row(duel, perks),
         }
         let result = match duel.confirm() {
             Some(result) => result,
@@ -471,7 +486,7 @@ fn play_run(player: Player, args: &Args, mut rng: u64, stats: &mut Stats) {
         stats.reached[at] += 1;
         stats.arrive_chips[at] += u64::from(run.chips);
         let mut duel = Duel::for_run(&run, encounter, xorshift64(&mut rng));
-        if play_duel(&mut duel, player, &mut rng, at, stats) == CombatOutcome::Lost {
+        if play_duel(&mut duel, &run.perks, player, &mut rng, at, stats) == CombatOutcome::Lost {
             return;
         }
         stats.won[at] += 1;

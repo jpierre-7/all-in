@@ -3277,8 +3277,9 @@ mod modifier_tests {
             7,
         );
 
-        for _ in 0..5 {
-            assert_eq!(duel.opposing().len(), 2);
+        // All Night stretches Slotz's row a slot every three turns.
+        for turn in 1..=5 {
+            assert_eq!(duel.opposing().len(), if turn <= 3 { 2 } else { 3 });
             assert!(duel.opposing().iter().all(|o| SLOTZ.deck.contains(&o.card)));
             duel.end_turn();
         }

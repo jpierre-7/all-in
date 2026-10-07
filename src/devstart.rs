@@ -36,7 +36,7 @@ All In — dev entry point (debug builds only)
     --seed <n>        Pin the shuffle, the deal and the Push Your Luck coin,
                       so a Hand that went wrong can be played again.
     --with <a,b,...>  Rewards to start holding, as if they had been won:
-                      streak, pyl, blind, pan, or an Item: dice,
+                      pyl, jackpot, blind, pan, or an Item: dice,
                       sunglasses, mirror, ace, shaved, sleight, insurance,
                       coin, sleeve, pockets. Needs --encounter, since
                       starting in the Lobby ends the run.
@@ -186,7 +186,7 @@ fn reward(name: &str) -> Result<Reward, String> {
         "sleeve" => Ok(Reward::Item(&item::SHINY_CARD_SLEEVE)),
         "pockets" => Ok(Reward::Item(&item::DEEP_POCKETS)),
         "pyl" => Ok(slotz[0]),
-        "streak" => Ok(slotz[1]),
+        "jackpot" => Ok(slotz[1]),
         "blind" => Ok(pit_boss[0]),
         "pan" => Ok(pit_boss[1]),
         other => Err(format!("There is no reward called `{other}`.")),
@@ -354,19 +354,19 @@ mod tests {
     fn the_pocket_is_built_through_the_same_door_the_game_uses() {
         // Not a parse test: the point is that `--with` produces exactly the
         // run state that winning those rewards would have.
-        let dev = started(&["--encounter", "pit-boss", "--with", "blind,dice,streak"]);
+        let dev = started(&["--encounter", "pit-boss", "--with", "blind,dice,jackpot"]);
         let mut run = RunState::new();
         for reward in &dev.rewards {
             run.apply(*reward, DEFAULT_REWARD_SEED);
         }
 
-        assert_eq!(run.perks.len(), 1);
+        assert_eq!(run.perks.len(), 2);
         let lost = Turn {
             number: 2,
             last: Some(Dealt::Whiff(4)),
         };
         assert_eq!(run.perks[0].modifier.blind(Side::Player, lost, 2), 3);
+        assert_eq!(Reward::Perk(run.perks[1]), SLOTZ.rewards.unwrap()[1]);
         assert_eq!(run.uses(&item::LOADED_DICE), Some(2));
-        assert_eq!(run.deck.len(), RunState::new().deck.len() + 3);
     }
 }

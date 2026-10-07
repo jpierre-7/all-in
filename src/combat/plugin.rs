@@ -1085,10 +1085,10 @@ mod run_modifier_tests {
 
     use super::ActiveDuel;
     use super::tests::{FLOOR_MINION, dealt_table, press, state, table_for_run};
-    use crate::boss::{PIT_BOSS, SLOTZ};
+    use crate::boss::PIT_BOSS;
     use crate::combat::duel::{Coin, Spent};
     use crate::item::LOADED_DICE;
-    use crate::run::{CombatOutcome, Reward, RunState};
+    use crate::run::{Card, CardReward, CombatOutcome, Reward, RunState};
     use crate::state::AppState;
 
     #[test]
@@ -1228,15 +1228,28 @@ mod run_modifier_tests {
             ..RunState::new()
         };
         run.deck.clear();
-        run.apply(SLOTZ.rewards.expect("a 1-of-2")[1], 1);
+        run.apply(Reward::Cards(&THREE_CARDS), 1);
         let app = table_for_run(run, 999, 20);
 
         let draw = app.world().resource::<ActiveDuel>().duel.draw();
         assert_eq!(draw.len(), 3, "a three-card deck deals three cards");
-        assert!(draw.iter().all(|c| c.name == "Loose Slot"
-            || c.name == "Second Cherry"
-            || c.name == "Jackpot Bell"));
+        assert!(draw.iter().all(|c| c.name == "Loose Slot"));
     }
+
+    /// A card reward of three of the same card.
+    static THREE_CARDS: CardReward = CardReward {
+        label: "Three Loose Slots.",
+        cards: |_seed| {
+            vec![
+                Card {
+                    name: "Loose Slot",
+                    face_value: 4,
+                    tell: None
+                };
+                3
+            ]
+        },
+    };
 }
 
 #[cfg(test)]

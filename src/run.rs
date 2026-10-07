@@ -1167,15 +1167,16 @@ mod tests {
     }
 
     #[test]
-    fn the_slotz_card_reward_adds_three_streak_cards() {
+    fn slotz_pays_two_perks_and_both_can_be_held() {
         let mut run = RunState::new();
-        let before = run.deck.len();
+        let deck = run.deck.len();
 
+        run.apply(slotz()[0], SEED);
         run.apply(slotz()[1], SEED);
 
-        let added = &run.deck[before..];
-        assert_eq!(added.len(), 3);
-        assert!(added.iter().all(|c| c.tell == Some(Tell::Streak)));
+        assert!(slotz().iter().all(|r| matches!(r, Reward::Perk(_))));
+        assert_eq!(run.perks.len(), 2);
+        assert_eq!(run.deck.len(), deck);
     }
 
     #[test]

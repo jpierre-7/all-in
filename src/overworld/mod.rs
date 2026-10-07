@@ -645,7 +645,7 @@ mod tests {
     use super::progression::{Progress, RUN};
     use super::{OpenItems, OpenPack, OverworldPlugin};
     use crate::boss::SLOTZ;
-    use crate::run::{CombatOutcome, Encounter, Floor, Reward, RunState, Tell};
+    use crate::run::{CombatOutcome, Encounter, Floor, Reward, RunState};
     use crate::save::SaveSlot;
     use crate::state::AppState;
     use crate::wheel::Square;
@@ -1145,12 +1145,15 @@ mod tests {
         // The two kept from the Boss Pack, and nothing from the Perk.
         assert_eq!(run.deck.len(), crate::run::starter_deck().len() + 2);
 
-        let cards = slotz_reward(KeyCode::Digit2);
-        let run = cards.world().resource::<RunState>();
-        assert!(run.perks.is_empty());
-        let added = &run.deck[crate::run::starter_deck().len() + 2..];
-        assert_eq!(added.len(), 3);
-        assert!(added.iter().all(|c| c.tell == Some(Tell::Streak)));
+        let jackpot = slotz_reward(KeyCode::Digit2);
+        let run = jackpot.world().resource::<RunState>();
+        assert_eq!(
+            run.perks
+                .iter()
+                .map(|&p| Reward::Perk(p))
+                .collect::<Vec<_>>(),
+            vec![SLOTZ.rewards.expect("a 1-of-2")[1]]
+        );
     }
 
     #[test]
