@@ -19,6 +19,7 @@ but it's too slow to tune with.
 | `--seed`   | any `u64`                             | fixed       |
 | `--player` | `naive`, `smart`, `both`              | `both`      |
 | `--pick`   | `first`, `second`, `random`           | `random`    |
+| `--minion` | `items`, `cards`, `skip`, `random`    | `random`    |
 
 The same seed gives the same numbers, whatever the thread count, so a diff
 against the baseline is the change you made and nothing else.
@@ -31,8 +32,11 @@ starts at `Duel::for_run`, the same function the game calls, so the deck,
 the floor's Blind, the Perks and the Items come from the `RunState` exactly
 as they would in play, and the enemy commits its row the way it does in play.
 Between encounters the run takes its reward through `Encounter::reward_offer`
-and `RunState::apply`, and a beaten boss unlocks its Boss Tell. A minion's
-drop is automatic. A boss opens its Boss Pack first (`Encounter::boss_pack`,
+and `RunState::apply`, and a beaten boss unlocks its Boss Tell. After a
+minion, `--minion` picks Items, cards or nothing (`random` is each a third
+of the time). Items deals three with `item::offer`: naive keeps any, smart
+the rarest, since the stronger Items are rarer. Cards opens `Pack::minion`
+and keeps one the same way as a Boss Pack, below. A boss opens its Boss Pack first (`Encounter::boss_pack`,
 `RunState::keep`): naive keeps two at random, smart the two highest Face
 Values. Then `--pick` decides which side of the boss's 1-of-2 the player
 takes (the first is the perk: Slotz's coin, the Pit Boss's +1 Blind).

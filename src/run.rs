@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::boss::Boss;
-use crate::item::{Held, Item, LOADED_DICE};
+use crate::item::{Held, Item};
 use crate::modifier::Modifier;
 
 // ---------------------------------------------------------------------------
@@ -187,14 +187,16 @@ impl Reward {
 /// `RunState::apply` does the mutating.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RewardOffer {
-    /// A minion's drop: no choice, it is already in your pocket.
-    Drop(Reward),
+    /// A minion's: three Items or a Pack of three cards, keep one, or take
+    /// nothing. Which is chosen sealed; what is in it is rolled on opening.
+    ItemsOrPack,
     /// A boss's pick, 1 of 2.
     Pick(Reward, Reward),
 }
 
 /// A sealed set of cards: the player keeps `keep` of them and the rest are
-/// gone. After a boss it is the Boss Pack, opened before the Perk pick.
+/// gone. After a minion it is three cards, keep one; after a boss it is the
+/// Boss Pack, opened before the Perk pick.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pack {
     pub cards: Vec<Card>,
@@ -204,6 +206,10 @@ pub struct Pack {
 /// The Boss Pack: seven cards, keep two.
 pub const BOSS_PACK_SIZE: usize = 7;
 pub const BOSS_PACK_KEEP: usize = 2;
+
+/// A minion's Pack: three cards, keep one.
+pub const MINION_PACK_SIZE: usize = 3;
+pub const MINION_PACK_KEEP: usize = 1;
 
 /// The Face Values Pack cards are dealt in, and how often one that isn't a
 /// guaranteed Boss Tell carries a Tell. The starter deck's ranges: 2..=8
@@ -238,6 +244,19 @@ impl Pack {
         Pack {
             cards,
             keep: BOSS_PACK_KEEP,
+        }
+    }
+
+    /// What beating a minion can deal: regular cards off the run's pool, so
+    /// a Boss Tell only turns up once its boss is beaten.
+    pub fn minion(run: &RunState, seed: u64) -> Self {
+        let pool = run.tell_pool();
+        let mut rng = seed | 1;
+        Pack {
+            cards: (0..MINION_PACK_SIZE)
+                .map(|_| deal_card(PACK_FACES, PACK_TELL_PCT, &pool, &mut rng))
+                .collect(),
+            keep: MINION_PACK_KEEP,
         }
     }
 }
@@ -467,7 +486,7 @@ impl Encounter {
     pub fn reward_offer(self) -> Option<RewardOffer> {
         match self {
             Self::Boss { boss, .. } => boss.rewards.map(|[one, two]| RewardOffer::Pick(one, two)),
-            Self::Minion { .. } => Some(RewardOffer::Drop(Reward::Item(&LOADED_DICE))),
+            Self::Minion { .. } => Some(RewardOffer::ItemsOrPack),
             Self::Practice => None,
         }
     }
@@ -715,6 +734,7 @@ pub fn tutorial_opposing() -> Vec<(Card, bool)> {
 mod tests {
     use super::*;
     use crate::boss::{PIT_BOSS, SLOTZ, THE_HOUSE};
+    use crate::item::LOADED_DICE;
 
     /// Any old seed; the rewards that roll dice only have to be deterministic.
     const SEED: u64 = 0x1234_5678_9abc_def0;
@@ -920,10 +940,7 @@ mod tests {
             floor: Floor::ThePit,
         };
 
-        assert_eq!(
-            minion.reward_offer(),
-            Some(RewardOffer::Drop(Reward::Item(&LOADED_DICE)))
-        );
+        assert_eq!(minion.reward_offer(), Some(RewardOffer::ItemsOrPack));
         assert_eq!(
             boss(&SLOTZ).reward_offer(),
             Some(RewardOffer::Pick(slotz()[0], slotz()[1]))
@@ -1001,6 +1018,56 @@ mod tests {
             None
         );
         assert_eq!(Encounter::Practice.boss_pack(&run, SEED), None);
+    }
+
+    #[test]
+    fn a_minion_pack_is_three_cards_keep_one() {
+        let pack = Pack::minion(&RunState::new(), SEED);
+
+        assert_eq!(pack.cards.len(), 3);
+        assert_eq!(pack.keep, 1);
+    }
+
+    #[test]
+    fn a_minion_pack_holds_no_boss_tell_before_its_boss_is_beaten() {
+        let mut run = RunState::new();
+        let fresh: Vec<Card> = (1..300)
+            .flat_map(|seed| Pack::minion(&run, seed).cards)
+            .collect();
+
+        assert!(fresh.iter().any(|c| c.tell == Some(Tell::Lowball)));
+        assert!(fresh.iter().all(|c| c.tell != Some(Tell::Copycat)));
+        assert!(fresh.iter().all(|c| c.tell != Some(Tell::Flop)));
+        assert!(fresh.iter().all(|c| (2..=8).contains(&c.face_value)));
+
+        run.beat(&SLOTZ);
+        let after_slotz: Vec<Card> = (1..300)
+            .flat_map(|seed| Pack::minion(&run, seed).cards)
+            .collect();
+
+        assert!(after_slotz.iter().any(|c| c.tell == Some(Tell::Copycat)));
+        assert!(after_slotz.iter().all(|c| c.tell != Some(Tell::Flop)));
+    }
+
+    #[test]
+    fn a_minion_pack_is_dealt_off_its_seed() {
+        let run = RunState::new();
+
+        assert_eq!(Pack::minion(&run, SEED), Pack::minion(&run, SEED));
+        assert_ne!(Pack::minion(&run, SEED), Pack::minion(&run, SEED ^ 0xffff));
+    }
+
+    #[test]
+    fn keeping_one_of_a_minion_pack_adds_just_that_card() {
+        let mut run = RunState::new();
+        let pack = Pack::minion(&run, SEED);
+        let before = run.deck.len();
+
+        assert!(!run.keep(&pack, &[0, 1]), "only one");
+        assert!(run.keep(&pack, &[2]));
+
+        assert_eq!(run.deck.len(), before + 1);
+        assert_eq!(run.deck.last(), Some(&pack.cards[2]));
     }
 
     #[test]

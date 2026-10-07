@@ -274,9 +274,9 @@ mod tests {
             progress.advance();
         }
 
-        assert!(matches!(offers[0], Some(RewardOffer::Drop(_))));
+        assert!(matches!(offers[0], Some(RewardOffer::ItemsOrPack)));
         assert!(matches!(offers[1], Some(RewardOffer::Pick(..))));
-        assert!(matches!(offers[2], Some(RewardOffer::Drop(_))));
+        assert!(matches!(offers[2], Some(RewardOffer::ItemsOrPack)));
         assert!(matches!(offers[3], Some(RewardOffer::Pick(..))));
         assert_eq!(offers[4], None, "The House pays in an ending");
         assert_eq!(

@@ -11,7 +11,7 @@
 use std::thread;
 
 use all_in::combat::duel::{Duel, Phase};
-use all_in::item::When;
+use all_in::item::{self, When};
 use all_in::overworld::progression::RUN;
 use all_in::run::{
     Card, CombatOutcome, Encounter, Floor, Pack, Reward, RewardOffer, RunState, Tell, xorshift64,
@@ -43,11 +43,21 @@ enum Pick {
     Random,
 }
 
+/// What the player takes after beating a minion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Minion {
+    Items,
+    Cards,
+    Skip,
+    Random,
+}
+
 struct Args {
     runs: usize,
     seed: u64,
     players: Vec<Player>,
     pick: Pick,
+    minion: Minion,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -56,6 +66,7 @@ fn parse_args() -> Result<Args, String> {
         seed: 0x9e37_79b9_7f4a_7c15,
         players: vec![Player::Naive, Player::Smart],
         pick: Pick::Random,
+        minion: Minion::Random,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -79,6 +90,19 @@ fn parse_args() -> Result<Args, String> {
                     other => return Err(format!("--pick: {other} is not first, second or random")),
                 }
             }
+            "--minion" => {
+                args.minion = match value()?.as_str() {
+                    "items" => Minion::Items,
+                    "cards" => Minion::Cards,
+                    "skip" => Minion::Skip,
+                    "random" => Minion::Random,
+                    other => {
+                        return Err(format!(
+                            "--minion: {other} is not items, cards, skip or random"
+                        ));
+                    }
+                }
+            }
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown flag {other}")),
         }
@@ -87,7 +111,8 @@ fn parse_args() -> Result<Args, String> {
 }
 
 const USAGE: &str = "usage: cargo run --release -p sim -- [--runs N] [--seed N] \
-[--player naive|smart|both] [--pick first|second|random]";
+[--player naive|smart|both] [--pick first|second|random] \
+[--minion items|cards|skip|random]";
 
 // ---------------------------------------------------------------------------
 // Building a row
@@ -316,15 +341,47 @@ fn play_duel(
     }
 }
 
-fn choose(offer: RewardOffer, pick: Pick, rng: &mut u64) -> Reward {
-    match offer {
-        RewardOffer::Drop(reward) => reward,
-        RewardOffer::Pick(one, two) => match pick {
-            Pick::First => one,
-            Pick::Second => two,
-            Pick::Random if xorshift64(rng) % 2 == 0 => one,
-            Pick::Random => two,
-        },
+fn choose(one: Reward, two: Reward, pick: Pick, rng: &mut u64) -> Reward {
+    match pick {
+        Pick::First => one,
+        Pick::Second => two,
+        Pick::Random if xorshift64(rng) % 2 == 0 => one,
+        Pick::Random => two,
+    }
+}
+
+/// A minion's reward, taken as the overworld offers it: three Items or a
+/// Pack of three, keep one, or nothing. The naive player keeps any Item;
+/// the smart one the rarest, since the stronger Items are the rarer ones.
+fn take_minion_reward(run: &mut RunState, player: Player, minion: Minion, rng: &mut u64) {
+    let minion = match minion {
+        Minion::Random => {
+            [Minion::Items, Minion::Cards, Minion::Skip][(xorshift64(rng) % 3) as usize]
+        }
+        chosen => chosen,
+    };
+    match minion {
+        Minion::Items => {
+            let offered = item::offer(&run.items, 3, xorshift64(rng));
+            let taken = match player {
+                _ if offered.is_empty() => return,
+                Player::Naive => offered[(xorshift64(rng) % offered.len() as u64) as usize],
+                Player::Smart => *offered
+                    .iter()
+                    .min_by_key(|item| item.weight)
+                    .expect("not empty"),
+            };
+            run.apply(Reward::Item(taken), xorshift64(rng));
+        }
+        Minion::Cards => {
+            let pack = Pack::minion(run, xorshift64(rng));
+            let picks = keep(&pack, player, rng);
+            assert!(
+                run.keep(&pack, &picks),
+                "the sim keeps what the Pack allows"
+            );
+        }
+        Minion::Skip | Minion::Random => {}
     }
 }
 
@@ -347,7 +404,7 @@ fn keep(pack: &Pack, player: Player, rng: &mut u64) -> Vec<usize> {
     order
 }
 
-fn play_run(player: Player, pick: Pick, mut rng: u64, stats: &mut Stats) {
+fn play_run(player: Player, args: &Args, mut rng: u64, stats: &mut Stats) {
     stats.runs += 1;
     let mut run = RunState::new();
     for (at, &encounter) in RUN.iter().enumerate() {
@@ -363,17 +420,23 @@ fn play_run(player: Player, pick: Pick, mut rng: u64, stats: &mut Stats) {
         if let Encounter::Boss { boss, .. } = encounter {
             run.beat(boss);
         }
-        if let Some(offer) = encounter.reward_offer() {
-            // A boss opens its Pack before the Perk pick, as in the game.
-            if let Some(pack) = encounter.boss_pack(&run, xorshift64(&mut rng)) {
-                let picks = keep(&pack, player, &mut rng);
-                assert!(
-                    run.keep(&pack, &picks),
-                    "the sim keeps what the Pack allows"
-                );
+        match encounter.reward_offer() {
+            Some(RewardOffer::ItemsOrPack) => {
+                take_minion_reward(&mut run, player, args.minion, &mut rng);
             }
-            let reward = choose(offer, pick, &mut rng);
-            run.apply(reward, xorshift64(&mut rng));
+            Some(RewardOffer::Pick(one, two)) => {
+                // A boss opens its Pack before the Perk pick, as in the game.
+                if let Some(pack) = encounter.boss_pack(&run, xorshift64(&mut rng)) {
+                    let picks = keep(&pack, player, &mut rng);
+                    assert!(
+                        run.keep(&pack, &picks),
+                        "the sim keeps what the Pack allows"
+                    );
+                }
+                let reward = choose(one, two, args.pick, &mut rng);
+                run.apply(reward, xorshift64(&mut rng));
+            }
+            None => {}
         }
     }
 }
@@ -398,7 +461,7 @@ fn simulate(player: Player, args: &Args) -> Stats {
                 s.spawn(move || {
                     let mut stats = Stats::default();
                     for i in (t..args.runs).step_by(threads) {
-                        play_run(player, args.pick, run_seed(args.seed, i), &mut stats);
+                        play_run(player, args, run_seed(args.seed, i), &mut stats);
                     }
                     stats
                 })
