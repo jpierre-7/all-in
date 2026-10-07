@@ -40,8 +40,8 @@ the rarest, since the stronger Items are rarer. Cards opens `Pack::minion`
 and keeps one the same way as a Boss Pack, below. A boss opens its Boss Pack first (`Encounter::boss_pack`,
 `RunState::keep`): naive keeps two at random, smart the two highest Face
 Values. Then `--pick` decides which side of the boss's 1-of-2 the player
-takes (Slotz's first is its coin, the Pit Boss's first Beam Swings Your
-Way and its second Read the Pan).
+takes (Slotz's first is its coin and its second Jackpot, the Pit Boss's
+first Beam Swings Your Way and its second Read the Pan).
 
 With `--wheel`, every run starts under that board the way the game starts
 one once The Wheel is open (`wheel::start_run`): the spin picks a Hot Square
@@ -57,7 +57,8 @@ Two players, after the starter-deck prototype:
   In burning the smallest card left over. It always Holds.
 - **smart** tries every row the Draw can make (every order, every All In
   sacrifice) and plays the one with the best Hand over what it can see of
-  the Opposing Cards. It Pushes a clearing Hand only when the doubled Payout is the kill and the Hold
+  the Opposing Cards, counting what its Perks add once the row resolves
+  (Jackpot). It Pushes a clearing Hand only when the doubled Payout is the kill and the Hold
   isn't, and Pushes a Whiff only when Holding would kill it anyway.
 
 Smart sees only what a player sees: face-down Opposing Cards count for
@@ -101,32 +102,31 @@ smart: win 8.3%  mean encounters won 2.84  (20000 runs)
 
 ## Baseline
 
-`main` at 9f5aa3f with the Pit Boss built (#161), `--runs 20000`, default
-seed, random picks:
+`main` at 064f2b1 (the Pit Boss, #161) with Slotz built (#160), `--runs
+20000`, default seed, random picks:
 
 ```
-naive: win 0.0%  mean encounters won 0.97  (20000 runs)
+naive: win 0.0%  mean encounters won 1.01  (20000 runs)
   encounter     reached   won%   chips   turns   hand   edge  whiff%   push%
   Floor minion    20000   95.5    50.0    11.6   10.6    9.2    29.0     0.0
-  SLOTZ           19091    1.7    42.2    16.5   11.9   14.0    71.9     0.0
-  Pit minion        322    3.7    38.5     9.6   15.8   19.4    74.8     0.0
-  THE PIT BOSS       12    0.0    18.7     5.3   17.6   20.9    81.2     0.0
+  SLOTZ           19091    5.8    42.2    12.2   11.9   14.3    61.9     0.0
+  Pit minion       1102    4.0    33.2     8.6   16.1   19.5    72.8     0.0
+  THE PIT BOSS       44    0.0    14.6     4.9   18.7   21.4    71.3     0.0
   THE HOUSE           0    0.0     0.0     0.0    0.0    0.0     0.0     0.0
 
-smart: win 9.2%  mean encounters won 2.66  (20000 runs)
+smart: win 13.5%  mean encounters won 2.81  (20000 runs)
   encounter     reached   won%   chips   turns   hand   edge  whiff%   push%
   Floor minion    20000   99.5    50.0     4.6   15.2    9.3    26.5    28.4
-  SLOTZ           19895   92.7    42.1    10.9   16.5   14.0    28.8    10.4
-  Pit minion      18438   49.9    30.2     8.3   21.3   20.3    40.3    13.9
-  THE PIT BOSS     9197   42.1    19.9     8.2   23.7   22.2    37.8    15.1
-  THE HOUSE        3875   47.4    12.4     3.7   31.4   26.9    34.3    30.2
+  SLOTZ           19895   90.2    42.1     5.2   17.2   12.3    33.0    27.8
+  Pit minion      17947   58.5    35.1     8.4   21.6   20.4    40.2    13.5
+  THE PIT BOSS    10493   49.1    23.4     8.3   24.1   22.3    38.1    14.1
+  THE HOUSE        5154   52.4    15.0     3.8   31.9   27.2    34.7    28.9
 ```
 
-Smart with fixed picks: `--pick first` 10.8%, `--pick second` 8.0%. With
-The Beam Swings Back switched off, smart beats the Pit Boss 66.0% of the
-time instead of 42.1%, and wins 16.1% of runs.
+Smart with fixed picks: `--pick first` 13.1%, `--pick second` 14.3%.
 
-The worktrees share one `target/`, and every worktree's sim builds to the
-same `target/release/sim`, so `cargo run` can start a binary built from
-another worktree's source and call it fresh. Touch `src/lib.rs` and
-`tools/sim/src/main.rs` before a run that a baseline will be taken from.
+The worktrees share one build directory, and every worktree's `all-in` lib
+builds to the same path in it, so a build can take a lib compiled from
+another worktree's source as fresh. Touch `src/lib.rs` and
+`tools/sim/src/main.rs` right before a build that a baseline will be taken
+from, and check the binary carries your change.
