@@ -572,6 +572,10 @@ mod tests {
         app
     }
 
+    /// The seed every table test shuffles from. Off the clock, a test that
+    /// counts on what lands in the Draw fails now and then in CI (#174).
+    pub(super) const TABLE_SEED: u64 = 42;
+
     /// The table as the overworld sets it for `encounter`, with whatever the
     /// enemy commits left alone, for the tests about the deal rather than
     /// about a known Edge.
@@ -582,6 +586,7 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_state::<AppState>()
             .insert_resource(run)
+            .insert_resource(DuelSeed::new(TABLE_SEED))
             .insert_resource(super::HandoverDelay(0.0))
             .insert_resource(encounter)
             .add_plugins(CombatPlugin);
@@ -1241,7 +1246,8 @@ mod tutorial_tests {
     use bevy::prelude::*;
     use bevy::state::app::StatesPlugin;
 
-    use super::{ActiveDuel, CombatPlugin};
+    use super::tests::TABLE_SEED;
+    use super::{ActiveDuel, CombatPlugin, DuelSeed};
     use crate::run::{CombatOutcome, Encounter, RunState, STARTING_CHIPS};
     use crate::state::AppState;
 
@@ -1254,6 +1260,7 @@ mod tutorial_tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_state::<AppState>()
             .insert_resource(RunState::new())
+            .insert_resource(DuelSeed::new(TABLE_SEED))
             .insert_resource(super::HandoverDelay(0.0))
             .insert_resource(Encounter::Practice)
             .add_plugins(CombatPlugin);
@@ -2040,7 +2047,7 @@ mod row_feedback_tests {
             .draw()
             .iter()
             .position(|c| c.tell == tell)
-            .expect("the Draw holds both kinds");
+            .unwrap_or_else(|| panic!("the Draw holds no card with Tell {tell:?}"));
         KEYS[slot]
     }
 
