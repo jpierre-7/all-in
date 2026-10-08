@@ -22,8 +22,6 @@ Never commit build output. Before every commit, check `git status` and `git diff
 
 ## Builds and worktrees
 
-- Cargo builds go in `target/`, which is gitignored. Never create a new top-level build folder.
-- Every worktree compiles into the main checkout's `target/` as its build directory, so Bevy and the other dependencies compile once instead of once per worktree (about 16 minutes cold, under a minute warm). Run each cargo command with:
-  `CARGO_BUILD_BUILD_DIR="$(git rev-parse --path-format=absolute --git-common-dir)/../target"`
-  The finished binaries still land in the worktree's own `target/`, so `cargo run` runs that worktree's game or sim. (`CARGO_TARGET_DIR` would share the binaries too, and `cargo run` could run another worktree's.) This covers a `main` baseline for the balance sim too. Cargo locks the folder while it builds, so a build may wait for another agent's to finish. The folder is shared, so leave it in place: `cargo clean` makes every worktree rebuild from scratch.
+- Each checkout and worktree builds in its own `target/`, which is gitignored. Never create a new top-level build folder. A worktree's first build compiles everything (about 16 minutes); later builds only recompile what changed.
+- Keep `CARGO_TARGET_DIR` and `CARGO_BUILD_BUILD_DIR` unset. Cargo names the game's build files the same in every checkout, so a shared build folder can hand one worktree another's compiled code, and `cargo run` or `cargo test` then runs the wrong branch. In October 2026 this gave the Slotz PR (#178) a sim build with `main`'s Slotz in it.
 - When several agents work at once, each works in its own worktree at `../all-in-<ticket>`, on a new branch from `origin/main`, and leaves the main checkout on `main` and untouched. Remove temporary worktrees when you're done.
