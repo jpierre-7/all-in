@@ -179,7 +179,7 @@ pub const MINION_ITEMS: &str = "\
 Three things from their pockets. One goes in your coat on the way past.";
 
 pub const MINION_PACK: &str = "\
-You turn their cards over. Three of them. Your coat has room for one.";
+You turn their cards over. Your coat has room for one.";
 
 pub const BOSS_PACK: &str = "\
 It leaves its cards face up on the felt on the way out, and nobody at the
