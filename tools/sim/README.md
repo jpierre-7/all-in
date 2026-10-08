@@ -135,9 +135,3 @@ Smart with fixed picks: `--pick first` 8.4%, `--pick second` 7.6%.
 
 With `--carry`, The House row: smart 33.1% won (arriving with 17.8 Chips),
 naive 0.6% (40.1 Chips).
-
-The worktrees share one build directory, and every worktree's `all-in` lib
-builds to the same path in it, so a build can take a lib compiled from
-another worktree's source as fresh. Touch `src/lib.rs` and
-`tools/sim/src/main.rs` right before a build that a baseline will be taken
-from, and check the binary carries your change.
