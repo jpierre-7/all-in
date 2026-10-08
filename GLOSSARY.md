@@ -42,7 +42,7 @@ The cards a fighter draws from. Every enemy has one, as the player does: a boss'
 _Avoid_: Deal (retired), pool, library
 
 **Opposing Cards**:
-The enemy's row. The enemy draws and chooses its cards by the same rules as the player, and lays them down face down at the start of the turn, before the player has placed anything. The player sees how many there are and nothing else until Confirm, unless a Reveal turns some over. The player's cards sit one per slot across from them.
+The enemy's row. The enemy draws and chooses its cards by the same rules as the player, and lays them down face down at the start of the turn, before the player has placed anything (except The House, which plays last). The player sees how many there are and nothing else until Confirm, unless a Reveal turns some over. The player's cards sit one per slot across from them.
 _Avoid_: enemy hand, their cards, board
 
 **Slot**:

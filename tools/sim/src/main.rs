@@ -64,6 +64,10 @@ struct Args {
     /// The Wheel every run starts under, spun afresh each run. Empty is no
     /// Wheel at all.
     wheel: BTreeMap<Square, u8>,
+    /// A duel lost before The House doesn't end the run: the player goes on
+    /// at the Chips it sat down with and takes the reward as if it had won,
+    /// so every run reaches The House.
+    carry: bool,
 }
 
 /// `bankroll=3,lucky-coin=2`: each square by its name in lower case with
@@ -98,6 +102,7 @@ fn parse_args() -> Result<Args, String> {
         pick: Pick::Random,
         minion: Minion::Random,
         wheel: BTreeMap::new(),
+        carry: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -135,6 +140,7 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "--wheel" => args.wheel = parse_wheel(&value()?)?,
+            "--carry" => args.carry = true,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown flag {other}")),
         }
@@ -144,7 +150,7 @@ fn parse_args() -> Result<Args, String> {
 
 const USAGE: &str = "usage: cargo run --release -p sim -- [--runs N] [--seed N] \
 [--player naive|smart|both] [--pick first|second|random] \
-[--minion items|cards|skip|random] [--wheel square=rank,...]";
+[--minion items|cards|skip|random] [--wheel square=rank,...] [--carry]";
 
 // ---------------------------------------------------------------------------
 // Building a row
@@ -486,11 +492,12 @@ fn play_run(player: Player, args: &Args, mut rng: u64, stats: &mut Stats) {
         stats.reached[at] += 1;
         stats.arrive_chips[at] += u64::from(run.chips);
         let mut duel = Duel::for_run(&run, encounter, xorshift64(&mut rng));
-        if play_duel(&mut duel, &run.perks, player, &mut rng, at, stats) == CombatOutcome::Lost {
+        if play_duel(&mut duel, &run.perks, player, &mut rng, at, stats) == CombatOutcome::Won {
+            stats.won[at] += 1;
+            run.chips = duel.player_chips();
+        } else if !args.carry || at + 1 == RUN.len() {
             return;
         }
-        stats.won[at] += 1;
-        run.chips = duel.player_chips();
         run.put_back(duel.items_left());
         run.reflips = duel.reflips_left();
         if let Encounter::Boss { boss, .. } = encounter {
@@ -633,8 +640,15 @@ fn main() {
         format!("Wheel {}", squares.join(", "))
     };
     println!(
-        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}\n",
-        args.runs, args.seed, args.pick
+        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}{}\n",
+        args.runs,
+        args.seed,
+        args.pick,
+        if args.carry {
+            ", losses carried to The House"
+        } else {
+            ""
+        }
     );
     for &player in &args.players {
         report(player, &simulate(player, &args));

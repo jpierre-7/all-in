@@ -48,6 +48,9 @@ pub enum ItemError {
     CannotTakeBack,
     /// Taking it back would leave more cards in the row than the Blind.
     RowTooLong,
+    /// It turns Opposing Cards over, and the enemy plays last: there are none
+    /// on the table until Confirm.
+    NothingToReveal,
 }
 
 /// Where one held Item stands this Hand.
@@ -212,11 +215,19 @@ pub struct Showdown {
 pub struct FlopPeek {
     pub seen: u32,
     pub hidden: usize,
+    /// The enemy plays last: `hidden` counts the slots it could still fill,
+    /// since nothing across is down yet.
+    pub to_come: bool,
 }
 
-/// `+N`, then `+ ?` for each card it can't see yet.
+/// `+N`, then `+ ?` for each card it can't see yet. Against an enemy that
+/// plays last, only the `+ ?`s, and why.
 impl fmt::Display for FlopPeek {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.to_come {
+            let marks = vec!["+ ?"; self.hidden].join(" ");
+            return write!(f, "{marks} (played after yours)");
+        }
         write!(f, "+{}", self.seen)?;
         for _ in 0..self.hidden {
             write!(f, " + ?")?;
@@ -293,46 +304,81 @@ pub fn greedy(draw: &[Card], blind: u8, player_average: u32, player_blind: u8) -
             })
         })
         .collect();
-    let mut search = Greedy {
-        draw,
-        blind: usize::from(blind),
-        imagined,
-        used: vec![false; draw.len()],
-        picks: Vec::new(),
-        row: Vec::new(),
-        best: (0, Vec::new()),
-    };
-    search.walk();
-    search.best.1
-}
-
-/// The depth-first walk behind [`greedy`], in Draw order, so the first row
-/// to reach a score is the one that keeps it.
-struct Greedy<'a> {
-    draw: &'a [Card],
-    blind: usize,
-    imagined: Vec<Option<Card>>,
-    used: Vec<bool>,
-    picks: Vec<Pick>,
-    row: Vec<Placed>,
-    best: (u32, Vec<Pick>),
-}
-
-impl Greedy<'_> {
-    fn walk(&mut self) {
+    let score = |row: &[Placed]| {
         // A Lowball that would muck one of the player's imagined cards is
         // worth that card too: it comes off The Hand instead of going on
         // the House Edge, which is the same gap.
-        let own: Vec<Option<Card>> = self.row.iter().map(|p| Some(p.card.clone())).collect();
-        let mucked: u32 = mucks(&own, &self.imagined)
+        let own: Vec<Option<Card>> = row.iter().map(|p| Some(p.card.clone())).collect();
+        let mucked: u32 = mucks(&own, &imagined)
             .iter()
-            .zip(&self.imagined)
+            .zip(&imagined)
             .filter(|(gone, _)| **gone)
             .filter_map(|(_, card)| card.as_ref().map(|c| c.face_value))
             .sum();
-        let score = row_value(&resolve_row(&self.row, &self.imagined)) + mucked;
-        if score > self.best.0 {
-            self.best = (score, self.picks.clone());
+        i64::from(row_value(&resolve_row(row, &imagined)) + mucked)
+    };
+    best_pick(draw, blind, &score)
+}
+
+/// The strategy of an enemy that plays last: it has seen `across`, the
+/// player's row as it will turn over, so it scores every pick exactly. It
+/// keeps the pick that leaves it furthest ahead: its House Edge less The
+/// Hand, plus the Chips the Bluffs on the table take off the player less
+/// what they take off it. Tries the same picks as [`greedy`], and a tie goes
+/// to the earliest the same way.
+pub fn last_word(draw: &[Card], blind: u8, across: &[Placed]) -> Vec<Pick> {
+    let theirs = printed(across);
+    let score = |row: &[Placed]| {
+        let edge = resolve_row(row, &theirs);
+        let hand = resolve_row(across, &printed(row));
+        let bluffs: i64 = hand
+            .iter()
+            .zip(&edge)
+            .filter(|(mine, its)| {
+                (mine.card.tell == Some(Tell::Bluff) || its.card.tell == Some(Tell::Bluff))
+                    && !mine.mucked
+                    && !its.mucked
+            })
+            .map(|(mine, its)| i64::from(its.card.face_value) - i64::from(mine.card.face_value))
+            .sum();
+        i64::from(row_value(&edge)) - i64::from(row_value(&hand)) + bluffs
+    };
+    best_pick(draw, blind, &score)
+}
+
+/// Every ordered pick of up to `blind` cards from `draw`, every All In with
+/// every sacrifice, and the one `score` likes best.
+fn best_pick(draw: &[Card], blind: u8, score: &dyn Fn(&[Placed]) -> i64) -> Vec<Pick> {
+    let mut search = Search {
+        draw,
+        blind: usize::from(blind),
+        score,
+        used: vec![false; draw.len()],
+        picks: Vec::new(),
+        row: Vec::new(),
+        best: None,
+    };
+    search.walk();
+    search.best.map(|(_, picks)| picks).unwrap_or_default()
+}
+
+/// The depth-first walk behind [`best_pick`], in Draw order, so the first
+/// row to reach a score is the one that keeps it.
+struct Search<'a> {
+    draw: &'a [Card],
+    blind: usize,
+    score: &'a dyn Fn(&[Placed]) -> i64,
+    used: Vec<bool>,
+    picks: Vec<Pick>,
+    row: Vec<Placed>,
+    best: Option<(i64, Vec<Pick>)>,
+}
+
+impl Search<'_> {
+    fn walk(&mut self) {
+        let score = (self.score)(&self.row);
+        if self.best.as_ref().is_none_or(|(best, _)| score > *best) {
+            self.best = Some((score, self.picks.clone()));
         }
         if self.row.len() >= self.blind {
             return;
@@ -689,6 +735,13 @@ impl Duel {
             .fold(DRAW_SIZE, |size, m| m.draw(side, size))
     }
 
+    /// Whether the enemy commits its row at Confirm, after seeing the
+    /// player's, instead of face down at the start of the turn. Until then
+    /// there are no Opposing Cards on the table, and nothing to reveal.
+    pub fn plays_last(&self) -> bool {
+        self.modifiers().fold(false, |last, m| m.plays_last(last))
+    }
+
     /// The Payout The Hand would deal right now: its excess over the House
     /// Edge, doubled by a won Push. 0 on a Whiff, and 0 on a tie.
     pub fn payout(&self, pyl: Option<Push>) -> u32 {
@@ -848,22 +901,36 @@ impl Duel {
             return None;
         }
         let slot = self.row.len();
-        let read = || (slot.saturating_sub(1)..=slot + 1).filter_map(|i| self.opposing.get(i));
+        let reads = slot.saturating_sub(1)..=slot + 1;
+        if self.plays_last() {
+            let blind = usize::from(self.blind(Side::Enemy));
+            return Some(FlopPeek {
+                seen: 0,
+                hidden: reads.filter(|&i| i < blind).count(),
+                to_come: true,
+            });
+        }
+        let read = || reads.clone().filter_map(|i| self.opposing.get(i));
         Some(FlopPeek {
             seen: read()
                 .filter(|o| o.face_up)
                 .map(|o| o.card.face_value)
                 .sum(),
             hidden: read().filter(|o| !o.face_up).count(),
+            to_come: false,
         })
     }
 
     /// What a Counterweight printed `face_value` would be worth in the next
     /// empty slot, against the Opposing Card across from it. `None` when the
-    /// row is full.
+    /// row is full. Against an enemy that plays last, the card across isn't
+    /// down yet, so it can't be told.
     pub fn counterweight_next(&self, face_value: u32) -> Option<CounterweightPeek> {
         if self.plays_left() == 0 {
             return None;
+        }
+        if self.plays_last() {
+            return Some(CounterweightPeek::Hidden);
         }
         Some(match self.opposing.get(self.row.len()) {
             None => CounterweightPeek::Worth(face_value),
@@ -989,6 +1056,13 @@ impl Duel {
     pub fn confirm(&mut self) -> Option<TurnResult> {
         if self.phase == Phase::PushYourLuck {
             return None;
+        }
+        if self.plays_last() && self.fixed.is_none() {
+            self.commit(last_word(
+                &self.enemy_cards.draw,
+                self.blind(Side::Enemy),
+                &self.table().0,
+            ));
         }
         for opposing in &mut self.opposing {
             opposing.face_up = true;
@@ -1157,6 +1231,9 @@ impl Duel {
         if pocketed.item.when != now {
             return Err(ItemError::NotNow);
         }
+        if self.plays_last() && self.reveals(pocketed.item.modifier) {
+            return Err(ItemError::NothingToReveal);
+        }
         let size = self.draw_size(Side::Player);
         self.pocket[index].spent = Spent::Pending;
         let shown = self.reveal_by(&[pocketed.item.modifier]);
@@ -1208,6 +1285,23 @@ impl Duel {
             .map(|p| p.item)
     }
 
+    /// Whether `modifier` would turn anything over on this turn if the enemy
+    /// had filled every slot face down: what makes it a reveal.
+    fn reveals(&self, modifier: &dyn Modifier) -> bool {
+        let backs: Vec<Opposing> = (0..self.slots())
+            .map(|_| Opposing {
+                card: Card {
+                    name: "a card back",
+                    face_value: 0,
+                    tell: None,
+                },
+                sacrifice: None,
+                face_up: false,
+            })
+            .collect();
+        !modifier.reveal(self.turn, &backs).is_empty()
+    }
+
     /// Turn face up whatever `modifiers` reveal, each seeing what the ones
     /// before it turned. Says whether anything turned over.
     fn reveal_by(&mut self, modifiers: &[&'static dyn Modifier]) -> bool {
@@ -1250,7 +1344,8 @@ impl Duel {
     }
 
     /// The enemy commits its row face down: the Arcade's fixed one, or what
-    /// its strategy picks out of its Draw.
+    /// its strategy picks out of its Draw. An enemy that plays last commits
+    /// nothing yet; it waits for Confirm.
     fn lay_opposing(&mut self) {
         if let Some(row) = &self.fixed {
             self.opposing = row
@@ -1263,12 +1358,20 @@ impl Duel {
                 .collect();
             return;
         }
-        let picks = greedy(
+        if self.plays_last() {
+            self.opposing.clear();
+            return;
+        }
+        self.commit(greedy(
             &self.enemy_cards.draw,
             self.blind(Side::Enemy),
             self.player_average,
             self.blind(Side::Player),
-        );
+        ));
+    }
+
+    /// Put `picks` out of the enemy's Draw into its row, face down.
+    fn commit(&mut self, picks: Vec<Pick>) {
         let draw = &self.enemy_cards.draw;
         self.opposing = picks
             .iter()
@@ -2411,7 +2514,8 @@ mod reveal_tests {
             next,
             FlopPeek {
                 seen: 9 + 5,
-                hidden: 0
+                hidden: 0,
+                to_come: false,
             }
         );
         assert_eq!(
@@ -2426,7 +2530,8 @@ mod reveal_tests {
             next,
             FlopPeek {
                 seen: 9 + 5,
-                hidden: 1
+                hidden: 1,
+                to_come: false,
             }
         );
         assert_eq!(next.to_string(), "+14 + ?", "slot 1: the 2 is face down");
@@ -2443,7 +2548,14 @@ mod reveal_tests {
             Duel::new(vec![card(4); 18], 40, 2, enemy(999)).with_opposing(vec![(card(9), false)]);
         duel.place(0, None).unwrap();
 
-        assert_eq!(duel.flop_next(), Some(FlopPeek { seen: 0, hidden: 1 }));
+        assert_eq!(
+            duel.flop_next(),
+            Some(FlopPeek {
+                seen: 0,
+                hidden: 1,
+                to_come: false
+            })
+        );
         assert_eq!(duel.flop_next().unwrap().to_string(), "+0 + ?");
     }
 
@@ -2458,7 +2570,14 @@ mod reveal_tests {
         let face_up: Vec<bool> = duel.opposing().iter().map(|o| o.face_up).collect();
         assert_eq!(face_up, vec![true, false, true]);
         assert_eq!(duel.showing(), (7 + 2, 1));
-        assert_eq!(duel.flop_next(), Some(FlopPeek { seen: 7, hidden: 1 }));
+        assert_eq!(
+            duel.flop_next(),
+            Some(FlopPeek {
+                seen: 7,
+                hidden: 1,
+                to_come: false
+            })
+        );
 
         duel.end_turn();
         assert_eq!(duel.showing().1, 3, "the next row comes down face down");
@@ -3721,5 +3840,133 @@ mod pit_boss_tests {
             assert_eq!(Some(up[0].card.face_value), heaviest);
             play(&mut duel, 3);
         }
+    }
+}
+
+#[cfg(test)]
+mod plays_last_tests {
+    use super::cards::*;
+    use super::*;
+    use crate::boss::THE_HOUSE;
+    use crate::item::{LOADED_DICE, SUNGLASSES};
+
+    /// An enemy under The House's Table Rule, with `deck` in draw order.
+    fn house(deck: Vec<Card>) -> Enemy {
+        Enemy {
+            table_rule: THE_HOUSE.table_rule,
+            ..enemy_with(999, deck)
+        }
+    }
+
+    #[test]
+    fn the_house_has_nothing_on_the_table_until_confirm() {
+        let mut duel = Duel::new(vec![card(4); 18], 40, 3, house(vec![card(5); 14]));
+        assert!(duel.plays_last());
+        assert!(duel.opposing().is_empty());
+        assert_eq!(duel.showing(), (0, 0));
+        assert_eq!(duel.slots(), 3, "the table is still as wide as the Blind");
+
+        duel.place(0, None).unwrap();
+        duel.confirm();
+        assert_eq!(duel.opposing().len(), 3, "laid at Confirm");
+        assert!(duel.opposing().iter().all(|o| o.face_up));
+
+        duel.hold();
+        assert!(duel.opposing().is_empty(), "and nothing again next turn");
+    }
+
+    #[test]
+    fn the_house_plays_the_flop_only_when_your_row_makes_it_worth_more() {
+        let rows = |player: u32| {
+            let mut duel = Duel::new(vec![card(player); 18], 40, 1, house(vec![flop(2), card(5)]));
+            duel.place(0, None).unwrap();
+            duel.confirm();
+            // A tie resolves on the spot, straight into the last showdown.
+            let showdown = duel
+                .showdown()
+                .or(duel.last_showdown())
+                .expect("the rows are over");
+            (showdown.opposing[0].card.clone(), showdown.house_edge)
+        };
+        assert_eq!(rows(9), (flop(2), 9), "a Flop across a 9 takes the 9");
+        assert_eq!(
+            rows(2),
+            (card(5), 5),
+            "across a 2 the plain 5 is worth more"
+        );
+    }
+
+    #[test]
+    fn the_house_puts_its_flop_where_it_reads_the_most() {
+        let mut duel = Duel::new(
+            vec![card(9); 18],
+            40,
+            3,
+            house(vec![card(1), card(1), flop(2)]),
+        );
+        for _ in 0..3 {
+            duel.place(0, None).unwrap();
+        }
+        duel.confirm();
+        let showdown = duel.showdown().expect("the rows are over");
+        assert_eq!(
+            showdown.opposing[1].card,
+            flop(2),
+            "the middle reads all three"
+        );
+        assert_eq!(showdown.house_edge, 1 + 27 + 1);
+    }
+
+    #[test]
+    fn a_reveal_item_is_refused_against_the_house_and_keeps_its_uses() {
+        let held = [Held::new(&SUNGLASSES), Held::new(&LOADED_DICE)];
+        let mut duel =
+            Duel::new(vec![card(4); 18], 40, 3, house(vec![card(5); 14])).with_items(&held);
+
+        assert_eq!(duel.spend(0), Err(ItemError::NothingToReveal));
+        assert_eq!(duel.items()[0].spent, Spent::No);
+        assert_eq!(duel.items()[0].uses, SUNGLASSES.uses);
+        assert_eq!(
+            duel.spend(1),
+            Ok(()),
+            "an Item that reveals nothing still spends"
+        );
+    }
+
+    #[test]
+    fn a_flop_peek_against_the_house_says_its_cards_come_later() {
+        let mut deck = vec![card(4); 17];
+        deck.push(flop(3));
+        let duel = Duel::new(deck, 40, 3, house(vec![card(5); 14]));
+
+        let next = duel.flop_next().expect("a slot for it");
+        assert_eq!(
+            next,
+            FlopPeek {
+                seen: 0,
+                hidden: 2,
+                to_come: true,
+            },
+            "slot 0 reads slots 0 and 1"
+        );
+        assert_eq!(next.to_string(), "+ ? + ? (played after yours)");
+    }
+
+    #[test]
+    fn a_counterweight_peek_against_the_house_cannot_tell_its_worth() {
+        let mut deck = vec![card(4); 17];
+        deck.push(counterweight(5));
+        let duel = Duel::new(deck, 40, 3, house(vec![card(5); 14]));
+
+        let next = duel.counterweight_next(5).expect("a slot for it");
+        assert_eq!(next, CounterweightPeek::Hidden);
+        assert_eq!(next.to_string(), "= ?");
+    }
+
+    #[test]
+    fn everyone_else_still_commits_at_the_start_of_the_turn() {
+        let duel = Duel::new(vec![card(4); 18], 40, 3, enemy_with(999, vec![card(5); 14]));
+        assert!(!duel.plays_last());
+        assert_eq!(duel.opposing().len(), 3);
     }
 }
