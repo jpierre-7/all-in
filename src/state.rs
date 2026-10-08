@@ -28,11 +28,13 @@ pub enum AppState {
     /// Owned entirely by `combat`. Enter with an `Encounter` resource present.
     Combat,
     /// Set by `combat` on exit. Overworld reads `CombatOutcome` here and routes
-    /// to `Reward`, `Ending`, or `GameOver`.
+    /// to `Reward` or `GameOver`.
     PostCombat,
-    /// Pick-1-of-2 perk after a boss, or the item drop after a minion.
+    /// Pick-1-of-2 perk after a boss, or the item drop after a minion. After
+    /// The House, its Flop Pack and the Legacy pick.
     Reward,
-    /// The son's reveal. Reached only by beating The House.
+    /// The son's reveal. Reached only by beating The House, after its Legacy
+    /// pick.
     Ending,
     /// Player Chips hit 0. Back to the Lobby from here.
     GameOver,

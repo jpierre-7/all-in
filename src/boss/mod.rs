@@ -37,7 +37,7 @@ pub struct Boss {
     /// The rule it bends its own fight with, if it has one yet.
     pub table_rule: Option<&'static dyn Modifier>,
     /// The 1-of-2 it pays after its Boss Pack. `None` for The House, which
-    /// pays in an ending. The card-giving ones stand until the boss
+    /// pays a Legacy Perk instead. The card-giving ones stand until the boss
     /// proposals (#146) replace them with Perks.
     pub rewards: Option<[Reward; 2]>,
     /// How many of the Boss Pack's seven cards carry its Boss Tell.

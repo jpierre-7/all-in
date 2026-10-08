@@ -204,6 +204,9 @@ pub enum RewardOffer {
     ItemsOrPack,
     /// A boss's pick, 1 of 2.
     Pick(Reward, Reward),
+    /// The House's: a Legacy Perk for the next run, 1 of 3. Which three is
+    /// rolled when the pick opens, off the deck that beat it.
+    Legacy,
 }
 
 /// A sealed set of cards: the player keeps `keep` of them and the rest are
@@ -510,9 +513,9 @@ impl Encounter {
         }
     }
 
-    /// The Boss Pack beating it deals, opened before its Perk pick. `None`
-    /// for a minion and the Arcade. The House has one, its Flop Pack, but
-    /// its win goes to the ending, so nothing opens it yet.
+    /// The Boss Pack beating it deals, opened before its Perk pick (The
+    /// House's Flop Pack before its Legacy pick). `None` for a minion and
+    /// the Arcade.
     pub fn boss_pack(self, run: &RunState, seed: u64) -> Option<Pack> {
         match self {
             Self::Boss { boss, .. } => Some(Pack::boss(boss, run, seed)),
@@ -520,11 +523,14 @@ impl Encounter {
         }
     }
 
-    /// What beating it pays. `None` for The House, which pays in an ending,
-    /// and for the Arcade.
+    /// What beating it pays. A boss without a Perk pair is The House, which
+    /// pays a Legacy Perk. `None` for the Arcade.
     pub fn reward_offer(self) -> Option<RewardOffer> {
         match self {
-            Self::Boss { boss, .. } => boss.rewards.map(|[one, two]| RewardOffer::Pick(one, two)),
+            Self::Boss { boss, .. } => Some(match boss.rewards {
+                Some([one, two]) => RewardOffer::Pick(one, two),
+                None => RewardOffer::Legacy,
+            }),
             Self::Minion { .. } => Some(RewardOffer::ItemsOrPack),
             Self::Practice => None,
         }
@@ -984,8 +990,8 @@ mod tests {
             boss(&SLOTZ).reward_offer(),
             Some(RewardOffer::Pick(slotz()[0], slotz()[1]))
         );
-        // The House pays out in an ending, not a perk, and the Arcade in nothing.
-        assert_eq!(boss(&THE_HOUSE).reward_offer(), None);
+        // The House pays a Legacy Perk, and the Arcade nothing.
+        assert_eq!(boss(&THE_HOUSE).reward_offer(), Some(RewardOffer::Legacy));
         assert_eq!(Encounter::Practice.reward_offer(), None);
     }
 

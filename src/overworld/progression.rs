@@ -126,17 +126,17 @@ impl Progress {
     }
 
     /// Where the overworld goes once combat hands back an outcome. Losing ends
-    /// the run; winning pays out, except against The House, which ends it.
+    /// the run; winning pays out, The House included: its Legacy pick leads
+    /// on to the ending.
     pub fn route(&self, outcome: CombatOutcome) -> AppState {
-        match (outcome, self.encounter()) {
-            (CombatOutcome::Lost, _) => AppState::GameOver,
-            (CombatOutcome::Won, _) if self.next + 1 == RUN.len() => AppState::Ending,
-            (CombatOutcome::Won, _) => AppState::Reward,
+        match outcome {
+            CombatOutcome::Lost => AppState::GameOver,
+            CombatOutcome::Won => AppState::Reward,
         }
     }
 
-    /// What the encounter just won pays. `None` once The House is beaten, or
-    /// after The House itself, which pays in an ending.
+    /// What the encounter just won pays. `None` once the run is past The
+    /// House.
     pub fn reward_offer(&self) -> Option<RewardOffer> {
         self.encounter().and_then(Encounter::reward_offer)
     }
@@ -278,7 +278,7 @@ mod tests {
         assert!(matches!(offers[1], Some(RewardOffer::Pick(..))));
         assert!(matches!(offers[2], Some(RewardOffer::ItemsOrPack)));
         assert!(matches!(offers[3], Some(RewardOffer::Pick(..))));
-        assert_eq!(offers[4], None, "The House pays in an ending");
+        assert_eq!(offers[4], Some(RewardOffer::Legacy));
         assert_eq!(
             progress.reward_offer(),
             None,
@@ -287,14 +287,14 @@ mod tests {
     }
 
     #[test]
-    fn beating_the_house_goes_to_the_ending() {
+    fn beating_the_house_goes_to_its_reward_before_the_ending() {
         let mut progress = Progress::new();
         for _ in 0..4 {
             progress.advance();
         }
 
         assert_eq!(progress.encounter(), Some(RUN[4]));
-        assert_eq!(progress.route(CombatOutcome::Won), AppState::Ending);
+        assert_eq!(progress.route(CombatOutcome::Won), AppState::Reward);
     }
 
     #[test]

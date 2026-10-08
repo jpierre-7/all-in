@@ -228,8 +228,20 @@ How many Golden Chips sit on a square of The Wheel. An empty square has no effec
 The square The Wheel's spin lands on at the start of each run. Its effect is one rank higher for that run only. An empty square that comes up hot does nothing, and when the spin lands on the green zero nothing is hot.
 
 **Legacy Perk**:
-A Perk that lasts for the next run only. After beating The House, the player picks one of three drawn from a pool of Legacy Perks, never boss Perks. Spent when that run ends, by a win, death, or a Fold. Stronger than a boss Perk.
+A Perk that lasts for the next run only. After beating The House, the player opens its Flop Pack, then picks one of three drawn from a pool of Legacy Perks, never boss Perks. The next run takes it as it starts and it's spent when that run ends, by a win, death, or a Fold; quitting mid-run loses it with the run. Stronger than a boss Perk. Taken before any boss Perk, so it applies first of them.
 _Avoid_: special perk, bonus
+
+**High Limit**:
+Legacy Perk: the player's Blind is 1 higher on the first two turns of every duel.
+
+**Marked Cards**:
+Legacy Perk: a Reveal of the leftmost Opposing Card at the start of every turn. Against The House, which plays last, it has nothing to show.
+
+**Lucky Streak**:
+Legacy Perk: Push Your Luck's coin is weighted at least 60/40 in the player's favour. A best-of coin stays best-of.
+
+**Victory Lap**:
+Legacy Perk: the next run starts with the deck The House was beaten with, the Flop Pack's two cards included, in place of the starter deck.
 
 **Save Slot**:
 One player's whole between-runs record: their Golden Chips, The Wheel, whether they have beaten The House, and the Legacy Perk waiting for their next run. Each slot is separate; nothing is shared between them.

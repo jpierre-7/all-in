@@ -20,6 +20,7 @@ use screens::{
 
 use crate::boss::SLOTZ;
 use crate::item::{self, Item};
+use crate::legacy::{self, LegacyPerk};
 use crate::run::{Card, CombatOutcome, Encounter, Pack, Reward, RewardOffer, RunState};
 use crate::save::SaveSlot;
 use crate::state::AppState;
@@ -371,6 +372,11 @@ struct OpenPack {
 #[derive(Resource)]
 struct OpenItems(Vec<&'static Item>);
 
+/// The Legacy Perks a House win put on the table, in the order the screen
+/// lists the keys.
+#[derive(Resource)]
+struct OpenLegacy(Vec<LegacyPerk>);
+
 /// A minion's three, in the order the screen lists the keys.
 const MINION_ITEMS: usize = 3;
 
@@ -404,10 +410,15 @@ fn show_reward(
     // A boss's Pack comes first, then its Perk pick. The overworld's other
     // roll, alongside the one `take_reward` hands to card-giving rewards.
     if let Some(pack) = encounter.boss_pack(&run, time.elapsed_secs_f64().to_bits()) {
+        let title = if progress.reward_offer() == Some(RewardOffer::Legacy) {
+            "The Flop Pack"
+        } else {
+            "The Boss Pack"
+        };
         let open = OpenPack {
             pack,
             picked: Vec::new(),
-            title: "The Boss Pack",
+            title,
             prose: narrative::BOSS_PACK,
             minion: false,
         };
@@ -415,7 +426,7 @@ fn show_reward(
         commands.insert_resource(open);
         return;
     }
-    spawn_offer(&mut commands, &progress, &run);
+    spawn_offer(&mut commands, &progress, &run, &time);
 }
 
 fn spawn_pack(commands: &mut Commands, open: &OpenPack, run: &RunState) {
@@ -475,8 +486,10 @@ fn count_word(n: usize) -> String {
     }
 }
 
-/// The minion's choice or the Perk pick for the encounter just won.
-fn spawn_offer(commands: &mut Commands, progress: &Progress, run: &RunState) {
+/// The minion's choice, the Perk pick, or after The House the Legacy pick,
+/// for the encounter just won. The Legacy pick rolls its three here, off the
+/// deck the Flop Pack has just added to.
+fn spawn_offer(commands: &mut Commands, progress: &Progress, run: &RunState, time: &Time) {
     let Some(offer) = progress.reward_offer() else {
         return;
     };
@@ -501,6 +514,17 @@ fn spawn_offer(commands: &mut Commands, progress: &Progress, run: &RunState) {
             .option(1, &one.label())
             .option(2, &two.label())
             .footer("Press 1 or 2. There is no going back."),
+        RewardOffer::Legacy => {
+            let open = OpenLegacy(legacy::offer(&run.deck, time.elapsed_secs_f64().to_bits()));
+            let mut screen = Screen::new()
+                .title("A Legacy Perk")
+                .prose(narrative::LEGACY_PICK);
+            for (i, perk) in open.0.iter().enumerate() {
+                screen = screen.option(i as u8 + 1, &perk.describe());
+            }
+            commands.insert_resource(open);
+            screen.footer("Press 1, 2 or 3. It waits for your next run.")
+        }
     };
 
     let root = screen.spawn(commands, AppState::Reward);
@@ -531,8 +555,10 @@ fn take_reward(
     tutorial: Option<Res<InTutorial>>,
     open: Option<ResMut<OpenPack>>,
     items: Option<ResMut<OpenItems>>,
+    legacy: Option<Res<OpenLegacy>>,
     shown: Query<Entity, With<RewardScreen>>,
     mut run: ResMut<RunState>,
+    mut slot: ResMut<SaveSlot>,
     mut progress: ResMut<Progress>,
     mut next: ResMut<NextState<AppState>>,
 ) {
@@ -575,7 +601,7 @@ fn take_reward(
                 next.set(progress.arrival());
             } else {
                 redraw(&mut commands, &shown);
-                spawn_offer(&mut commands, &progress, &run);
+                spawn_offer(&mut commands, &progress, &run, &time);
             }
         }
         return;
@@ -599,6 +625,18 @@ fn take_reward(
             run.apply(Reward::Item(item), time.elapsed_secs_f64().to_bits());
             progress.advance();
             next.set(progress.arrival());
+        }
+        return;
+    }
+
+    // The Legacy pick: a number saves that one for the next run, and the
+    // night ends. Enter does nothing, as with a boss's Perk.
+    if let Some(legacy) = legacy {
+        let picked = digit_pressed(&keys).and_then(|n| legacy.0.get(usize::from(n) - 1));
+        if let Some(perk) = picked {
+            slot.legacy_perk = Some(perk.clone());
+            commands.remove_resource::<OpenLegacy>();
+            next.set(AppState::Ending);
         }
         return;
     }
@@ -651,6 +689,8 @@ fn take_reward(
             Some(2) => Some(two),
             _ => None,
         },
+        // Taken above, from what its screen put on the table.
+        RewardOffer::Legacy => None,
     };
     let Some(reward) = taken else { return };
 
@@ -700,8 +740,9 @@ mod tests {
 
     use super::combat_stub::CombatStubPlugin;
     use super::progression::{Progress, RUN};
-    use super::{OpenItems, OpenPack, OverworldPlugin};
+    use super::{OpenItems, OpenLegacy, OpenPack, OverworldPlugin};
     use crate::boss::SLOTZ;
+    use crate::legacy::{self, LegacyPerk};
     use crate::run::{CombatOutcome, Encounter, Floor, Reward, RunState};
     use crate::save::SaveSlot;
     use crate::state::AppState;
@@ -989,10 +1030,12 @@ mod tests {
         keep_two(&mut app);
         press(&mut app, KeyCode::Digit1);
 
-        // The Big Shots Table: The House, and no reward after it.
+        // The Big Shots Table: The House, its Flop Pack, and a Legacy Perk.
         assert_eq!(state(&app), AppState::FloorIntro);
         press(&mut app, KeyCode::Enter);
         duel(&mut app, true);
+        keep_two(&mut app);
+        press(&mut app, KeyCode::Digit1);
         assert_eq!(state(&app), AppState::Ending);
 
         press(&mut app, KeyCode::Enter);
@@ -1446,6 +1489,113 @@ mod tests {
 
         assert_eq!(state(&app), AppState::FloorIntro);
         assert_eq!(app.world().resource::<RunState>().items.len(), 1);
+    }
+
+    // --- Legacy Perks ---
+
+    /// Beat The House, from a run started in the Lobby with nothing on it.
+    fn house_won() -> App {
+        let mut app = opened();
+        press(&mut app, KeyCode::Enter);
+        begin_run(&mut app);
+        *app.world_mut().resource_mut::<Progress>() = Progress::at(RUN[4]);
+        duel(&mut app, true);
+        assert_eq!(state(&app), AppState::Reward);
+        app
+    }
+
+    fn offered(app: &App) -> Vec<LegacyPerk> {
+        app.world().resource::<OpenLegacy>().0.clone()
+    }
+
+    #[test]
+    fn beating_the_house_opens_its_flop_pack_then_offers_three_legacy_perks() {
+        let mut app = house_won();
+        let open = app.world().resource::<OpenPack>();
+        assert_eq!(open.title, "The Flop Pack");
+        assert_eq!(open.pack.cards.len(), 7);
+        assert!(app.world().get_resource::<OpenLegacy>().is_none());
+
+        keep_two(&mut app);
+        assert_eq!(state(&app), AppState::Reward);
+        assert_eq!(offered(&app).len(), 3);
+    }
+
+    #[test]
+    fn second_look_cant_reroll_the_flop_pack() {
+        let mut app = house_won();
+        app.world_mut().resource_mut::<RunState>().rerolls = 2;
+        let cards = app.world().resource::<OpenPack>().pack.cards.clone();
+
+        press(&mut app, KeyCode::KeyR);
+        assert_eq!(app.world().resource::<OpenPack>().pack.cards, cards);
+        assert_eq!(app.world().resource::<RunState>().rerolls, 2);
+    }
+
+    #[test]
+    fn the_legacy_perk_pressed_waits_in_the_slot_and_the_night_ends() {
+        let mut app = house_won();
+        keep_two(&mut app);
+        let picked = offered(&app)[1].clone();
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Reward, "Enter picks nothing");
+        press(&mut app, KeyCode::Digit2);
+
+        assert_eq!(state(&app), AppState::Ending);
+        assert_eq!(slot(&mut app).legacy_perk, Some(picked.clone()));
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Lobby);
+        assert_eq!(slot(&mut app).legacy_perk, Some(picked));
+    }
+
+    #[test]
+    fn victory_lap_is_offered_with_the_flop_pack_in_the_deck() {
+        let mut app = house_won();
+        keep_two(&mut app);
+        let deck = &app.world().resource::<RunState>().deck;
+        assert_eq!(deck.len(), crate::run::starter_deck().len() + 2);
+        let lap = LegacyPerk::victory_lap(deck);
+        // Put Victory Lap on the table, as the draw does about three times
+        // in four, and take it.
+        app.world_mut().resource_mut::<OpenLegacy>().0[0] = lap.clone();
+        press(&mut app, KeyCode::Digit1);
+        assert_eq!(slot(&mut app).legacy_perk, Some(lap));
+    }
+
+    #[test]
+    fn the_next_run_takes_the_legacy_perk_and_a_fold_leaves_it_spent() {
+        let mut app = lobby_with_the_wheel(0);
+        slot(&mut app).legacy_perk = Some(LegacyPerk::HighLimit);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(state(&app), AppState::Spin);
+        assert!(slot(&mut app).legacy_perk.is_none());
+        let run = app.world().resource::<RunState>();
+        assert!(std::ptr::eq(run.perks[0], &legacy::HIGH_LIMIT));
+
+        press(&mut app, KeyCode::Enter); // past the spin
+        press(&mut app, KeyCode::Enter); // past the Floor's prose
+        press(&mut app, KeyCode::Digit2); // Fold
+        assert_eq!(state(&app), AppState::Lobby);
+        assert!(app.world().resource::<RunState>().perks.is_empty());
+
+        press(&mut app, KeyCode::Enter);
+        assert!(app.world().resource::<RunState>().perks.is_empty());
+    }
+
+    #[test]
+    fn victory_lap_starts_the_next_run_with_its_deck() {
+        let mut app = lobby_with_the_wheel(0);
+        let deck = vec![crate::run::Card {
+            name: "Pawned Ring",
+            face_value: 8,
+            tell: None,
+        }];
+        slot(&mut app).legacy_perk = Some(LegacyPerk::victory_lap(&deck));
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.world().resource::<RunState>().deck, deck);
     }
 
     #[test]

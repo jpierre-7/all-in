@@ -13,6 +13,7 @@ use std::thread;
 
 use all_in::combat::duel::{Duel, Phase, resolve_row, row_value};
 use all_in::item::{self, Rarity, When};
+use all_in::legacy::{self, LegacyPerk};
 use all_in::overworld::progression::RUN;
 use all_in::run::{
     Card, CombatOutcome, Encounter, Floor, Pack, Perk, Reward, RewardOffer, RunState, Tell,
@@ -68,6 +69,22 @@ struct Args {
     /// at the Chips it sat down with and takes the reward as if it had won,
     /// so every run reaches The House.
     carry: bool,
+    /// The Legacy Perk every run starts under. Victory Lap's deck is left
+    /// empty here and dealt per run from [`victory_laps`].
+    legacy: Option<LegacyPerk>,
+}
+
+/// `high-limit`: a Legacy Perk by its name in lower case with dashes, one of
+/// the ones that do something yet.
+fn parse_legacy(name: &str) -> Result<LegacyPerk, String> {
+    let perk = LegacyPerk::all(&[])
+        .into_iter()
+        .find(|perk| perk.name().to_lowercase().replace(' ', "-") == name)
+        .ok_or(format!("--legacy: no Legacy Perk called {name}"))?;
+    if !perk.ready() {
+        return Err(format!("--legacy: {name} doesn't do anything yet"));
+    }
+    Ok(perk)
 }
 
 /// `bankroll=3,lucky-coin=2`: each square by its name in lower case with
@@ -103,6 +120,7 @@ fn parse_args() -> Result<Args, String> {
         minion: Minion::Random,
         wheel: BTreeMap::new(),
         carry: false,
+        legacy: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -141,6 +159,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--wheel" => args.wheel = parse_wheel(&value()?)?,
             "--carry" => args.carry = true,
+            "--legacy" => args.legacy = Some(parse_legacy(&value()?)?),
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown flag {other}")),
         }
@@ -150,7 +169,8 @@ fn parse_args() -> Result<Args, String> {
 
 const USAGE: &str = "usage: cargo run --release -p sim -- [--runs N] [--seed N] \
 [--player naive|smart|both] [--pick first|second|random] \
-[--minion items|cards|skip|random] [--wheel square=rank,...] [--carry]";
+[--minion items|cards|skip|random] [--wheel square=rank,...] [--carry] \
+[--legacy high-limit|marked-cards|lucky-streak|victory-lap]";
 
 // ---------------------------------------------------------------------------
 // Building a row
@@ -479,15 +499,24 @@ fn keep(pack: &Pack, player: Player, rng: &mut u64) -> Vec<usize> {
     order
 }
 
-/// The run The Wheel starts: the spin, then Trim and Pocket Change. Smart
-/// trims its lowest plain cards; naive trims nothing. Both take the first
-/// Item offered.
-fn start_run(board: &BTreeMap<Square, u8>, player: Player, rng: &mut u64) -> RunState {
+/// The run a Legacy Perk and The Wheel start: the perk, the spin, then Trim
+/// and Pocket Change. Smart trims its lowest plain cards; naive trims
+/// nothing. Both take the first Item offered.
+fn start_run(
+    board: &BTreeMap<Square, u8>,
+    perk: Option<&LegacyPerk>,
+    player: Player,
+    rng: &mut u64,
+) -> RunState {
+    let mut run = RunState::new();
+    if let Some(perk) = perk {
+        legacy::apply(&mut run, perk);
+    }
     if board.is_empty() {
-        return RunState::new();
+        return run;
     }
     let spun = Spun::new(board, wheel::spin(xorshift64(rng)));
-    let mut run = wheel::start_run(spun, xorshift64(rng));
+    let mut run = wheel::start_run(run, spun, xorshift64(rng));
     if player == Player::Smart {
         let mut plain: Vec<usize> = (0..run.deck.len())
             .filter(|&i| run.deck[i].tell.is_none())
@@ -505,9 +534,17 @@ fn start_run(board: &BTreeMap<Square, u8>, player: Player, rng: &mut u64) -> Run
     run
 }
 
-fn play_run(player: Player, args: &Args, mut rng: u64, stats: &mut Stats) {
+/// Play one run. A run that beats The House hands back the deck it beat it
+/// with, its Flop Pack kept: what Victory Lap starts the next run with.
+fn play_run(
+    player: Player,
+    args: &Args,
+    perk: Option<&LegacyPerk>,
+    mut rng: u64,
+    stats: &mut Stats,
+) -> Option<Vec<Card>> {
     stats.runs += 1;
-    let mut run = start_run(&args.wheel, player, &mut rng);
+    let mut run = start_run(&args.wheel, perk, player, &mut rng);
     for (at, &encounter) in RUN.iter().enumerate() {
         stats.reached[at] += 1;
         stats.arrive_chips[at] += u64::from(run.chips);
@@ -516,7 +553,7 @@ fn play_run(player: Player, args: &Args, mut rng: u64, stats: &mut Stats) {
             stats.won[at] += 1;
             run.chips = duel.player_chips();
         } else if !args.carry || at + 1 == RUN.len() {
-            return;
+            return None;
         }
         run.put_back(duel.items_left());
         run.reflips = duel.reflips_left();
@@ -539,9 +576,47 @@ fn play_run(player: Player, args: &Args, mut rng: u64, stats: &mut Stats) {
                 let reward = choose(one, two, args.pick, &mut rng);
                 run.apply(reward, xorshift64(&mut rng));
             }
+            Some(RewardOffer::Legacy) => {
+                // The House's Flop Pack, then the run is over.
+                if let Some(pack) = encounter.boss_pack(&run, xorshift64(&mut rng)) {
+                    let picks = keep(&pack, player, &mut rng);
+                    assert!(
+                        run.keep(&pack, &picks),
+                        "the sim keeps what the Pack allows"
+                    );
+                }
+                return Some(run.deck);
+            }
             None => {}
         }
     }
+    None
+}
+
+/// How many decks [`victory_laps`] gathers at most; runs share them round
+/// the table after that.
+const VICTORY_LAPS: usize = 500;
+
+/// The decks Victory Lap starts runs with: the ones smart runs, under the
+/// same Wheel and no Legacy Perk, beat The House with, Flop Pack kept. Only
+/// a winning run has one, so naive runs borrow smart's. Gathered on seeds of
+/// their own, in seed order, so the set doesn't hang on the thread count.
+fn victory_laps(args: &Args) -> Vec<Vec<Card>> {
+    let want = VICTORY_LAPS.min(args.runs.max(1));
+    let base = args.seed.rotate_left(32);
+    let mut decks = Vec::new();
+    let mut tried = 0;
+    // Smart beats The House about one run in twelve; give up well past that.
+    while decks.len() < want && tried < want * 200 {
+        let batch = (want - decks.len()) * 16;
+        let (_, found) = in_parallel(tried..tried + batch, |i, stats| {
+            play_run(Player::Smart, args, None, run_seed(base, i), stats)
+        });
+        decks.extend(found);
+        tried += batch;
+    }
+    decks.truncate(want);
+    decks
 }
 
 /// Run `i`'s own seed, so the numbers don't depend on how many threads ran
@@ -553,28 +628,57 @@ fn run_seed(base: u64, i: usize) -> u64 {
     (z ^ (z >> 31)) | 1
 }
 
-fn simulate(player: Player, args: &Args) -> Stats {
+/// Play run `i` for every `i` in `runs`, across every thread. Hands back the
+/// merged stats and whatever the runs found, in run order.
+fn in_parallel<T: Send>(
+    runs: std::ops::Range<usize>,
+    play: impl Fn(usize, &mut Stats) -> Option<T> + Sync,
+) -> (Stats, Vec<T>) {
     let threads = thread::available_parallelism()
         .map_or(1, |n| n.get())
-        .min(args.runs.max(1));
+        .min(runs.len().max(1));
     let mut total = Stats::default();
+    let mut found = Vec::new();
     thread::scope(|s| {
         let handles: Vec<_> = (0..threads)
             .map(|t| {
+                let (runs, play) = (runs.clone(), &play);
                 s.spawn(move || {
                     let mut stats = Stats::default();
-                    for i in (t..args.runs).step_by(threads) {
-                        play_run(player, args, run_seed(args.seed, i), &mut stats);
+                    let mut found = Vec::new();
+                    for i in runs.skip(t).step_by(threads) {
+                        if let Some(x) = play(i, &mut stats) {
+                            found.push((i, x));
+                        }
                     }
-                    stats
+                    (stats, found)
                 })
             })
             .collect();
         for h in handles {
-            total.merge(&h.join().expect("a sim thread panicked"));
+            let (stats, f) = h.join().expect("a sim thread panicked");
+            total.merge(&stats);
+            found.extend(f);
         }
     });
-    total
+    found.sort_by_key(|(i, _)| *i);
+    (total, found.into_iter().map(|(_, x)| x).collect())
+}
+
+/// `laps` are Victory Lap's decks, dealt round the runs; empty unless
+/// `--legacy victory-lap`.
+fn simulate(player: Player, args: &Args, laps: &[Vec<Card>]) -> Stats {
+    in_parallel(0..args.runs, |i, stats| {
+        let perk = match &args.legacy {
+            Some(LegacyPerk::VictoryLap { .. }) => {
+                Some(LegacyPerk::victory_lap(&laps[i % laps.len()]))
+            }
+            other => other.clone(),
+        };
+        play_run(player, args, perk.as_ref(), run_seed(args.seed, i), stats);
+        None::<()>
+    })
+    .0
 }
 
 // ---------------------------------------------------------------------------
@@ -659,8 +763,26 @@ fn main() {
             .collect();
         format!("Wheel {}", squares.join(", "))
     };
+    let laps = match args.legacy {
+        Some(LegacyPerk::VictoryLap { .. }) => {
+            let laps = victory_laps(&args);
+            if laps.is_empty() {
+                eprintln!("--legacy victory-lap: no smart run beat The House to give it a deck");
+                std::process::exit(1);
+            }
+            laps
+        }
+        _ => Vec::new(),
+    };
+    let perk = match &args.legacy {
+        Some(LegacyPerk::VictoryLap { .. }) => {
+            format!(", Legacy Victory Lap ({} winning decks)", laps.len())
+        }
+        Some(perk) => format!(", Legacy {}", perk.name()),
+        None => String::new(),
+    };
     println!(
-        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}{}\n",
+        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}{perk}{}\n",
         args.runs,
         args.seed,
         args.pick,
@@ -671,7 +793,7 @@ fn main() {
         }
     );
     for &player in &args.players {
-        report(player, &simulate(player, &args));
+        report(player, &simulate(player, &args, &laps));
         println!();
     }
 }

@@ -22,6 +22,7 @@ but it's too slow to tune with.
 | `--minion` | `items`, `cards`, `skip`, `random`    | `random`    |
 | `--wheel`  | `square=rank,...`, e.g. `bankroll=3,lucky-coin=2` | no Wheel |
 | `--carry`  | (no value)                            | off         |
+| `--legacy` | `high-limit`, `marked-cards`, `lucky-streak`, `victory-lap` | none |
 
 The same seed gives the same numbers, whatever the thread count, so a diff
 against the baseline is the change you made and nothing else.
@@ -55,6 +56,15 @@ when no card prints at 5 or more, until it has none left; naive never
 rerolls. Squares are named in lower case with dashes
 (`early-read`), ranks 1 to 3, and only the squares that do something yet are
 accepted.
+
+With `--legacy`, every run starts under that Legacy Perk the way the game
+starts the run after a House win (`legacy::apply`), before The Wheel's
+spin. Victory Lap needs a deck that beat The House, so the sim first plays
+smart runs of its own (same Wheel, no Legacy Perk, seeds of their own) and
+keeps the decks of the ones that win, Flop Pack included, up to 500 of
+them; each run then starts with one of those, naive runs too. A run that
+beats The House opens its Flop Pack as in the game (`RewardOffer::Legacy`);
+the pick itself has no effect on the run's numbers.
 
 With `--carry`, a duel lost before The House doesn't end the run: the
 player goes on at the Chips it sat down with and takes the reward as if it
@@ -139,3 +149,16 @@ Smart with fixed picks: `--pick first` 8.4%, `--pick second` 7.6%.
 
 With `--carry`, The House row: smart 33.1% won (arriving with 17.8 Chips),
 naive 0.6% (40.1 Chips).
+
+Legacy Perks (#168), `--runs 20000`, no Wheel, against 8.3% with none:
+
+| `--legacy`     | smart win | naive win |
+| -------------- | --------- | --------- |
+| `high-limit`   | 18.2%     | 0.0%      |
+| `lucky-streak` | 19.2%     | 0.0%      |
+| `marked-cards` | 10.1%     | 0.0%      |
+| `victory-lap`  | 9.3%      | 0.0%      |
+
+High Limit as first designed, +1 Blind all run, was 40.2% (naive 2.8%), so
+it was cut to the first two turns of each duel. Marked Cards and Victory Lap
+barely beat no perk and are still to tune.
