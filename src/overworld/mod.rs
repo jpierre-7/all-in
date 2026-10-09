@@ -363,6 +363,8 @@ struct OpenPack {
     picked: Vec<usize>,
     title: &'static str,
     prose: &'static str,
+    /// A minion's, which Second Look can reroll. A Boss Pack can't be.
+    minion: bool,
 }
 
 /// The Items a minion's reward put on the table, after choosing Items.
@@ -407,15 +409,16 @@ fn show_reward(
             picked: Vec::new(),
             title: "The Boss Pack",
             prose: narrative::BOSS_PACK,
+            minion: false,
         };
-        spawn_pack(&mut commands, &open);
+        spawn_pack(&mut commands, &open, &run);
         commands.insert_resource(open);
         return;
     }
-    spawn_offer(&mut commands, &progress);
+    spawn_offer(&mut commands, &progress, &run);
 }
 
-fn spawn_pack(commands: &mut Commands, open: &OpenPack) {
+fn spawn_pack(commands: &mut Commands, open: &OpenPack, run: &RunState) {
     let mut screen = Screen::new().title(open.title).prose(open.prose);
     for (i, card) in open.pack.cards.iter().enumerate() {
         let mark = if open.picked.contains(&i) {
@@ -426,12 +429,14 @@ fn spawn_pack(commands: &mut Commands, open: &OpenPack) {
         screen = screen.option(i as u8 + 1, &format!("{mark}{}", card_line(card)));
     }
     let them = if open.pack.keep == 1 { "it" } else { "them" };
+    let rerolls = if open.minion { run.rerolls } else { 0 };
     let footer = format!(
-        "Press 1 to {} to mark {} to keep, again to put one back. Enter takes {them}. ({} of {})",
+        "Press 1 to {} to mark {} to keep, again to put one back. Enter takes {them}. ({} of {}){}",
         open.pack.cards.len(),
         open.pack.keep,
         open.picked.len(),
         open.pack.keep,
+        reroll_hint(rerolls),
     );
     let root = screen.footer(footer).spawn(commands, AppState::Reward);
     commands.entity(root).insert(RewardScreen);
@@ -445,8 +450,33 @@ fn card_line(card: &Card) -> String {
     }
 }
 
+/// The key that rerolls a minion's opened reward with Second Look.
+const REROLL: KeyCode = KeyCode::KeyR;
+
+/// What the footer of a minion's opened reward adds while Second Look has
+/// rerolls left.
+fn reroll_hint(rerolls: u8) -> String {
+    match rerolls {
+        0 => String::new(),
+        1 => " R rerolls it (1 left).".into(),
+        n => format!(" R rerolls it ({n} left)."),
+    }
+}
+
+/// A Pack's size as the minion's offer says it.
+fn count_word(n: usize) -> String {
+    match n {
+        3 => "three".into(),
+        4 => "four".into(),
+        5 => "five".into(),
+        6 => "six".into(),
+        7 => "seven".into(),
+        n => n.to_string(),
+    }
+}
+
 /// The minion's choice or the Perk pick for the encounter just won.
-fn spawn_offer(commands: &mut Commands, progress: &Progress) {
+fn spawn_offer(commands: &mut Commands, progress: &Progress, run: &RunState) {
     let Some(offer) = progress.reward_offer() else {
         return;
     };
@@ -456,7 +486,13 @@ fn spawn_offer(commands: &mut Commands, progress: &Progress) {
             .title("Something's left on the felt")
             .prose(narrative::MINION_REWARD)
             .option(1, "Items: three of them, keep one.")
-            .option(2, "Cards: a Pack of three, keep one.")
+            .option(
+                2,
+                &format!(
+                    "Cards: a Pack of {}, keep one.",
+                    count_word(run.wheel.minion_pack_size())
+                ),
+            )
             .option(3, "Leave it.")
             .footer("Press 1, 2 or 3. You don't get to look first."),
         RewardOffer::Pick(one, two) => Screen::new()
@@ -471,12 +507,16 @@ fn spawn_offer(commands: &mut Commands, progress: &Progress) {
     commands.entity(root).insert(RewardScreen);
 }
 
-fn spawn_items(commands: &mut Commands, open: &OpenItems) {
+fn spawn_items(commands: &mut Commands, open: &OpenItems, run: &RunState) {
     let mut screen = Screen::new().title("Items").prose(narrative::MINION_ITEMS);
     for (i, &item) in open.0.iter().enumerate() {
         screen = screen.option(i as u8 + 1, &Reward::Item(item).label());
     }
-    let footer = format!("Press 1 to {}. The rest stay on the felt.", open.0.len());
+    let footer = format!(
+        "Press 1 to {}. The rest stay on the felt.{}",
+        open.0.len(),
+        reroll_hint(run.rerolls)
+    );
     let root = screen.footer(footer).spawn(commands, AppState::Reward);
     commands.entity(root).insert(RewardScreen);
 }
@@ -490,7 +530,7 @@ fn take_reward(
     time: Res<Time>,
     tutorial: Option<Res<InTutorial>>,
     open: Option<ResMut<OpenPack>>,
-    items: Option<Res<OpenItems>>,
+    items: Option<ResMut<OpenItems>>,
     shown: Query<Entity, With<RewardScreen>>,
     mut run: ResMut<RunState>,
     mut progress: ResMut<Progress>,
@@ -507,9 +547,15 @@ fn take_reward(
     }
 
     // The Boss Pack: a number marks or unmarks a card, Enter takes the marked
-    // ones once there are as many as the Pack lets you keep.
+    // ones once there are as many as the Pack lets you keep. A minion's Pack
+    // too, and Second Look can deal it again.
     if let Some(mut open) = open {
-        if let Some(n) = digit_pressed(&keys) {
+        if keys.just_pressed(REROLL) && open.minion && run.reroll() {
+            open.pack = Pack::minion(&run, time.elapsed_secs_f64().to_bits());
+            open.picked.clear();
+            redraw(&mut commands, &shown);
+            spawn_pack(&mut commands, &open, &run);
+        } else if let Some(n) = digit_pressed(&keys) {
             let i = usize::from(n) - 1;
             if let Some(at) = open.picked.iter().position(|&p| p == i) {
                 open.picked.remove(at);
@@ -519,7 +565,7 @@ fn take_reward(
                 return;
             }
             redraw(&mut commands, &shown);
-            spawn_pack(&mut commands, &open);
+            spawn_pack(&mut commands, &open, &run);
         } else if confirm(&keys) && run.keep(&open.pack, &open.picked) {
             commands.remove_resource::<OpenPack>();
             // A minion's Pack is the whole reward; a boss's comes before
@@ -529,14 +575,24 @@ fn take_reward(
                 next.set(progress.arrival());
             } else {
                 redraw(&mut commands, &shown);
-                spawn_offer(&mut commands, &progress);
+                spawn_offer(&mut commands, &progress, &run);
             }
         }
         return;
     }
 
-    // A minion's Items: a number keeps that one and the rest are gone.
-    if let Some(items) = items {
+    // A minion's Items: a number keeps that one and the rest are gone, and
+    // Second Look can deal three more in their place.
+    if let Some(mut items) = items {
+        if keys.just_pressed(REROLL) {
+            let fresh = item::offer(&run.items, MINION_ITEMS, time.elapsed_secs_f64().to_bits());
+            if !fresh.is_empty() && run.reroll() {
+                items.0 = fresh;
+                redraw(&mut commands, &shown);
+                spawn_items(&mut commands, &items, &run);
+            }
+            return;
+        }
         let picked = digit_pressed(&keys).and_then(|n| items.0.get(usize::from(n) - 1));
         if let Some(&item) = picked {
             commands.remove_resource::<OpenItems>();
@@ -565,7 +621,7 @@ fn take_reward(
                         return;
                     }
                     redraw(&mut commands, &shown);
-                    spawn_items(&mut commands, &open);
+                    spawn_items(&mut commands, &open, &run);
                     commands.insert_resource(open);
                 }
                 Some(2) => {
@@ -574,9 +630,10 @@ fn take_reward(
                         picked: Vec::new(),
                         title: "A Pack",
                         prose: narrative::MINION_PACK,
+                        minion: true,
                     };
                     redraw(&mut commands, &shown);
-                    spawn_pack(&mut commands, &open);
+                    spawn_pack(&mut commands, &open, &run);
                     commands.insert_resource(open);
                 }
                 Some(3) => {
@@ -1043,6 +1100,83 @@ mod tests {
         assert_eq!(run.deck.last(), Some(&cards[2]));
         assert!(run.items.is_empty());
         assert_eq!(state(&app), AppState::FightOrFold);
+    }
+
+    /// The run on the reward screen, with Second Look's `rerolls` and Fat
+    /// Pack at `fat_pack` (0 for none).
+    fn with_the_wheel(app: &mut App, rerolls: u8, fat_pack: u8) {
+        let board = [(Square::FatPack, fat_pack)].into_iter().collect();
+        let mut run = app.world_mut().resource_mut::<RunState>();
+        run.rerolls = rerolls;
+        run.wheel = crate::wheel::Spun::new(&board, None);
+    }
+
+    #[test]
+    fn fat_pack_opens_a_bigger_minion_pack_and_still_keeps_one() {
+        let mut app = minion_reward();
+        with_the_wheel(&mut app, 0, 2);
+        let deck = deck_len(&app);
+
+        press(&mut app, KeyCode::Digit2);
+        let cards = pack_cards(&app);
+        assert_eq!(cards.len(), 5);
+
+        press(&mut app, KeyCode::Digit5);
+        press(&mut app, KeyCode::Digit4);
+        press(&mut app, KeyCode::Enter);
+
+        let run = app.world().resource::<RunState>();
+        assert_eq!(run.deck.len(), deck + 1);
+        assert_eq!(run.deck.last(), Some(&cards[4]));
+    }
+
+    #[test]
+    fn second_look_rerolls_a_minions_pack_until_none_are_left() {
+        let mut app = minion_reward();
+        with_the_wheel(&mut app, 1, 0);
+
+        press(&mut app, KeyCode::Digit2);
+        let first = pack_cards(&app);
+        press(&mut app, KeyCode::Digit1);
+        press(&mut app, KeyCode::KeyR);
+
+        assert_ne!(pack_cards(&app), first, "a fresh Pack");
+        assert!(app.world().resource::<OpenPack>().picked.is_empty());
+        assert_eq!(app.world().resource::<RunState>().rerolls, 0);
+
+        let second = pack_cards(&app);
+        press(&mut app, KeyCode::KeyR);
+        assert_eq!(pack_cards(&app), second, "none left");
+        assert_eq!(state(&app), AppState::Reward);
+    }
+
+    #[test]
+    fn second_look_rerolls_a_minions_items() {
+        let mut app = minion_reward();
+        with_the_wheel(&mut app, 2, 0);
+
+        press(&mut app, KeyCode::Digit1);
+        press(&mut app, KeyCode::KeyR);
+        let offered = app.world().resource::<OpenItems>().0.clone();
+        assert_eq!(offered.len(), 3);
+        assert_eq!(app.world().resource::<RunState>().rerolls, 1);
+
+        press(&mut app, KeyCode::Digit3);
+        let run = app.world().resource::<RunState>();
+        assert_eq!(run.uses(offered[2]), Some(offered[2].uses));
+        assert_eq!(run.rerolls, 1, "the one left carries on");
+    }
+
+    #[test]
+    fn second_look_cant_reroll_a_boss_pack() {
+        let mut app = slotz_pack();
+        with_the_wheel(&mut app, 1, 0);
+        let cards = pack_cards(&app);
+
+        press(&mut app, KeyCode::KeyR);
+
+        assert_eq!(pack_cards(&app), cards);
+        assert_eq!(app.world().resource::<RunState>().rerolls, 1);
     }
 
     /// Keep the Boss Pack's first two cards and take them.

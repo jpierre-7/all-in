@@ -79,17 +79,11 @@ impl Square {
 
     /// Whether the square does anything yet. One that doesn't shows as
     /// "coming soon" and takes no chips: the economy squares wait on Cash,
-    /// Interest, Side Bets and the Cage, and Fat Pack and Second Look on
-    /// being read by the minion reward offer (#173).
+    /// Interest, Side Bets and the Cage.
     pub fn ready(self) -> bool {
         !matches!(
             self,
-            Square::SeedMoney
-                | Square::Compound
-                | Square::Sweetener
-                | Square::Regular
-                | Square::FatPack
-                | Square::SecondLook
+            Square::SeedMoney | Square::Compound | Square::Sweetener | Square::Regular
         )
     }
 
@@ -182,7 +176,7 @@ fn bankroll(rank: u8) -> u32 {
 
 /// Fat Pack: how many cards a minion's Pack shows, one more a rank than
 /// without it.
-pub fn fat_pack(rank: u8) -> usize {
+fn fat_pack(rank: u8) -> usize {
     MINION_PACK_SIZE + usize::from(rank.min(4))
 }
 
@@ -206,7 +200,7 @@ fn pocket_change(rank: u8) -> Option<PocketChange> {
 }
 
 /// Second Look: rerolls of a minion reward offer, a run.
-pub fn second_look(rank: u8) -> u8 {
+fn second_look(rank: u8) -> u8 {
     rank.min(4)
 }
 
@@ -399,6 +393,11 @@ impl Spun {
             .collect()
     }
 
+    /// How many cards a minion's Pack shows: Fat Pack's.
+    pub fn minion_pack_size(&self) -> usize {
+        fat_pack(self.rank(Square::FatPack))
+    }
+
     /// How many starting cards Trim lets the player take out.
     pub fn trims(&self) -> usize {
         trims(self.rank(Square::Trim))
@@ -417,7 +416,8 @@ impl Spun {
 }
 
 /// A fresh run under `wheel`: Bankroll's Chips, Inside Man's Tells and card,
-/// Lucky Coin's re-flips, and a random Pocket Change Item. The choices are
+/// Lucky Coin's re-flips, Second Look's rerolls, and a random Pocket Change
+/// Item. The choices are
 /// the caller's to put to the player afterwards: [`Spun::trims`] and
 /// [`Spun::pocket_pick`].
 pub fn start_run(wheel: Spun, seed: u64) -> RunState {
@@ -425,6 +425,7 @@ pub fn start_run(wheel: Spun, seed: u64) -> RunState {
     let mut run = RunState::new();
     run.chips += bankroll(wheel.rank(Square::Bankroll));
     run.reflips = lucky_coin(wheel.rank(Square::LuckyCoin));
+    run.rerolls = second_look(wheel.rank(Square::SecondLook));
 
     let inside = wheel.rank(Square::InsideMan);
     run.open_tells = inside_man(inside);
@@ -566,19 +567,20 @@ mod tests {
     }
 
     #[test]
-    fn six_squares_are_ready_now() {
+    fn every_square_but_the_economys_is_ready_now() {
         let ready: Vec<Square> = Square::ALL.into_iter().filter(|s| s.ready()).collect();
         assert_eq!(
             ready,
             [
                 Square::Bankroll,
+                Square::FatPack,
                 Square::PocketChange,
+                Square::SecondLook,
                 Square::LuckyCoin,
                 Square::InsideMan,
                 Square::Trim,
                 Square::EarlyRead,
             ],
-            "Fat Pack and Second Look join them once the minion reward offer reads them (#173)"
         );
     }
 
@@ -649,6 +651,8 @@ mod tests {
         assert!(run.items.is_empty());
         assert_eq!(run.tell_pool(), fresh.tell_pool());
         assert_eq!(run.reflips, 0);
+        assert_eq!(run.rerolls, 0);
+        assert_eq!(run.wheel.minion_pack_size(), MINION_PACK_SIZE);
     }
 
     #[test]
@@ -669,6 +673,38 @@ mod tests {
         let run = run_with(&[(Square::LuckyCoin, 3)]);
         assert_eq!(run.reflips, 3);
         assert_eq!(Duel::for_run(&run, MINION, SEED).reflips_left(), 3);
+    }
+
+    #[test]
+    fn fat_pack_shows_one_more_card_a_rank_in_a_minions_pack() {
+        for (rank, cards) in [(1, 4), (2, 5), (3, 6)] {
+            let run = run_with(&[(Square::FatPack, rank)]);
+            let pack = crate::run::Pack::minion(&run, SEED);
+            assert_eq!(pack.cards.len(), cards, "rank {rank}");
+            assert_eq!(pack.keep, 1, "still keep one");
+        }
+        let hot = start_run(
+            Spun::new(&board(&[(Square::FatPack, 3)]), Some(Square::FatPack)),
+            SEED,
+        );
+        assert_eq!(crate::run::Pack::minion(&hot, SEED).cards.len(), 7);
+    }
+
+    #[test]
+    fn fat_pack_leaves_the_boss_pack_alone() {
+        let run = run_with(&[(Square::FatPack, 3)]);
+        let pack = BOSS.boss_pack(&run, SEED).expect("a boss deals one");
+        assert_eq!(pack.cards.len(), crate::run::BOSS_PACK_SIZE);
+    }
+
+    #[test]
+    fn second_look_hands_the_run_a_reroll_a_rank() {
+        assert_eq!(run_with(&[(Square::SecondLook, 2)]).rerolls, 2);
+        let hot = start_run(
+            Spun::new(&board(&[(Square::SecondLook, 3)]), Some(Square::SecondLook)),
+            SEED,
+        );
+        assert_eq!(hot.rerolls, 4);
     }
 
     #[test]

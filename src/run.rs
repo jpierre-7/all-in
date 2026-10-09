@@ -219,7 +219,7 @@ pub struct Pack {
 pub const BOSS_PACK_SIZE: usize = 7;
 pub const BOSS_PACK_KEEP: usize = 2;
 
-/// A minion's Pack: three cards, keep one.
+/// A minion's Pack: three cards, keep one. Fat Pack shows more.
 pub const MINION_PACK_SIZE: usize = 3;
 pub const MINION_PACK_KEEP: usize = 1;
 
@@ -260,12 +260,13 @@ impl Pack {
     }
 
     /// What beating a minion can deal: regular cards off the run's pool, so
-    /// a Boss Tell only turns up once its boss is beaten.
+    /// a Boss Tell only turns up once its boss is beaten. As many as the
+    /// run's Fat Pack shows.
     pub fn minion(run: &RunState, seed: u64) -> Self {
         let pool = run.tell_pool();
         let mut rng = seed | 1;
         Pack {
-            cards: (0..MINION_PACK_SIZE)
+            cards: (0..run.wheel.minion_pack_size())
                 .map(|_| deal_card(PACK_FACES, PACK_TELL_PCT, &pool, &mut rng))
                 .collect(),
             keep: MINION_PACK_KEEP,
@@ -299,6 +300,8 @@ pub struct RunState {
     pub wheel: Spun,
     /// Lucky Coin's re-flips left this run.
     pub reflips: u8,
+    /// Second Look's rerolls of a minion reward offer left this run.
+    pub rerolls: u8,
 }
 
 impl RunState {
@@ -313,6 +316,7 @@ impl RunState {
             open_tells: Vec::new(),
             wheel: Spun::default(),
             reflips: 0,
+            rerolls: 0,
         }
     }
 
@@ -345,6 +349,17 @@ impl RunState {
         }
         self.deck
             .extend(picks.iter().map(|&i| pack.cards[i].clone()));
+        true
+    }
+
+    /// Spend one of Second Look's rerolls on the minion reward offer on the
+    /// table, or `false` with none left. The caller deals the fresh offer:
+    /// the same kind, Items for Items and a Pack for a Pack.
+    pub fn reroll(&mut self) -> bool {
+        let Some(left) = self.rerolls.checked_sub(1) else {
+            return false;
+        };
+        self.rerolls = left;
         true
     }
 
@@ -1079,6 +1094,19 @@ mod tests {
 
         assert_eq!(Pack::minion(&run, SEED), Pack::minion(&run, SEED));
         assert_ne!(Pack::minion(&run, SEED), Pack::minion(&run, SEED ^ 0xffff));
+    }
+
+    #[test]
+    fn a_reroll_is_spent_until_none_are_left() {
+        let mut run = RunState {
+            rerolls: 2,
+            ..RunState::new()
+        };
+
+        assert!(run.reroll());
+        assert!(run.reroll());
+        assert!(!run.reroll());
+        assert_eq!(run.rerolls, 0);
     }
 
     #[test]

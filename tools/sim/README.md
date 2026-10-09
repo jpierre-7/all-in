@@ -48,7 +48,11 @@ With `--wheel`, every run starts under that board the way the game starts
 one once The Wheel is open (`wheel::start_run`): the spin picks a Hot Square
 off the run's seed, then Trim and Pocket Change put their choices. Smart
 trims its lowest plain cards and naive trims nothing; both take the first
-Item Pocket Change offers. Squares are named in lower case with dashes
+Item Pocket Change offers. Fat Pack needs nothing from the players: the
+minion's Pack just shows more cards. With Second Look's rerolls, smart
+rerolls a minion's three Items when all of them are common, and its Pack
+when no card prints at 5 or more, until it has none left; naive never
+rerolls. Squares are named in lower case with dashes
 (`early-read`), ranks 1 to 3, and only the squares that do something yet are
 accepted.
 

@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::thread;
 
 use all_in::combat::duel::{Duel, Phase, resolve_row, row_value};
-use all_in::item::{self, When};
+use all_in::item::{self, Rarity, When};
 use all_in::overworld::progression::RUN;
 use all_in::run::{
     Card, CombatOutcome, Encounter, Floor, Pack, Perk, Reward, RewardOffer, RunState, Tell,
@@ -405,9 +405,16 @@ fn choose(one: Reward, two: Reward, pick: Pick, rng: &mut u64) -> Reward {
     }
 }
 
+/// A Pack whose best card prints under this is one smart rerolls with
+/// Second Look: the middle of what a Pack deals (2 to 8).
+const REROLL_BELOW: u32 = 5;
+
 /// A minion's reward, taken as the overworld offers it: three Items or a
-/// Pack of three, keep one, or nothing. The naive player keeps any Item;
-/// the smart one the rarest, since the stronger Items are the rarer ones.
+/// Pack, keep one, or nothing. The naive player keeps any Item; the smart
+/// one the rarest, since the stronger Items are the rarer ones. With Second
+/// Look, smart rerolls three common Items, or a Pack with nothing at
+/// [`REROLL_BELOW`] or better, while it has rerolls left. Naive never
+/// rerolls.
 fn take_minion_reward(run: &mut RunState, player: Player, minion: Minion, rng: &mut u64) {
     let minion = match minion {
         Minion::Random => {
@@ -415,9 +422,16 @@ fn take_minion_reward(run: &mut RunState, player: Player, minion: Minion, rng: &
         }
         chosen => chosen,
     };
+    let smart = player == Player::Smart;
     match minion {
         Minion::Items => {
-            let offered = item::offer(&run.items, 3, xorshift64(rng));
+            let mut offered = item::offer(&run.items, 3, xorshift64(rng));
+            while smart
+                && offered.iter().all(|item| item.rarity() == Rarity::Common)
+                && run.reroll()
+            {
+                offered = item::offer(&run.items, 3, xorshift64(rng));
+            }
             let taken = match player {
                 _ if offered.is_empty() => return,
                 Player::Naive => offered[(xorshift64(rng) % offered.len() as u64) as usize],
@@ -429,7 +443,13 @@ fn take_minion_reward(run: &mut RunState, player: Player, minion: Minion, rng: &
             run.apply(Reward::Item(taken), xorshift64(rng));
         }
         Minion::Cards => {
-            let pack = Pack::minion(run, xorshift64(rng));
+            let mut pack = Pack::minion(run, xorshift64(rng));
+            while smart
+                && pack.cards.iter().all(|card| card.face_value < REROLL_BELOW)
+                && run.reroll()
+            {
+                pack = Pack::minion(run, xorshift64(rng));
+            }
             let picks = keep(&pack, player, rng);
             assert!(
                 run.keep(&pack, &picks),
