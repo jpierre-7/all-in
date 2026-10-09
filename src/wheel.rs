@@ -415,14 +415,14 @@ impl Spun {
     }
 }
 
-/// A fresh run under `wheel`: Bankroll's Chips, Inside Man's Tells and card,
-/// Lucky Coin's re-flips, Second Look's rerolls, and a random Pocket Change
-/// Item. The choices are
-/// the caller's to put to the player afterwards: [`Spun::trims`] and
-/// [`Spun::pocket_pick`].
-pub fn start_run(wheel: Spun, seed: u64) -> RunState {
+/// `run` started under `wheel`: Bankroll's Chips, Inside Man's Tells and
+/// card, Lucky Coin's re-flips, Second Look's rerolls, and a random Pocket
+/// Change Item. `run` is fresh, or shaped by a Legacy Perk already
+/// (`legacy::apply`), so Inside Man's card joins a Victory Lap deck rather
+/// than being lost to it. The choices are the caller's to put to the player
+/// afterwards: [`Spun::trims`] and [`Spun::pocket_pick`].
+pub fn start_run(mut run: RunState, wheel: Spun, seed: u64) -> RunState {
     let mut rng = seed | 1;
-    let mut run = RunState::new();
     run.chips += bankroll(wheel.rank(Square::Bankroll));
     run.reflips = lucky_coin(wheel.rank(Square::LuckyCoin));
     run.rerolls = second_look(wheel.rank(Square::SecondLook));
@@ -500,7 +500,7 @@ mod tests {
 
     /// A run under `squares`, nothing hot.
     fn run_with(squares: &[(Square, u8)]) -> RunState {
-        start_run(Spun::new(&board(squares), None), SEED)
+        start_run(RunState::new(), Spun::new(&board(squares), None), SEED)
     }
 
     const BOSS: Encounter = Encounter::Boss {
@@ -644,7 +644,7 @@ mod tests {
 
     #[test]
     fn an_empty_board_starts_the_same_run_as_no_wheel_at_all() {
-        let run = start_run(Spun::default(), SEED);
+        let run = start_run(RunState::new(), Spun::default(), SEED);
         let fresh = RunState::new();
         assert_eq!(run.chips, fresh.chips);
         assert_eq!(run.deck, fresh.deck);
@@ -662,6 +662,7 @@ mod tests {
             STARTING_CHIPS + 10
         );
         let hot = start_run(
+            RunState::new(),
             Spun::new(&board(&[(Square::Bankroll, 3)]), Some(Square::Bankroll)),
             SEED,
         );
@@ -684,6 +685,7 @@ mod tests {
             assert_eq!(pack.keep, 1, "still keep one");
         }
         let hot = start_run(
+            RunState::new(),
             Spun::new(&board(&[(Square::FatPack, 3)]), Some(Square::FatPack)),
             SEED,
         );
@@ -701,6 +703,7 @@ mod tests {
     fn second_look_hands_the_run_a_reroll_a_rank() {
         assert_eq!(run_with(&[(Square::SecondLook, 2)]).rerolls, 2);
         let hot = start_run(
+            RunState::new(),
             Spun::new(&board(&[(Square::SecondLook, 3)]), Some(Square::SecondLook)),
             SEED,
         );
@@ -711,13 +714,13 @@ mod tests {
     fn pocket_change_at_rank_one_and_two_puts_an_item_in_your_pocket() {
         for seed in 1..50 {
             let board = board(&[(Square::PocketChange, 1)]);
-            let run = start_run(Spun::new(&board, None), seed);
+            let run = start_run(RunState::new(), Spun::new(&board, None), seed);
             assert_eq!(run.items.len(), 1);
             assert_eq!(run.items[0].item.rarity(), Rarity::Common);
             assert_eq!(run.items[0].uses, run.items[0].item.uses);
 
             let board = self::board(&[(Square::PocketChange, 2)]);
-            let run = start_run(Spun::new(&board, None), seed);
+            let run = start_run(RunState::new(), Spun::new(&board, None), seed);
             assert_eq!(run.items[0].item.rarity(), Rarity::Uncommon);
             assert!(Spun::new(&board, None).pocket_pick(seed).is_empty());
         }
@@ -727,7 +730,9 @@ mod tests {
     fn pocket_change_at_rank_three_is_a_pick_of_three_none_of_them_rare() {
         let spun = Spun::new(&board(&[(Square::PocketChange, 3)]), None);
         assert!(
-            start_run(spun.clone(), SEED).items.is_empty(),
+            start_run(RunState::new(), spun.clone(), SEED)
+                .items
+                .is_empty(),
             "nothing yet"
         );
         for seed in 1..100 {
@@ -782,7 +787,7 @@ mod tests {
     fn inside_man_at_rank_four_deals_one_boss_tell_card_into_the_deck() {
         for seed in 1..50 {
             let spun = Spun::new(&board(&[(Square::InsideMan, 3)]), Some(Square::InsideMan));
-            let run = start_run(spun, seed);
+            let run = start_run(RunState::new(), spun, seed);
             assert_eq!(run.deck.len(), starter_deck().len() + 1);
             let card = run.deck.last().unwrap();
             assert!(
@@ -826,7 +831,7 @@ mod tests {
     /// of a duel against `encounter` under `squares`.
     fn read_on(squares: &[(Square, u8)], hot: bool, encounter: Encounter, turn: u32) -> bool {
         let hot = hot.then_some(Square::EarlyRead);
-        let run = start_run(Spun::new(&board(squares), hot), SEED);
+        let run = start_run(RunState::new(), Spun::new(&board(squares), hot), SEED);
         let mut duel = Duel::for_run(&run, encounter, SEED);
         while duel.turn() < turn {
             duel.confirm();

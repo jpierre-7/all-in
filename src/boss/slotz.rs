@@ -74,7 +74,8 @@ impl Modifier for AllNight {
     }
 }
 
-/// Push Your Luck becomes best 2 of 3, at 49/51.
+/// Push Your Luck becomes best 2 of 3, at 49/51, or better if a Perk taken
+/// before it already weighted the coin further (Lucky Streak).
 pub static BEST_TWO_OF_THREE: Perk = Perk {
     label: "Push Your Luck becomes best 2 of 3, at 49/51.",
     modifier: &BestTwoOfThree,
@@ -84,10 +85,10 @@ pub static BEST_TWO_OF_THREE: Perk = Perk {
 struct BestTwoOfThree;
 
 impl Modifier for BestTwoOfThree {
-    fn coin(&self, _coin: Coin) -> Coin {
+    fn coin(&self, coin: Coin) -> Coin {
         // 3p² - 2p³ at 49% is about 48.5%: nearly a fair coin.
         Coin {
-            player_pct: 49,
+            player_pct: coin.player_pct.max(49),
             best_of: 3,
         }
     }

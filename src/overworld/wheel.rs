@@ -1,5 +1,6 @@
 //! The Wheel's two screens (#167): arranging Golden Chips off the Lobby, and
-//! the spin that starts a run, with the choices Trim and Pocket Change put.
+//! the spin that starts a run, with the waiting Legacy Perk (#168) and the
+//! choices Trim and Pocket Change put.
 //! What each square does is `crate::wheel`'s; this only shows it and takes
 //! the keys.
 
@@ -10,6 +11,7 @@ use super::progression::Progress;
 use super::screens::{Screen, any_key, confirm, digit_pressed};
 use crate::combat::plugin::{DuelSeed, roll_seed};
 use crate::item::Item;
+use crate::legacy::{self, LegacyPerk};
 use crate::run::{Reward, RunState};
 use crate::save::SaveSlot;
 use crate::state::AppState;
@@ -162,24 +164,34 @@ enum Starting {
     Pick(Vec<&'static Item>),
 }
 
-/// The board locks and The Wheel spins: the run starts under it, with the
-/// choices still to put kept for after the spin is shown.
+/// The board locks and The Wheel spins: the run starts under it and under
+/// the Legacy Perk waiting in the slot, which this run takes and spends. The
+/// choices still to put are kept for after the spin is shown.
 fn spin_the_wheel(
     mut commands: Commands,
-    slot: Res<SaveSlot>,
+    mut slot: ResMut<SaveSlot>,
     time: Res<Time>,
     pinned: Option<ResMut<DuelSeed>>,
     mut run: ResMut<RunState>,
 ) {
     let seed = roll_seed(pinned, &time);
     let spun = Spun::new(&slot.wheel, wheel::spin(seed));
-    *run = wheel::start_run(spun, seed.rotate_left(23));
-    spawn_spin(&mut commands, &run.wheel);
+    let perk = slot.legacy_perk.take();
+    let mut fresh = RunState::new();
+    if let Some(perk) = &perk {
+        legacy::apply(&mut fresh, perk);
+    }
+    *run = wheel::start_run(fresh, spun, seed.rotate_left(23));
+    spawn_spin(&mut commands, &run.wheel, perk.as_ref());
     commands.insert_resource(Starting::Spun);
 }
 
-fn spawn_spin(commands: &mut Commands, spun: &Spun) {
-    let mut screen = Screen::new().title("The Wheel").prose(narrative::SPIN);
+fn spawn_spin(commands: &mut Commands, spun: &Spun, perk: Option<&LegacyPerk>) {
+    let mut screen = Screen::new().title("The Wheel");
+    if let Some(perk) = perk {
+        screen = screen.prose(format!("Your Legacy Perk tonight. {}", perk.describe()));
+    }
+    screen = screen.prose(narrative::SPIN);
     screen = match spun.hot() {
         Some(hot) => screen.prose(format!(
             "It drops on {}. That square is hot tonight.",

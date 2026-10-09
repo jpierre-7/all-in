@@ -189,6 +189,10 @@ pub const PERK_PICK: &str = "\
 Something about how you play changes from here. You only get to change one
 thing, and you don't get to change it back.";
 
+pub const LEGACY_PICK: &str = "\
+Nobody beats The House twice the same way. Take one thing with you into the
+next night. It's yours for that night only.";
+
 /// The same two words as the marquee, which is the joke: the game is named
 /// after the way you lose it.
 pub const GAME_OVER: &str = TITLE;

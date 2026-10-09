@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::legacy::LegacyPerk;
 use crate::run::{Card, Tell};
 use crate::state::AppState;
 use crate::wheel::{GOLDEN_CHIPS_PER_WIN, Square};
@@ -34,20 +35,9 @@ pub struct SaveSlot {
     pub wheel: BTreeMap<Square, u8>,
     /// Beating The House once opens The Wheel.
     pub house_beaten: bool,
-    /// Picked after a House win, for the next run only.
+    /// Picked after a House win, for the next run only. The next run takes
+    /// it out as it starts.
     pub legacy_perk: Option<LegacyPerk>,
-}
-
-/// The Legacy pool. Victory Lap carries the deck The House was beaten with,
-/// so the deck is only ever saved when that's the perk.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum LegacyPerk {
-    HouseMoney,
-    HighLimit,
-    MarkedCards,
-    VictoryLap { deck: Vec<SavedCard> },
-    Comped,
-    LuckyStreak,
 }
 
 /// A [`Card`] as the file holds it: the same three things, with the name
