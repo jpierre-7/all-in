@@ -16,6 +16,7 @@ Regenerate with `python3 tools/gen_placeholders.py` (frame, Tell icons) and
 | `tells/streak.png` | 128×128 | 28×28 node | `ui.rs` — `Art::streak` |
 | `tells/all_in.png` | 128×128 | 28×28 node | `ui.rs` — `Art::all_in` |
 | `tells/copycat.png` | 128×128 | 28×28 node | `ui.rs` — `Art::copycat` |
+| `tells/bluff.png` | 128×128 | 28×28 node | `ui.rs` — `Art::bluff` |
 | `backdrops/combat.png` | 1920×1080 | full screen | `ui.rs` — `Art::backdrop` |
 | `backdrops/lobby.png` | 1920×1080 | every prose screen | `screens.rs` — `OverworldArt::lobby` |
 | `backdrops/title.png` | 1920×1080 | the title screen | `screens.rs` — `OverworldArt::title` — **not drawn yet** |
@@ -109,9 +110,8 @@ so they have to hold up down to ~90px — check any redraw at that size. The
 node is square and the image is stretched to fill it, so a non-square source
 will distort; keep new files at 256×256.
 
-Only the three bosses have one. `Art::portrait` maps `EncounterId::Slotz`,
-`PitBoss` and `TheHouse` to their handles and `FloorMinion` and `PitMinion` to
-`None` — the same state a missing file gets, which is why a minion's row is
+Only the bosses have one. Each boss names its portrait's path in its own file
+under `src/boss/`, and `Art::portrait` maps a minion to `None` — the same state a missing file gets, which is why a minion's row is
 just a name and a Stack.
 
 ## Fonts

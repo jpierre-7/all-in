@@ -10,8 +10,18 @@ Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
 ## Commits and pull requests
 
+Write every PR body with the `/mattpocock-skills:pr` skill.
+
 No session links and no Claude attribution lines (`Co-Authored-By`, `Claude-Session`, "Generated with Claude Code") in commit messages or PR descriptions.
+
+Never commit build output. Before every commit, check `git status` and `git diff --cached --stat`, and stage files by name rather than `git add -A` or `git add .`. In October 2026 a second cargo build in a top-level `target-base/` folder (3,244 files, about 2 GB) was committed and merged in PR #164, and `main` had to be rewritten to remove it.
+
+## Builds and worktrees
+
+- Each checkout and worktree builds in its own `target/`, which is gitignored. Never create a new top-level build folder. A worktree's first build compiles everything (about 16 minutes); later builds only recompile what changed.
+- Keep `CARGO_TARGET_DIR` and `CARGO_BUILD_BUILD_DIR` unset. Cargo names the game's build files the same in every checkout, so a shared build folder can hand one worktree another's compiled code, and `cargo run` or `cargo test` then runs the wrong branch. In October 2026 this gave the Slotz PR (#178) a sim build with `main`'s Slotz in it.
+- When several agents work at once, each works in its own worktree at `../all-in-<ticket>`, on a new branch from `origin/main`, and leaves the main checkout on `main` and untouched. Remove temporary worktrees when you're done.

@@ -15,17 +15,19 @@ chips. You are always playing against a number you can only half see.
 Which card faces which is the whole game, because every **Tell** reads the
 table by position: **Streak** doubles if the card in the slot to its left has a
 Tell, **Copycat** takes the print of the slot to its right, **Flop** takes the
-print of the Opposing Card straight across, and **All In** burns a card from
-your Draw for its chips. Nothing resolves until you confirm, so you can put a
+print of the Opposing Card straight across, **Lowball** mucks the card across
+from it if that card prints higher, **Counterweight** takes the print across
+from it when that is higher than its own, and **All In** burns a card from your Draw
+for its chips. Nothing resolves until you confirm, so you can put a
 card down, pull it back out, and re-order the row until it reads the way you
-want. Then there is The House itself, which keeps its own last card blank until
-you have committed and fills it in on everything but your last card — leaving
-that one, the **Hole Card**, as the only card it cannot see.
+want.
 
 ## Playing it
 
-A Linux build is on itch.io: **https://voraciousjp.itch.io/all-in**. Unzip and
-run `all-in.sh`.
+Linux and Windows builds are on itch.io: **https://voraciousjp.itch.io/all-in**.
+Unzip, then run `all-in.sh` on Linux or double-click `all-in.exe` on Windows. On Windows,
+SmartScreen may warn that the app is unrecognised (it isn't signed): choose
+**More info → Run anyway**.
 
 ## Running it
 
@@ -56,6 +58,46 @@ cargo run --release
 Without Nix you need the system libraries winit and wgpu dlopen at runtime —
 Wayland or X11, `libxkbcommon`, a Vulkan loader — plus `alsa-lib` and `udev` to
 build. The devshell exists so you do not have to chase that list.
+
+### On Windows
+
+Build it natively; there is no cross-compile from Linux yet.
+
+1. Install the **Visual Studio Build Tools** with the *Desktop development with
+   C++* workload. Rust's default Windows toolchain links with Microsoft's
+   linker.
+2. Install Rust with [rustup](https://rustup.rs). From the repo, rustup reads
+   `rust-toolchain.toml` and fetches the pinned 1.97.1 on the first build.
+3. From the repo root:
+
+   ```powershell
+   cargo run --release
+   ```
+
+Nothing else is needed: no Nix, and none of the Linux system libraries above.
+The same rule applies, though: **run it from the repo root**, or every image
+goes missing.
+
+The game window opens **with no console** (`#![windows_subsystem = "windows"]`
+in `src/main.rs`), even when you launch it from a terminal. So a crash
+closes the window without printing anything. To see the panic, comment that
+line out locally and run again. Don't commit that change.
+
+The easy way to get a Windows zip is not to build one yourself: on GitHub, open
+**Actions → windows-build → Run workflow**. It builds and packages on a Windows
+machine and attaches `all-in-windows.zip` to the run (download it, then unzip
+once).
+
+To package a zip yourself, run this from Git Bash. Git for Windows
+provides `bash`; the script also needs Python 3 on the `PATH` (check that
+`python3 --version` works):
+
+```sh
+tools/package.sh windows target/release/all-in.exe
+```
+
+That writes `dist/all-in-windows.zip`. Players unzip it and double-click
+`all-in.exe`: Explorer starts it in its own folder, so it finds `assets/`.
 
 ### A stale `target/` after a pull
 
@@ -136,7 +178,8 @@ demo), and **3** the Floor, where the run starts.
 | `src/run.rs` | Cards, run state, enemies. The combat ↔ overworld seam. |
 | `src/combat/` | The duel: rules, UI, the glossary. |
 | `src/overworld/` | The shell: title, lobby, floors, rewards, endings. |
-| `CONTEXT.md` | The game's vocabulary. Read this before naming anything. |
+| `tools/sim/` | The balance sim: whole runs against the real duel, headless. |
+| `GLOSSARY.md` | The game's vocabulary. Read this before naming anything. |
 | `docs/onboarding.md` | New to the team? Start here: what to read, how tickets are claimed. |
 | `docs/adr/` | Architectural decisions. |
 | `docs/pitch.md` | The 60-second pitch and the demo script. |
@@ -148,6 +191,7 @@ demo), and **3** the Floor, where the run starts.
 cargo test           # the whole suite
 cargo run            # debug build, with the dev flags below
 cargo run -- --help  # what they are
+cargo run --release -p sim   # the balance sim; see tools/sim/README.md
 ```
 
 Debug builds carry a dev entry point (`src/devstart.rs`) that starts a run
@@ -155,7 +199,7 @@ partway up the casino with a pinned seed and a pocket already full, so one
 encounter can be played on its own:
 
 ```sh
-cargo run -- --encounter pit-boss --seed 42 --with sixplays,dice
+cargo run -- --encounter pit-boss --seed 42 --with blind,dice
 ```
 
 Release builds do not compile that module, so a shipped binary has no flags to

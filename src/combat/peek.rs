@@ -12,7 +12,7 @@
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
 
-use super::duel::Duel;
+use super::duel::{CounterweightPeek, Duel, FlopPeek, LowballPeek};
 use super::info::{self, InfoOpen, get_keywords};
 use super::plugin::ActiveDuel;
 use super::ui::{CardSlot, Zone};
@@ -71,6 +71,15 @@ pub struct Tag {
     pub term: Option<&'static str>,
     /// While an All In waits for its sacrifice: what burning this card adds.
     pub burn: Option<u32>,
+    /// A Flop in the Draw: what it would take in the next empty slot, as far
+    /// as the player can see.
+    pub flop: Option<FlopPeek>,
+    /// A Lowball in the Draw: whether it would muck the card across from the
+    /// next empty slot, said only when that card is face up.
+    pub lowball: Option<LowballPeek>,
+    /// A Counterweight in the Draw: what it would be worth in the next empty
+    /// slot, `?` while the card across is face down.
+    pub counterweight: Option<CounterweightPeek>,
 }
 
 /// The card in a slot, as the player is entitled to see it. A face-down
@@ -213,7 +222,28 @@ fn wanted(
         Some(all_in) if card.zone == Zone::Draw && all_in != card.slot => Some(held.face_value),
         _ => None,
     };
-    Some(Tag { card, term, burn })
+    let flop = match held.tell {
+        Some(Tell::Flop) if card.zone == Zone::Draw => active.duel.flop_next(),
+        _ => None,
+    };
+    let lowball = match held.tell {
+        Some(Tell::Lowball) if card.zone == Zone::Draw => active.duel.lowball_next(held.face_value),
+        _ => None,
+    };
+    let counterweight = match held.tell {
+        Some(Tell::Counterweight) if card.zone == Zone::Draw => {
+            active.duel.counterweight_next(held.face_value)
+        }
+        _ => None,
+    };
+    Some(Tag {
+        card,
+        term,
+        burn,
+        flop,
+        lowball,
+        counterweight,
+    })
 }
 
 /// Keeps the one tag on the table matching what the player points at:
@@ -334,6 +364,15 @@ pub fn show(
             if let Some(burn) = tag.burn {
                 text(body, format!("Burn for +{burn}"), 16.0, NEON);
             }
+            if let Some(flop) = tag.flop {
+                text(body, format!("Next slot: {flop}"), 16.0, NEON);
+            }
+            if let Some(lowball) = tag.lowball {
+                text(body, format!("Next slot: {lowball}"), 16.0, NEON);
+            }
+            if let Some(counterweight) = tag.counterweight {
+                text(body, format!("Next slot: {counterweight}"), 16.0, NEON);
+            }
             if let Some(term) = tag.term {
                 nest(body, tag.card.slot, term);
             }
@@ -391,7 +430,15 @@ mod tests {
 
     #[test]
     fn every_term_a_tell_leans_on_has_a_glossary_line() {
-        let tells = [Tell::Streak, Tell::AllIn, Tell::Copycat, Tell::Flop];
+        let tells = [
+            Tell::Streak,
+            Tell::AllIn,
+            Tell::Copycat,
+            Tell::Flop,
+            Tell::Bluff,
+            Tell::Lowball,
+            Tell::Counterweight,
+        ];
         for tell in tells {
             let found: Vec<_> = terms(tell).collect();
             assert!(!found.is_empty(), "{} marks no terms", tell.name());
@@ -401,5 +448,7 @@ mod tests {
         }
         assert!(terms(Tell::Streak).any(|t| t == "Tell"));
         assert!(terms(Tell::AllIn).any(|t| t == "The Hand"));
+        assert!(terms(Tell::Bluff).any(|t| t == "Confirm"));
+        assert!(terms(Tell::Bluff).any(|t| t == "Chips"));
     }
 }

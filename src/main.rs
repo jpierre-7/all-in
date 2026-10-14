@@ -1,15 +1,9 @@
 //! App builder. Owned by Dev 2. Plugins are added here and nowhere else.
 #![windows_subsystem = "windows"]
 
-mod combat;
 #[cfg(debug_assertions)]
-mod devstart;
-mod music;
-mod overworld;
-mod run;
-mod state;
-mod theme;
-
+use all_in::devstart;
+use all_in::{combat, music, overworld, save, theme};
 use bevy::prelude::*;
 
 fn main() {
@@ -33,7 +27,8 @@ fn main() {
     .add_plugins(theme::ThemePlugin)
     .add_plugins(music::MusicPlugin)
     .add_plugins(overworld::OverworldPlugin)
-    .add_plugins(combat::CombatPlugin);
+    .add_plugins(combat::CombatPlugin)
+    .add_plugins(save::SavePlugin::default());
 
     #[cfg(debug_assertions)]
     if let Some(dev) = dev {

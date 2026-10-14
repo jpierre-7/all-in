@@ -25,7 +25,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 - **The Floor** — Early low-stakes encounters (1 Minion + Boss: Slotz).
 - **The Pit** — Mid-tier recurring enemies (1 Minion + Boss: Pit Boss).
 - **The Back Room** — Optional secret encounter (Boss: The Man Who Beat the House [Plays +1] | Reward: Turns all cards in deck to "All In" tell).
-- **The Big Shots Table** — Final boss (The House [reads your Hand before your last Play and sets House Edge to it plus a margin; your last Play is your Hole Card]).
+- **The Big Shots Table** — Final boss (The House [Table Rule to be picked; until then it plays by the same rules as everyone]).
 
 **Tone:** [casino-noir / pulpy / darkly comic]
 
@@ -49,11 +49,12 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | **Streak** | Tell: doubles this card if the card in the slot to its left has any Tell. |
 | **All In** | Tell: sacrifice a card from the Draw to add its Face Value to this card's. |
 | **Copycat** | Tell: worth the Face Value of the card in the slot to its right; its own if nothing follows. |
-| **Flop** | Tell: worth the Face Value of the Opposing Card across from it; its own if nothing is across. |
+| **Flop** | Tell: worth the Face Values of the Opposing Card across from it and that card's two neighbours; never its own. |
+| **Lowball** | Tell: if the card across from it has a higher Face Value, that card is **Mucked**: taken off the table before any Tell resolves, counting nothing, its slot read as empty. Either side can play it. |
+| **Counterweight** | Tell: takes the higher of its own Face Value and that of the card across from it; across an empty slot it keeps its own. The Pit Boss's Boss Tell. |
 | **Rising Blinds** | Difficulty escalates as combat goes on: the enemy lays one more Opposing Card every 5 turns. Past your Plays you can't cover them all. |
 | **Plays** | Limited number of cards you may put in your row per turn (Draw of 7, up to 5 placed by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final. Cleared House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Fell short: Push to have the Whiff forgiven, or lose and it doubles. Coin is 45/55 in the House's favor. |
-| **Hole Card** | Against The House only: the last card in your row. The House keeps its own last Opposing Card back and fills it in on everything before yours. |
 | **Fight or Fold** | Encounter choice. "Fight" initiates duel; "Fold" abandons the run and returns to the Lobby, resetting all perks, items, and temporary deck upgrades. |
 
 ---
@@ -74,8 +75,8 @@ Before each encounter, the player chooses to:
 2. **The enemy goes first.** It lays down its Opposing Cards — 3 or 4 to start, depending on the enemy, and one more per Rising Blinds tick. The first is face up; each of the rest is face down on a roll the enemy's own odds set. Enemies play Tells too, at their own configured rate.
 3. Player covers the row: click a card in the Draw to put it in the next empty slot, click a card already in the row to take it (and anything it burned) back out. Up to 5 cards (or the limit set by perks). Nothing resolves yet — a row is worth nothing until it is finished.
 4. Player **confirms**. Both rows turn over.
-5. Each row resolves left to right. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop straight across. All of them read *Face Values*, so neither row depends on the other resolving first.
-6. Items that modify The Hand apply (Loaded Dice: +5). The Hand and House Edge are now final.
+5. Lowballs on both sides muck the higher cards across from them, all at once. Then each row resolves left to right over what is left, and then the Bluffs that weren't mucked hit, left to right. Every Tell reads its slot: Streak looks one left, Copycat one right, Flop across and to either side. All of them read *Face Values*, so neither row depends on the other resolving first.
+6. Items that modify The Hand apply (Loaded Dice: +5, Insurance, Shiny Card Sleeve). The Hand and House Edge are now final.
 7. **Push Your Luck**: the player sees the House Edge and chooses **Push** or **Hold**, whether The Hand cleared it or fell short (PYL on a Whiff, #96).
    - Hold → step 8 as normal.
    - Push → flip the coin (45% player / 55% House by default; Slotz Option 1 makes it best-2-of-3 at 49/51 ≈ 48.5%).
@@ -97,13 +98,24 @@ Before each encounter, the player chooses to:
 
 Upon defeating an enemy, the player earns rewards depending on the enemy type. All collected perks and items persist through the current run and reset upon **Folding** or dying.
 
-### Minion Rewards (Random Item Drop)
+### Minion Rewards (Items or a Pack)
 
-Defeating a minion grants 1 random item from the pool:
+After beating a minion the player picks, sight unseen, one of three: **Items** (three different Items not already held, keep one), **Cards** (a Pack of three cards off the run's unlocked Tells, keep one), or nothing (#124).
 
-- **Lucky Pocket Card:** Adds a random Tell to a card in the player's deck that does not already have a Tell.
-- **Loaded Dice:** Adds +5 to the next 2 Hand totals.
-- **Card Shark's Sunglasses:** Reveals the next encounter's starting House Edge beforehand.
+Items are spent on demand, a use at a time, each with a set number of uses (#153). The pool is ten, fixed for the run; each Item's uses and offer weight live in `src/item.rs`. Full wording in `GLOSSARY.md`.
+
+| Item | One use | Uses |
+|---|---|---|
+| Loaded Dice | +5 to The Hand | 2 |
+| Card Shark's Sunglasses | Reveal the leftmost face-down Opposing Card | 3 |
+| Two-Way Mirror | Reveal every Opposing Card | 1 |
+| Ace Up the Sleeve | +1 to your Blind | 2 |
+| Shaved Card | +3 to your first slot's Face Value, before Tells | 2 |
+| Sleight of Hand | The enemy's rightmost Opposing Card is Mucked | 1 |
+| Insurance | Halve a Whiff | 2 |
+| Weighted Coin | Push Your Luck flips 50/50 (spent at the prompt) | 2 |
+| Shiny Card Sleeve | Your first slot counts twice, for the encounter | 1 |
+| Deep Pockets | Draw one now; the Draw refills to 8, for the encounter | 1 |
 
 ### Boss Rewards (Pick 1 of 2 Perks)
 
@@ -111,11 +123,12 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 
 - **Boss: Slotz (The Floor)**
   - **Option 1:** All "Push Your Luck" flips become best 2-out-of-3 at 49% player / 51% House (≈48.5% overall, up from the base 45%).
-  - **Option 2:** Adds 3x "Streak" Tell cards to the player's deck.
+  - **Option 2:** Jackpot: +5 to The Hand when three cards in the player's row came to the same number after their Tells resolved.
+  - **Table Rule:** All Night. Slotz's Blind goes up by 1 every 3 turns, to at most 2 above the floor's.
 
 - **Boss: Pit Boss (The Pit)**
-  - **Option 1:** You can play up to 6 cards per turn, but Rising Blinds add an Opposing Card every turn (5× the base rate). Pays in short fights, punishes long ones.
-  - **Option 2:** Adds 4x random cards to deck (2x with random Tells, 2x normal/vanilla cards).
+  - **Option 1: Beam Swings Your Way.** If you took a Whiff last turn, your Blind is 1 higher this turn.
+  - **Option 2: Read the Pan.** The heaviest Opposing Card turns face up at the start of every turn. Against The House, which plays last, it shows nothing.
 
 - **Secret Boss: The Man Who Beat the House (The Back Room)**
   - **Reward:** Guaranteed transformation — turns **all cards** in player's deck to have the **"All In"** Tell.
@@ -136,7 +149,9 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 - **Streak** — reads the slot to its left
 - **All In** — reads no slot; burns from the Draw
 - **Copycat** — reads the slot to its right
-- **Flop** — reads the Opposing Card across from it
+- **Flop** — reads the Opposing Card across from it and that card's neighbours
+- **Lowball** — reads the card across from it; mucks it if it is higher
+- **Counterweight** — reads the card across from it; takes its Face Value if that is higher
 
 **Stretch Tells (cut if behind schedule):** Echo, Brittle, Copycat (built, #110), Flop (built, #88), [others TBD]
 
@@ -182,13 +197,13 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 | | Player | Floor minion | Slotz | Pit minion | Pit Boss | The House |
 | --- | --- | --- | --- | --- | --- | --- |
 | Chips | **50** | 25 | 32 | 32 | 40 | 35 |
-| Deal | | 3 × 2–5 | 3 × 3–7 | 4 × 4–7 | 4 × 4–9 | 4 × 1–4, last kept back |
-| Expected row | | ~10.8 | ~15.6 | ~22.8 | ~27 | read + margin |
+| Deal | | 3 × 2–5 | 3 × 3–7 | 4 × 4–7 | 4 × 4–9 | written deck, 1–4 |
+| Expected row | | ~10.8 | ~15.6 | ~22.8 | ~27 | |
 | Tells | | 20% Streak | 35% Streak/Copycat | 30% Streak/Flop | 40% Streak/Copycat/Flop | 35% Streak/Flop |
-| Face down | | 50% | 50% | 50% | 55% | 40%, + the Hole Card |
-| Rising Blinds | | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | margin +1, +2 / 2 turns |
+| Face down | | 50% | 50% | 50% | 55% | |
+| Rising Blinds | | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | +1 card / 5 turns | |
 
-What the sim said: a careless player (top five cards, random order) beats the Pit Boss 82% of the time and the House 19%; a player who leads with All In then Streaks beats everything up to the House with full Chips, then loses to the House every time because that habit makes the hole card a low vanilla card; a player who saves the biggest Tell for last beats the House in ~4 turns. The House inverts the habit the Tutorial teaches, on purpose. Blinds every 2 turns (the earlier draft) made every fight past 6 turns unwinnable; every 3 is the difference.
+What the sim said (under the Hole Card rule, removed in #145): a careless player (top five cards, random order) beats the Pit Boss 82% of the time and the House 19%; a player who leads with All In then Streaks beats everything up to the House with full Chips, then loses to the House every time because that habit makes the hole card a low vanilla card; a player who saves the biggest Tell for last beats the House in ~4 turns. The House inverts the habit the Tutorial teaches, on purpose. Blinds every 2 turns (the earlier draft) made every fight past 6 turns unwinnable; every 3 is the difference.
 
 **Built (#88):** the reactive enemy is no longer a stretch goal — laying the Opposing Cards down *is* the enemy's turn, and House Edge is what they add up to. See `docs/adr/0002-opposing-cards.md`.
 
@@ -196,20 +211,14 @@ What the sim said: a careless player (top five cards, random order) beats the Pi
 
 1. **Lobby:** Story intro → Tutorial arcade / Info room / Start run.
 2. **The Floor:** 1 Minion encounter → Boss: **Slotz**.
-3. **The Pit:** 1 Minion encounter → Boss: **Pit Boss**.
+3. **The Pit:** 1 Minion encounter → Boss: **Pit Boss**. Its Boss Tell is **Counterweight**, and its Table Rule, **The Beam Swings Back**, raises its Blind by 1 the turn after you win one.
 4. **The Back Room (Optional/Secret):** Boss: **The Man Who Beat the House** (Plays +1, transforms deck).
 5. **The Big Shots Table (Final Boss):** Boss: **The House**. See "The House" below.
 
-**The House (the Hole Card rule):**
+**The House:**
 
-- The House lays its row down like anyone else, but deals itself scraps (1–4) and keeps its **last Opposing Card** blank and face down.
-- At the showdown it fills that card in so its whole row reads **the player's row minus the player's last card, plus the margin**.
-- The last card in the player's row is the **Hole Card**: the one card The House can't see. Payout = the Hole Card's resolved value − margin. Streak doubling, All In sacrifice, and Loaded Dice all land after it fills in, so they are the whole strategy.
-- Push Your Luck works unchanged: it is offered when the Hole Card beats the margin.
-- Rising Blinds for The House raise the **margin**, not the row: margin starts at +1 and rises +2 every 2 turns (1, 1, 3, 3, 5, 5, 7…). The margin is the clock; the House wins by outlasting the deck, not by big Whiffs.
-- Confirming a short row still works the same way: everything but the last card you placed is what it reads. An empty row Whiffs by the margin.
-- The House deals itself no Copycat — that is the one Tell that would have to read the card it hasn't decided on yet.
-- Intro line hook: "Fill your row. I'll fill my last card in after. Then show me the one I couldn't see."
+- The Hole Card and its margin are gone (#145). The House plays a temporary written deck in the scraps it used to be dealt (1–4, Streak and Flop), by the same rules as everyone: a hidden Draw of 7, up to the Big Shots Table's Blind, both rows turning over at Confirm.
+- Its Boss Tell is **Flop**. Its new Table Rule is still to be picked, and its Flop Pack comes with its build ticket.
 
 ---
 

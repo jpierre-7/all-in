@@ -252,6 +252,48 @@ def tell_copycat(path):
     _save_icon(img, path)
 
 
+def tell_bluff(path):
+    """Two bars, one standing over the other: the lower side loses the gap.
+
+    Solid shapes rather than outlines, so the step between them still reads at
+    the 28px the icon is drawn at. The short bar is in the Whiff's red: it is
+    the side that pays.
+    """
+    img = _icon_canvas()
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle(
+        (22 * SS, 14 * SS, 58 * SS, 114 * SS), radius=7 * SS, fill=GOLD + (255,)
+    )
+    d.rounded_rectangle(
+        (70 * SS, 62 * SS, 106 * SS, 114 * SS), radius=7 * SS, fill=BLOOD + (255,)
+    )
+    # The difference, marked out above the short bar.
+    d.line(
+        [(70 * SS, 22 * SS), (106 * SS, 22 * SS)], fill=GOLD_LIT + (255,), width=6 * SS
+    )
+    _save_icon(img, path)
+
+
+def tell_counterweight(path):
+    """A balance beam, level: this card weighs whatever is across from it.
+
+    A post, a beam, and a solid pan hanging off each end. Solid pans rather
+    than outlines, so the two ends still read as a pair at 28px.
+    """
+    img = _icon_canvas()
+    d = ImageDraw.Draw(img)
+    gold = GOLD + (255,)
+    d.line([(64 * SS, 30 * SS), (64 * SS, 110 * SS)], fill=gold, width=9 * SS)
+    d.line([(36 * SS, 108 * SS), (92 * SS, 108 * SS)], fill=gold, width=9 * SS)
+    d.line([(16 * SS, 30 * SS), (112 * SS, 30 * SS)], fill=gold, width=9 * SS)
+    for x in (24, 104):
+        d.line([(x * SS, 30 * SS), (x * SS, 62 * SS)], fill=gold, width=5 * SS)
+        d.pieslice(
+            ((x - 20) * SS, 44 * SS, (x + 20) * SS, 84 * SS), 0, 180, fill=gold
+        )
+    _save_icon(img, path)
+
+
 def _relative_luminance(rgb):
     def channel(c):
         c /= 255
@@ -274,6 +316,8 @@ def main():
     tell_streak(ASSETS / "tells" / "streak.png")
     tell_all_in(ASSETS / "tells" / "all_in.png")
     tell_copycat(ASSETS / "tells" / "copycat.png")
+    tell_bluff(ASSETS / "tells" / "bluff.png")
+    tell_counterweight(ASSETS / "tells" / "counterweight.png")
 
     # Text on the card body is the one readability risk worth checking.
     for name, fg in (("gold", GOLD), ("gold-lit", GOLD_LIT), ("bone", BONE)):

@@ -22,7 +22,7 @@ pub struct InfoOpen;
 pub struct InfoOverlay;
 
 /// One line per term, in the order a new player meets them. Text follows
-/// `CONTEXT.md`. The Peek's nested tags read from the same table.
+/// `GLOSSARY.md`. The Peek's nested tags read from the same table.
 const GLOSSARY: &[(&str, &str)] = &[
     (
         "Chips",
@@ -37,12 +37,16 @@ const GLOSSARY: &[(&str, &str)] = &[
         "The seven cards you're holding. Refilled at the start of every turn.",
     ),
     (
-        "Plays",
-        "How many cards you may put in your row this turn. Five, unless a perk says otherwise, and never more than the enemy laid down.",
+        "Blind",
+        "The most cards either side may put in its row this turn. Set by the floor, the same for you and the enemy, unless a perk says otherwise.",
     ),
     (
         "Opposing Cards",
-        "The enemy's row, laid down before you play. The first is face up; the rest are a coin toss. Your cards sit one per slot across from them.",
+        "The enemy's row, chosen from its own Draw and laid face down before you play. Your cards sit one per slot across from them.",
+    ),
+    (
+        "Confirm",
+        "Enter: your row is finished. Both rows turn over and every Tell resolves.",
     ),
     (
         "The Hand",
@@ -72,7 +76,23 @@ const GLOSSARY: &[(&str, &str)] = &[
     ),
     (
         "Flop",
-        "Tell: worth the Face Value of the Opposing Card across from it. Its own if nothing is across.",
+        "Tell: worth the Opposing Card across from it plus the cards either side of that. Never its own.",
+    ),
+    (
+        "Bluff",
+        "Tell: at Confirm, set against the card across from it. The lower Face Value loses the difference off its side's Chips. Still counts its own. Nothing across, nothing happens.",
+    ),
+    (
+        "Lowball",
+        "Tell: if the card across from it has a higher Face Value, that card is Mucked.",
+    ),
+    (
+        "Counterweight",
+        "Tell: worth the higher of its own Face Value and the card across from it. Its own across an empty slot.",
+    ),
+    (
+        "Mucked",
+        "Taken off the table as the rows turn over, before any Tell resolves. It counts nothing, its Tell doesn't fire, and its slot reads as empty.",
     ),
     (
         "Echo",
@@ -83,32 +103,19 @@ const GLOSSARY: &[(&str, &str)] = &[
         "Once The Hand is shown: Push to flip a coin, or Hold to take the turn as it is. Cleared the Edge? Win doubles the Payout; lose and The Hand is 0. Fell short? Win forgives the Whiff; lose and it doubles.",
     ),
     (
-        "Rising Blinds",
-        "Every few turns the enemy lays another Opposing Card down. Past your Plays you can't cover them all. Nobody sits here forever.",
+        "Item",
+        "Spent from your pocket with its key (A to X), a use at a time. A use lasts the Hand, or the encounter where it says so. Press the key again before Confirm to put it back, unless it has already shown or drawn you something.",
     ),
-    ("Loaded Dice", "Item: +5 to your next two Hands."),
 ];
 
 pub fn get_keywords() -> Vec<&'static str> {
     GLOSSARY.iter().map(|unit| unit.0).collect()
 }
 
-const BIG_SHOTS: &[(&str, &str)] = &[
-    (
-        "Margin",
-        "How far above the row it read The House sets its own. Rises with the Blinds.",
-    ),
-    (
-        "Hole Card",
-        "The last card in your row. The House keeps its own last card back and fills it in on everything before yours, so the Hole Card is the only one it can't see.",
-    ),
-];
-
 /// The glossary line for a term, if it has one.
 pub fn define(term: &str) -> Option<&'static str> {
     GLOSSARY
         .iter()
-        .chain(BIG_SHOTS)
         .find(|(name, _)| *name == term)
         .map(|(_, line)| *line)
 }
@@ -185,18 +192,6 @@ fn spawn(commands: &mut Commands, state: AppState) {
                 TextColor(NEON),
             ));
             for (term, line) in GLOSSARY {
-                entry(root, term, line);
-            }
-            root.spawn((
-                Text::new("At the Big Shots Table"),
-                TextFont::from_font_size(18.0),
-                TextColor(GOLD),
-                Node {
-                    margin: UiRect::top(px(10)),
-                    ..default()
-                },
-            ));
-            for (term, line) in BIG_SHOTS {
                 entry(root, term, line);
             }
             root.spawn((

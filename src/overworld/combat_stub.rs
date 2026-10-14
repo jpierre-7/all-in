@@ -23,11 +23,15 @@ impl Plugin for CombatStubPlugin {
 }
 
 fn show_stub(mut commands: Commands, encounter: Res<Encounter>, run: Res<RunState>) {
+    let enemy = encounter.enemy(&run, 1);
     Screen::new()
         .title("[ combat stub ]")
         .prose(format!(
-            "{} sits down with {} chips and deals {} Opposing Cards.\nYou have {}.",
-            encounter.enemy.name, encounter.enemy.chips, encounter.enemy.deal.row, run.chips
+            "{} sits down with {} chips and a Blind of {}.\nYou have {}.",
+            enemy.name,
+            enemy.chips,
+            encounter.blind(),
+            run.chips
         ))
         .option(1, "Win the duel")
         .option(2, "Lose the duel")

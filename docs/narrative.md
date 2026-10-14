@@ -107,8 +107,8 @@ carpet ahead.*
 ## TUTORIAL
 
 The Arcade is a scripted encounter (#40), not a text screen. It enters
-combat as `EncounterId::Tutorial` against **THE DEMO DEALER** (Chips 30,
-no Blinds), with a fixed deal on both sides of the table and a rigged
+combat as `Encounter::Practice` against **THE DEMO DEALER** (Chips 30,
+a Blind of 5), with a fixed deal on both sides of the table and a rigged
 coin. Esc at any point goes back to the Lobby; the run is never touched.
 
 The cabinet's **Opposing Cards** are fixed too (`run::tutorial_opposing`):

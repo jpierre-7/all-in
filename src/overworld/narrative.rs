@@ -29,6 +29,25 @@ the Big Shots Table is set for one.";
 pub const LOBBY_OPT_INFO: &str = "Case the joint";
 pub const LOBBY_OPT_TUTORIAL: &str = "Warm up on the arcade";
 pub const LOBBY_OPT_BEGIN: &str = "Walk the Floor";
+pub const LOBBY_OPT_WHEEL: &str = "Step up to The Wheel";
+
+pub const WHEEL: &str = "\
+A roulette wheel nobody else seems to see, past the cashier's cage. The
+croupier taps the felt. \"Golden Chips go down between nights, Jack. Where
+they land is what you walk in with. One square comes up hot each night.\"";
+
+pub const SPIN: &str = "\
+The croupier sends the ball round before you've even reached the stairs.";
+
+pub const SPIN_ZERO: &str = "\
+It drops into the green zero. Nothing comes up hot tonight.";
+
+pub const TRIM: &str = "\
+Trim. Take the cards you'd rather not draw out of your deck before the
+night starts. They're gone for this run.";
+
+pub const POCKET_CHANGE: &str = "\
+Pocket Change. The croupier slides three things across the felt. Take one.";
 
 pub const INFO_ROOM: &str = "\
 A cork board behind the coat check where somebody has pinned up the odds
@@ -104,27 +123,14 @@ pub const ENC_FLOOR_MINION: &str = "\
 A shill in a rented tux slides into the seat across from you. \"House rules,
 pal. You play or you leave, and you don't look like the leaving type.\"";
 
-pub const ENC_SLOTZ: &str = "\
-SLOTZ. Three feet of chrome and neon on a rolling base, arms spinning,
-grinning the way only a machine can. It doesn't want your money; it wants
-your time, and it's got all night.";
-
 pub const ENC_PIT_MINION: &str = "\
 A dealer with a scar under one eye shuffles without looking down. \"The
 Boss weighed you when you walked in. Came up light. So you don't go
 upstairs.\"";
 
-pub const ENC_PIT_BOSS: &str = "\
-THE PIT BOSS. A brass balance scale the height of a man, two pans
-hanging off a beam that creaks when it turns to look at you. One pan is
-already piled with chips; the other holds nothing yet. \"Jack. Twenty-five
-years, and you came back with those Chips? Put it on the pan. Let's see
-what it's worth.\"";
-
-pub const ENC_THE_HOUSE: &str = "\
-THE HOUSE. No face, just a pair of hands resting on the felt and a
-voice that comes from the walls. \"Sit down, Jack. Let's see what you
-learned. Play four. I'll set the line. Then show me your last card.\"";
+pub const ENC_BIG_SHOTS_MINION: &str = "\
+A high roller's minder steps out of the dark at the edge of the lamp and
+takes the chair. \"He'll see you. After me.\"";
 
 pub const FIGHT_OR_FOLD: &str = "\
 Fight: sit down and play.
@@ -133,20 +139,6 @@ up tonight.";
 
 pub const WIN_MINION: &str =
     "The chair scrapes back empty and you pocket whatever they left on the felt.";
-
-pub const WIN_SLOTZ: &str = "\
-The reels spin once more, land on nothing, and the neon goes out. Somewhere
-off in the dark, something bigger clears its throat.";
-
-pub const WIN_PIT_BOSS: &str = "\
-The beam tips your way and stays there, and for a long moment the only
-sound in the Pit is brass settling. \"Upstairs,\" it says at last. \"He's
-been expecting you.\"";
-
-pub const WIN_THE_HOUSE: &str = "\
-The House's hands go still on the felt.
-
-For the first time in twenty-five years, the table is yours.";
 
 pub const LOSE: &str = "\
 Your last chip hits the felt and stops, and the dealer doesn't bother looking
@@ -178,13 +170,28 @@ His hand goes under his jacket.
 
 BANG.";
 
-pub const ITEM_DROP: &str = "\
-Nobody's coming back for what's left on the felt, so it goes in your coat
-pocket on the way past.";
+pub const MINION_REWARD: &str = "\
+Nobody's coming back for what's left on the felt. A few things from their
+pockets, or the cards they were holding, still face down. Your coat has
+room for one or the other.";
+
+pub const MINION_ITEMS: &str = "\
+Three things from their pockets. One goes in your coat on the way past.";
+
+pub const MINION_PACK: &str = "\
+You turn their cards over. Your coat has room for one.";
+
+pub const BOSS_PACK: &str = "\
+It leaves its cards face up on the felt on the way out, and nobody at the
+table is watching them. Seven of them. Your coat has room for two.";
 
 pub const PERK_PICK: &str = "\
 Something about how you play changes from here. You only get to change one
 thing, and you don't get to change it back.";
+
+pub const LEGACY_PICK: &str = "\
+Nobody beats The House twice the same way. Take one thing with you into the
+next night. It's yours for that night only.";
 
 /// The same two words as the marquee, which is the joke: the game is named
 /// after the way you lose it.

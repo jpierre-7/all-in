@@ -1,5 +1,6 @@
 //! Damage feedback (#67): when a turn resolves, a "-N" floats up from the
-//! Chips that took the hit and fades. Markers are their own root entities,
+//! Chips that took the hit and fades. A Bluff's hit floats up as the rows
+//! turn over, before the Payout or the Whiff. Markers are their own root entities,
 //! not part of the table's `CombatScreen`, so the per-change redraw leaves
 //! them alone and they ride out their own clock.
 
@@ -7,6 +8,7 @@ use bevy::prelude::*;
 
 use super::duel::Outcome;
 use super::plugin::ActiveDuel;
+pub use crate::modifier::Side;
 use crate::state::AppState;
 
 /// Hotter than the table's neon so it reads at a glance.
@@ -19,12 +21,6 @@ const RISE: f32 = 48.0;
 /// Matches the table's rows: enemy at the top, you at the bottom.
 const ENEMY_ROW: f32 = 0.11;
 const PLAYER_ROW: f32 = 0.86;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Side {
-    Enemy,
-    Player,
-}
 
 #[derive(Component, Debug)]
 pub struct HitMarker {
@@ -39,7 +35,7 @@ impl Plugin for HitsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (spawn_markers, animate_markers)
+            (spawn_markers, spawn_bluff_markers, animate_markers)
                 .chain()
                 .run_if(in_state(AppState::Combat)),
         );
@@ -77,6 +73,47 @@ fn spawn_markers(
     if amount == 0 {
         return;
     }
+    spawn_marker(&mut commands, side, format!("-{amount}"));
+}
+
+/// Watches for rows that have just turned over and floats whatever their
+/// Bluffs took, one marker per side. Keyed on the showdown's turn: the rows
+/// are read while the Push Your Luck prompt is up, or, when the turn
+/// resolved on the spot, from what it left on the table.
+fn spawn_bluff_markers(
+    mut commands: Commands,
+    active: Option<Res<ActiveDuel>>,
+    mut last_seen: Local<Option<u32>>,
+) {
+    let Some(active) = active else {
+        *last_seen = None;
+        return;
+    };
+    if !active.is_changed() {
+        return;
+    }
+    let Some(showdown) = active.duel.showdown().or(active.duel.last_showdown()) else {
+        return;
+    };
+    if *last_seen == Some(showdown.turn) {
+        return;
+    }
+    *last_seen = Some(showdown.turn);
+
+    for side in [Side::Enemy, Side::Player] {
+        let amount: u32 = showdown
+            .bluffs
+            .iter()
+            .filter(|hit| hit.loser == side)
+            .map(|hit| hit.amount)
+            .sum();
+        if amount > 0 {
+            spawn_marker(&mut commands, side, format!("Bluff -{amount}"));
+        }
+    }
+}
+
+fn spawn_marker(commands: &mut Commands, side: Side, label: String) {
     let row = match side {
         Side::Enemy => ENEMY_ROW,
         Side::Player => PLAYER_ROW,
@@ -97,7 +134,7 @@ fn spawn_markers(
         ))
         .with_children(|root| {
             root.spawn((
-                Text::new(format!("-{amount}")),
+                Text::new(label),
                 TextFont::from_font_size(56.0),
                 TextColor(HIT),
                 Node {
