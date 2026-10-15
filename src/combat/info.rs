@@ -96,7 +96,7 @@ const GLOSSARY: &[(&str, &str)] = &[
     ),
     (
         "Echo",
-        "Tell: takes the Face Value and Tell of the card in the slot to its left, and resolves as that card would in its place; a plain card if nothing is to its left."
+        "Tell: takes the Face Value and Tell of the card in the slot to its left, and resolves as that card would in its place; a plain card if nothing is to its left, or that card is Mucked. Every other card reads its printed Face Value.",
     ),
     (
         "Push Your Luck",

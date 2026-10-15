@@ -83,6 +83,7 @@ pub struct Art {
     pub bluff: Option<Handle<Image>>,
     pub lowball: Option<Handle<Image>>,
     pub counterweight: Option<Handle<Image>>,
+    pub echo: Option<Handle<Image>>,
     pub backdrop: Option<Handle<Image>>,
     /// Each boss's portrait, keyed by its path under `assets/`.
     pub portraits: std::collections::HashMap<&'static str, Handle<Image>>,
@@ -117,6 +118,7 @@ impl Art {
             Tell::Bluff => self.bluff.as_ref(),
             Tell::Lowball => self.lowball.as_ref(),
             Tell::Counterweight => self.counterweight.as_ref(),
+            Tell::Echo => self.echo.as_ref(),
         }
     }
 }
@@ -174,6 +176,7 @@ pub fn load_art(mut commands: Commands, assets: Option<Res<AssetServer>>) {
         bluff: load("tells/bluff.png"),
         lowball: load("tells/lowball.png"),
         counterweight: load("tells/counterweight.png"),
+        echo: load("tells/echo.png"),
         backdrop: load("backdrops/combat.png"),
         portraits: BOSSES
             .iter()

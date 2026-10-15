@@ -311,12 +311,21 @@ fn take_input(
     if let Some(slot) = lifting
         && active.awaiting_sacrifice.is_none()
     {
+        let before = active.duel.row().len();
         let notice = match active.duel.lift(slot) {
-            Ok(card) => format!(
-                "{} back in the Draw. Your row reads {}.",
-                card.name,
-                active.duel.hand()
-            ),
+            Ok(card) => {
+                // The Echoes straight after it come back with it.
+                let echoes = match before - 1 - active.duel.row().len() {
+                    0 => String::new(),
+                    1 => " with the Echo after it".into(),
+                    n => format!(" with the {n} Echoes after it"),
+                };
+                format!(
+                    "{}{echoes} back in the Draw. Your row reads {}.",
+                    card.name,
+                    active.duel.hand()
+                )
+            }
             Err(PlayError::HandIsFinal) => "The rows are down. Push (P) or Hold (H).".into(),
             Err(_) => "Nothing in that slot.".into(),
         };
@@ -1840,6 +1849,7 @@ mod peek_tests {
                 flop: None,
                 lowball: None,
                 counterweight: None,
+                echo: None,
             }
         );
     }
@@ -1977,6 +1987,72 @@ mod peek_tests {
         // The All In itself is not a burn.
         hover(&mut app, 0);
         assert_eq!(tag(&mut app).unwrap().0.burn, None);
+    }
+
+    #[test]
+    fn an_echo_of_an_all_in_waits_for_its_own_burn_and_says_what_it_adds() {
+        let card = |face_value, tell| Card {
+            name: "test card",
+            face_value,
+            tell,
+        };
+        let deck = [
+            card(3, Some(Tell::AllIn)),
+            card(2, Some(Tell::Echo)),
+            card(5, None),
+        ]
+        .iter()
+        .cycle()
+        .take(18)
+        .cloned()
+        .collect();
+        let mut app = table_for_run(
+            RunState {
+                deck,
+                ..RunState::new()
+            },
+            30,
+            20,
+        );
+        let digit = |i: usize| {
+            [
+                KeyCode::Digit1,
+                KeyCode::Digit2,
+                KeyCode::Digit3,
+                KeyCode::Digit4,
+                KeyCode::Digit5,
+                KeyCode::Digit6,
+                KeyCode::Digit7,
+            ][i]
+        };
+        let find = |app: &App, tell: Option<Tell>| {
+            let draw = app.world().resource::<ActiveDuel>().duel.draw();
+            draw.iter()
+                .position(|c| c.tell == tell)
+                .expect("the table seed deals one")
+        };
+
+        // An All In, burning another All In.
+        let all_in = find(&app, Some(Tell::AllIn));
+        press(&mut app, digit(all_in));
+        let draw = app.world().resource::<ActiveDuel>().duel.draw();
+        let burned = (0..draw.len())
+            .find(|&i| i != all_in && draw[i].tell == Some(Tell::AllIn))
+            .expect("the table seed deals two");
+        press(&mut app, digit(burned));
+
+        let echo = find(&app, Some(Tell::Echo));
+        press(&mut app, digit(echo));
+        assert_eq!(
+            app.world().resource::<ActiveDuel>().awaiting_sacrifice,
+            Some(echo)
+        );
+
+        let burn = find(&app, None);
+        hover(&mut app, burn);
+        assert_eq!(tag(&mut app).unwrap().0.burn, Some(5));
+        hover(&mut app, echo);
+        assert_eq!(tag(&mut app).unwrap().0.burn, None, "not a burn for itself");
     }
 
     #[test]

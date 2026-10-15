@@ -126,6 +126,7 @@ mod tests {
     fn played(value: u32) -> Played {
         Played {
             card: card("Reel", value, None),
+            plays_as: None,
             value,
             mucked: false,
         }
@@ -177,6 +178,7 @@ mod tests {
                 face_value: 2,
                 tell: COPYCAT,
             },
+            plays_as: COPYCAT,
             value: 6,
             mucked: false,
         };
