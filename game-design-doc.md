@@ -52,6 +52,7 @@ Players play as "Lucky Jack", a former professional gambler who bet it all at th
 | **Flop** | Tell: worth the Face Values of the Opposing Card across from it and that card's two neighbours; never its own. |
 | **Lowball** | Tell: if the card across from it has a higher Face Value, that card is **Mucked**: taken off the table before any Tell resolves, counting nothing, its slot read as empty. Either side can play it. |
 | **Counterweight** | Tell: takes the higher of its own Face Value and that of the card across from it; across an empty slot it keeps its own. The Pit Boss's Boss Tell. |
+| **Echo** | Tell: takes the Face Value and Tell of the card in the slot to its left and resolves as that card would in its place; plain if nothing (or a Mucked card) is to its left. Other cards read its printed Face Value. Open from the start. |
 | **Rising Blinds** | Difficulty escalates as combat goes on: the enemy lays one more Opposing Card every 5 turns. Past your Plays you can't cover them all. |
 | **Plays** | Limited number of cards you may put in your row per turn (Draw of 7, up to 5 placed by default). |
 | **Push Your Luck** | Optional coin flip after The Hand is final. Cleared House Edge: Push to double the Payout, or lose The Hand outright (Hand = 0, full Whiff). Fell short: Push to have the Whiff forgiven, or lose and it doubles. Coin is 45/55 in the House's favor. |
@@ -152,8 +153,9 @@ Defeating a floor boss presents a choice between two powerful run-altering perks
 - **Flop** — reads the Opposing Card across from it and that card's neighbours
 - **Lowball** — reads the card across from it; mucks it if it is higher
 - **Counterweight** — reads the card across from it; takes its Face Value if that is higher
+- **Echo** — reads the slot to its left; copies that card's Face Value and Tell
 
-**Stretch Tells (cut if behind schedule):** Echo, Brittle, Copycat (built, #110), Flop (built, #88), [others TBD]
+**Stretch Tells (cut if behind schedule):** Echo (built, #109), Brittle, Copycat (built, #110), Flop (built, #88), [others TBD]
 
 **Starter deck:** fixed, no deckbuilding meta-layer for MVP. 18 cards, 8 with a Tell (44%). Prototyped on the `prototype/starter-deck` branch: a careless player fires Streak ~1/3 of the time, a careful one ~94%, a 6-chip gap in mean Hand from sequencing alone. Mean Hand ~28 (naive) / ~34 (smart), range 18–52. Whiffs start appearing around House Edge 26.
 
@@ -227,7 +229,7 @@ What the sim said (under the Hole Card rule, removed in #145): a careless player
 - **Push Your Luck on a Whiff:** offer PYL when The Hand falls short too — win forgives the Whiff, lose doubles it. (Base PYL is MVP; see §4. Built, #96.)
 - **Card personas:** dealer's-commentary flavor lines on play (e.g. "The house always collects" on an All In card).
 - Deckbuilding/reward layer between encounters.
-- Additional Tells (Echo, Brittle).
+- Additional Tells (Brittle).
 
 *Cut order if behind schedule: deckbuilding layer → PYL on a Whiff → card personas. Cut from the top of this list first. The reactive enemy deck used to sit at the bottom of this list as the last thing to drop; it landed in #88 and is now the core loop.*
 

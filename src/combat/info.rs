@@ -95,6 +95,10 @@ const GLOSSARY: &[(&str, &str)] = &[
         "Taken off the table as the rows turn over, before any Tell resolves. It counts nothing, its Tell doesn't fire, and its slot reads as empty.",
     ),
     (
+        "Echo",
+        "Tell: takes the Face Value and Tell of the card in the slot to its left, and resolves as that card would in its place; a plain card if nothing is to its left, or that card is Mucked. Every other card reads its printed Face Value.",
+    ),
+    (
         "Push Your Luck",
         "Once The Hand is shown: Push to flip a coin, or Hold to take the turn as it is. Cleared the Edge? Win doubles the Payout; lose and The Hand is 0. Fell short? Win forgives the Whiff; lose and it doubles.",
     ),

@@ -154,6 +154,8 @@ pub struct TurnResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Played {
     pub card: Card,
+    /// The Tell it resolved with: its own, or the one an Echo copied.
+    pub plays_as: Option<Tell>,
     /// What the card added to its row, after its Tell. Nothing if mucked.
     pub value: u32,
     /// A Lowball across from it took it off the table before any Tell
@@ -236,6 +238,35 @@ impl fmt::Display for FlopPeek {
     }
 }
 
+/// What an Echo would copy in the player's next slot, as far as the player
+/// can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EchoPeek {
+    /// The card it would copy: this Face Value and Tell.
+    Copies { face_value: u32, tell: Option<Tell> },
+    /// The card to its left is Mucked by a face-up Lowball: a plain card.
+    Mucked,
+    /// Nothing to its left: a plain card.
+    Plain,
+}
+
+impl fmt::Display for EchoPeek {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EchoPeek::Copies {
+                face_value,
+                tell: Some(tell),
+            } => write!(f, "Copies {} {face_value}", tell.name()),
+            EchoPeek::Copies {
+                face_value,
+                tell: None,
+            } => write!(f, "Copies a {face_value}"),
+            EchoPeek::Mucked => write!(f, "Plain (left card Mucked)"),
+            EchoPeek::Plain => write!(f, "Plain"),
+        }
+    }
+}
+
 /// What a Lowball would do in the player's next slot, as far as the player
 /// can tell. Only said when the card across is face up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -308,8 +339,8 @@ pub fn greedy(draw: &[Card], blind: u8, player_average: u32, player_blind: u8) -
         // A Lowball that would muck one of the player's imagined cards is
         // worth that card too: it comes off The Hand instead of going on
         // the House Edge, which is the same gap.
-        let own: Vec<Option<Card>> = row.iter().map(|p| Some(p.card.clone())).collect();
-        let mucked: u32 = mucks(&own, &imagined)
+        let mucked: u32 = settle(&imagined, &printed(row))
+            .gone
             .iter()
             .zip(&imagined)
             .filter(|(gone, _)| **gone)
@@ -335,7 +366,7 @@ pub fn last_word(draw: &[Card], blind: u8, across: &[Placed]) -> Vec<Pick> {
             .iter()
             .zip(&edge)
             .filter(|(mine, its)| {
-                (mine.card.tell == Some(Tell::Bluff) || its.card.tell == Some(Tell::Bluff))
+                (mine.plays_as == Some(Tell::Bluff) || its.plays_as == Some(Tell::Bluff))
                     && !mine.mucked
                     && !its.mucked
             })
@@ -387,7 +418,7 @@ impl Search<'_> {
             if self.used[card] {
                 continue;
             }
-            if self.draw[card].tell == Some(Tell::AllIn) {
+            if needs_sacrifice(&self.row, &self.draw[card]) {
                 for burned in 0..self.draw.len() {
                     if burned != card && !self.used[burned] {
                         self.try_pick(card, Some(burned));
@@ -459,57 +490,194 @@ fn mucks(lowballs: &[Option<Card>], targets: &[Option<Card>]) -> Vec<bool> {
         .collect()
 }
 
-/// Resolve a row left to right against the row across from it, and say what
-/// each card is worth.
+/// What each card in `row` plays as, once every Echo has copied: the card
+/// itself, or for an Echo the card to its left as that card plays, Face
+/// Value and Tell, through any Echoes before it. An Echo with nothing to its
+/// left, or a Mucked card there, plays as a plain card on its own print.
+///
+/// `None` in `row` is a card that can't be seen, and an Echo copying one is
+/// `None` too: a face-up Echo never says what is under the card it copies.
+fn echoed(row: &[Option<Card>], gone: &[bool]) -> Vec<Option<Card>> {
+    let mut plays: Vec<Option<Card>> = Vec::with_capacity(row.len());
+    for (slot, card) in row.iter().enumerate() {
+        let card = match card {
+            Some(echo) if echo.tell == Some(Tell::Echo) => match slot.checked_sub(1) {
+                Some(left) if !gone[left] => plays[left].clone().map(|copied| Card {
+                    name: echo.name,
+                    ..copied
+                }),
+                _ => Some(Card {
+                    tell: None,
+                    ..echo.clone()
+                }),
+            },
+            other => other.clone(),
+        };
+        plays.push(card);
+    }
+    plays
+}
+
+/// The Echoes in `row` that copied a Lowball and are still standing, each as
+/// a Lowball on its own printed Face Value. Every other slot is empty.
+fn lowball_echoes(
+    row: &[Option<Card>],
+    plays: &[Option<Card>],
+    gone: &[bool],
+) -> Vec<Option<Card>> {
+    row.iter()
+        .zip(plays)
+        .zip(gone)
+        .map(|((card, plays), &gone)| match (card, plays) {
+            (Some(card), Some(plays))
+                if !gone && card.tell == Some(Tell::Echo) && plays.tell == Some(Tell::Lowball) =>
+            {
+                Some(Card {
+                    tell: Some(Tell::Lowball),
+                    ..card.clone()
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// `row` facing `across`, settled before any card is worth anything.
+struct Settled<'a> {
+    row: &'a [Option<Card>],
+    /// Which of `row` are Mucked.
+    gone: Vec<bool>,
+    /// What each of `row` plays as. See [`echoed`].
+    plays: Vec<Option<Card>>,
+    /// Which of `row` are Echoes with nothing to copy: nothing to their
+    /// left, or a Mucked card. Plain cards, so they have no Tell.
+    bare: Vec<bool>,
+    /// `across` with its Mucked cards taken off.
+    across: Vec<Option<Card>>,
+}
+
+/// Settle two rows facing each other, in three steps.
 ///
 /// First the Lowballs on both sides muck, all at once, on printed Face
-/// Values. A mucked card is worth nothing, its Tell doesn't fire, and every
-/// Tell that reads its slot finds it empty.
-///
-/// Then every Tell reads by position — Streak one slot left, Copycat one slot
-/// right, Flop across and to either side of that — and every one of them
-/// reads a *printed* Face Value. That is what keeps this a single pass with no
-/// ordering to argue about: no card's value depends on another card's value, so the two rows
-/// facing each other can be worked out in either order and a Flop on each
-/// side of the table never chases the other one round in a circle.
-pub fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
-    let own: Vec<Option<Card>> = row.iter().map(|p| Some(p.card.clone())).collect();
-    let gone = mucks(across, &own);
-    let across: Vec<Option<Card>> = mucks(&own, across)
+/// Values. Then every Echo copies, reading a Mucked card as nothing to its
+/// left. Then the Echoes that copied a Lowball muck, all at once, on their
+/// own printed Face Values; an Echo that has already copied a card keeps the
+/// copy if that card goes now. A Lowball always reads an Echo's printed Face
+/// Value, so two cards facing each other never both muck.
+fn settle<'a>(row: &'a [Option<Card>], across: &[Option<Card>]) -> Settled<'a> {
+    let mut gone = mucks(across, row);
+    let mut across_gone = mucks(row, across);
+    let plays = echoed(row, &gone);
+    let bare = row
+        .iter()
+        .enumerate()
+        .map(|(slot, card)| {
+            card.as_ref().is_some_and(|c| c.tell == Some(Tell::Echo))
+                && slot.checked_sub(1).is_none_or(|left| gone[left])
+        })
+        .collect();
+    let mine = lowball_echoes(row, &plays, &gone);
+    let theirs = lowball_echoes(across, &echoed(across, &across_gone), &across_gone);
+    for (gone, echoed) in gone.iter_mut().zip(mucks(&theirs, row)) {
+        *gone |= echoed;
+    }
+    for (gone, echoed) in across_gone.iter_mut().zip(mucks(&mine, across)) {
+        *gone |= echoed;
+    }
+    let across = across_gone
         .into_iter()
         .zip(across)
         .map(|(mucked, card)| card.clone().filter(|_| !mucked))
         .collect();
-    let standing = |slot: usize| row.get(slot).filter(|_| !gone[slot]).map(|p| &p.card);
+    Settled {
+        row,
+        gone,
+        plays,
+        bare,
+        across,
+    }
+}
+
+impl Settled<'_> {
+    /// The card in `slot` if it is there to be read: seen, and not Mucked.
+    fn standing(&self, slot: usize) -> Option<&Card> {
+        self.row.get(slot)?.as_ref().filter(|_| !self.gone[slot])
+    }
+
+    /// Whether the card in `slot` has a Tell, as far as a Streak can read:
+    /// it is there, and is no plain card. An Echo always does unless it has
+    /// nothing to copy, even when what it copies has none.
+    fn has_tell(&self, slot: usize) -> bool {
+        self.standing(slot)
+            .is_some_and(|card| card.tell.is_some() && !self.bare[slot])
+    }
+
+    /// What the card in `slot`, playing as `plays`, adds to its row, with
+    /// `sacrifice` burned for it.
+    ///
+    /// Every Tell reads by position — Streak one slot left, Copycat one slot
+    /// right, Flop across and to either side of that — and every one of them
+    /// reads a *printed* Face Value, an Echo's included. That is what keeps
+    /// this a single pass with no ordering to argue about: no card's value
+    /// depends on another card's value, so the two rows facing each other
+    /// can be worked out in either order and a Flop on each side of the
+    /// table never chases the other one round in a circle. An Echo borrows
+    /// its left neighbour's Face Value and Tell for itself alone.
+    fn worth(&self, slot: usize, plays: &Card, sacrifice: Option<&Card>) -> u32 {
+        let own = plays.face_value;
+        match plays.tell {
+            Some(Tell::Streak) if slot.checked_sub(1).is_some_and(|left| self.has_tell(left)) => {
+                own * 2
+            }
+            Some(Tell::AllIn) => own + sacrifice.map_or(0, |c| c.face_value),
+            Some(Tell::Copycat) => self.standing(slot + 1).map_or(own, |next| next.face_value),
+            Some(Tell::Flop) => flop_value(&self.across, slot),
+            Some(Tell::Counterweight) => counterweight_value(&self.across, slot, own),
+            _ => own,
+        }
+    }
+}
+
+/// Resolve a row left to right against the row across from it, and say what
+/// each card is worth. The rows settle first (see [`settle`]): a Mucked card
+/// is worth nothing, its Tell doesn't fire, and every Tell that reads its
+/// slot finds it empty.
+pub fn resolve_row(row: &[Placed], across: &[Option<Card>]) -> Vec<Played> {
+    let own = printed(row);
+    let settled = settle(&own, across);
     row.iter()
         .enumerate()
         .map(|(slot, placed)| {
-            let printed = placed.card.face_value;
-            let value = match placed.card.tell {
-                _ if gone[slot] => 0,
-                Some(Tell::Streak)
-                    if slot
-                        .checked_sub(1)
-                        .and_then(standing)
-                        .is_some_and(|left| left.tell.is_some()) =>
-                {
-                    printed * 2
-                }
-                Some(Tell::AllIn) => {
-                    printed + placed.sacrifice.as_ref().map_or(0, |c| c.face_value)
-                }
-                Some(Tell::Copycat) => standing(slot + 1).map_or(printed, |next| next.face_value),
-                Some(Tell::Flop) => flop_value(&across, slot),
-                Some(Tell::Counterweight) => counterweight_value(&across, slot, printed),
-                _ => printed,
+            let plays = settled.plays[slot]
+                .clone()
+                .expect("a row always sees its own cards");
+            let mucked = settled.gone[slot];
+            let value = if mucked {
+                0
+            } else {
+                settled.worth(slot, &plays, placed.sacrifice.as_ref())
             };
             Played {
                 card: placed.card.clone(),
+                plays_as: plays.tell,
                 value,
-                mucked: gone[slot],
+                mucked,
             }
         })
         .collect()
+}
+
+/// Whether `card` would need a sacrifice going into the next slot of `row`:
+/// an All In does, and so does an Echo copying one. Mucks aren't known
+/// until the rows turn over, so this reads printed cards only.
+pub fn needs_sacrifice(row: &[Placed], card: &Card) -> bool {
+    let mut row = printed(row);
+    row.push(Some(card.clone()));
+    let plays = echoed(&row, &vec![false; row.len()]);
+    plays
+        .last()
+        .and_then(Option::as_ref)
+        .is_some_and(|c| c.tell == Some(Tell::AllIn))
 }
 
 /// One side's cards: what it draws from, what it holds, and what it has
@@ -846,51 +1014,52 @@ impl Duel {
     }
 
     /// What the player can add up for themselves: the value of the
-    /// Opposing Cards that are face up, and how many are still face down.
+    /// Opposing Cards that are face up, and how many they can't count yet.
     ///
     /// A face-up card whose Tell reads a face-down one counts for its Face
-    /// Value alone. The row never says more about a hidden card than the fact
-    /// of its being hidden already does, so this only ever under-reads.
+    /// Value alone, and a face-up Echo copying a face-down card can't be
+    /// counted at all. The row never says more about a hidden card than the
+    /// fact of its being hidden already does, so this only ever under-reads.
     pub fn showing(&self) -> (u32, usize) {
         let (row, opposing) = self.table();
-        let row = printed(&row);
         let seen = self.face_up(&opposing);
-        // The player's Lowballs muck what they can see across from them, and
-        // the face-up Lowballs across muck what they can see of the row.
-        let gone = mucks(&row, &seen);
-        let across: Vec<Option<Card>> = mucks(&seen, &row)
-            .into_iter()
-            .zip(row)
-            .map(|(mucked, card)| card.filter(|_| !mucked))
-            .collect();
-        let face_up = |slot: usize| {
-            seen.get(slot)
-                .and_then(Option::as_ref)
-                .filter(|_| !gone[slot])
-        };
+        let settled = settle(&seen, &printed(&row));
         let mut total = 0;
         let mut hidden = 0;
-        for (slot, card) in seen.iter().enumerate() {
-            let Some(card) = card else {
-                hidden += 1;
-                continue;
-            };
-            if gone[slot] {
-                continue;
+        for (slot, plays) in settled.plays.iter().enumerate() {
+            match plays {
+                None => hidden += 1,
+                Some(_) if settled.gone[slot] => {}
+                // An All In's sacrifice stays hidden until the rows turn over.
+                Some(plays) => total += settled.worth(slot, plays, None),
             }
-            let printed = card.face_value;
-            total += match card.tell {
-                Some(Tell::Streak) => match slot.checked_sub(1).and_then(face_up) {
-                    Some(left) if left.tell.is_some() => printed * 2,
-                    _ => printed,
-                },
-                Some(Tell::Copycat) => face_up(slot + 1).map_or(printed, |next| next.face_value),
-                Some(Tell::Flop) => flop_value(&across, slot),
-                Some(Tell::Counterweight) => counterweight_value(&across, slot, printed),
-                _ => printed,
-            };
         }
         (total, hidden)
+    }
+
+    /// What an Echo would copy if it went into the next empty slot right
+    /// now, as far as the player can tell. `None` when the row is full.
+    pub fn echo_next(&self) -> Option<EchoPeek> {
+        if self.plays_left() == 0 {
+            return None;
+        }
+        let Some(slot) = self.row.len().checked_sub(1) else {
+            return Some(EchoPeek::Plain);
+        };
+        let (row, opposing) = self.table();
+        let own = printed(&row);
+        let settled = settle(&own, &self.face_up(&opposing));
+        // A card a modifier takes off the end of the row is Mucked too.
+        if settled.gone.get(slot).is_none_or(|&gone| gone) {
+            return Some(EchoPeek::Mucked);
+        }
+        let copied = settled.plays[slot]
+            .clone()
+            .expect("a row always sees its own cards");
+        Some(EchoPeek::Copies {
+            face_value: copied.face_value,
+            tell: copied.tell,
+        })
     }
 
     /// What a Flop would take if it went into the next empty slot right now,
@@ -1010,12 +1179,12 @@ impl Duel {
         }
         let draw = &mut self.player.draw;
         let played = draw.get(card).ok_or(PlayError::NoSuchCard)?.clone();
-        let sacrificed = match (played.tell, sacrifice) {
-            (Some(Tell::AllIn), None) => return Err(PlayError::AllInNeedsSacrifice),
-            (Some(Tell::AllIn), Some(i)) if i == card => return Err(PlayError::NoSuchCard),
-            (Some(Tell::AllIn), Some(i)) => Some(draw.get(i).ok_or(PlayError::NoSuchCard)?.clone()),
-            (_, Some(_)) => return Err(PlayError::NotAllIn),
-            (_, None) => None,
+        let sacrificed = match (needs_sacrifice(&self.row, &played), sacrifice) {
+            (true, None) => return Err(PlayError::AllInNeedsSacrifice),
+            (true, Some(i)) if i == card => return Err(PlayError::NoSuchCard),
+            (true, Some(i)) => Some(draw.get(i).ok_or(PlayError::NoSuchCard)?.clone()),
+            (false, Some(_)) => return Err(PlayError::NotAllIn),
+            (false, None) => None,
         };
         remove_both(draw, card, sacrifice);
 
@@ -1033,6 +1202,10 @@ impl Duel {
     /// and the Tells re-read whatever their new neighbours are. Rearranging a
     /// row is lifting cards off the right-hand end and putting them back in
     /// another order.
+    ///
+    /// The Echoes straight after it come back out with it, each with its own
+    /// burn: they were copying the card that left, so an Echo of an All In
+    /// always has exactly the burn it was placed with.
     pub fn lift(&mut self, slot: usize) -> Result<Card, PlayError> {
         if self.phase == Phase::PushYourLuck {
             return Err(PlayError::HandIsFinal);
@@ -1040,12 +1213,21 @@ impl Duel {
         if slot >= self.row.len() {
             return Err(PlayError::NoSuchCard);
         }
-        let placed = self.row.remove(slot);
-        if let Some(burned) = placed.sacrifice {
-            self.player.draw.push(burned);
+        let lifted = self.row[slot].card.clone();
+        loop {
+            let placed = self.row.remove(slot);
+            if let Some(burned) = placed.sacrifice {
+                self.player.draw.push(burned);
+            }
+            self.player.draw.push(placed.card);
+            if self
+                .row
+                .get(slot)
+                .is_none_or(|p| p.card.tell != Some(Tell::Echo))
+            {
+                return Ok(lifted);
+            }
         }
-        self.player.draw.push(placed.card.clone());
-        Ok(placed.card)
     }
 
     /// Confirm the row. Both sides turn over, each resolves its Tells, the
@@ -1405,7 +1587,7 @@ impl Duel {
                 break;
             }
             let bluff = Some(Tell::Bluff);
-            if mine.card.tell != bluff && theirs.card.tell != bluff {
+            if mine.plays_as != bluff && theirs.plays_as != bluff {
                 continue;
             }
             // The muck came first: a mucked Bluff doesn't hit, and a mucked
@@ -1495,6 +1677,7 @@ fn printed(row: &[Placed]) -> Vec<Option<Card>> {
 fn mucked<'a>(cards: impl Iterator<Item = &'a Card>) -> impl Iterator<Item = Played> {
     cards.map(|card| Played {
         card: card.clone(),
+        plays_as: card.tell,
         value: 0,
         mucked: true,
     })
@@ -1648,6 +1831,13 @@ pub(crate) mod cards {
             name: "counterweight",
             face_value,
             tell: Some(Tell::Counterweight),
+        }
+    }
+    pub fn echo(face_value: u32) -> Card {
+        Card {
+            name: "echo",
+            face_value,
+            tell: Some(Tell::Echo),
         }
     }
 
@@ -3968,5 +4158,401 @@ mod plays_last_tests {
         let duel = Duel::new(vec![card(4); 18], 40, 3, enemy_with(999, vec![card(5); 14]));
         assert!(!duel.plays_last());
         assert_eq!(duel.opposing().len(), 3);
+    }
+}
+
+#[cfg(test)]
+mod echo_tests {
+    use super::cards::*;
+    use super::*;
+    use crate::modifier::Side;
+
+    fn placed(cards: &[Card]) -> Vec<Placed> {
+        cards
+            .iter()
+            .map(|card| Placed {
+                card: card.clone(),
+                sacrifice: None,
+            })
+            .collect()
+    }
+
+    /// What each card of `row` and of `across` is worth, facing each other
+    /// with every card face up.
+    fn values(row: &[Card], across: &[Card]) -> (Vec<u32>, Vec<u32>) {
+        let (row, across) = (placed(row), placed(across));
+        let worth = |row: &[Placed], across: &[Placed]| {
+            resolve_row(row, &printed(across))
+                .iter()
+                .map(|p| p.value)
+                .collect()
+        };
+        (worth(&row, &across), worth(&across, &row))
+    }
+
+    fn plain() -> Vec<Card> {
+        vec![card(1), card(1), card(1)]
+    }
+
+    /// The Draw position of the first card printed `face_value`.
+    fn find(duel: &Duel, face_value: u32) -> usize {
+        duel.draw()
+            .iter()
+            .position(|c| c.face_value == face_value)
+            .expect("the card is in the Draw")
+    }
+
+    #[test]
+    fn an_echo_in_the_first_slot_plays_plain() {
+        assert_eq!(values(&[echo(5)], &plain()).0, [5]);
+    }
+
+    #[test]
+    fn an_echo_takes_the_face_value_of_a_plain_card() {
+        assert_eq!(values(&[card(2), echo(5)], &plain()).0, [2, 2]);
+    }
+
+    #[test]
+    fn an_echo_after_a_streak_doubles_as_one() {
+        assert_eq!(values(&[streak(4), echo(5)], &plain()).0, [4, 8]);
+    }
+
+    #[test]
+    fn a_streak_after_an_echo_doubles() {
+        // The Echo copies a plain 1, and is still an Echo.
+        assert_eq!(
+            values(&[card(1), echo(5), streak(4)], &plain()).0,
+            [1, 1, 8]
+        );
+    }
+
+    #[test]
+    fn a_streak_after_a_first_slot_echo_does_not_double() {
+        assert_eq!(values(&[echo(5), streak(4)], &plain()).0, [5, 4]);
+    }
+
+    #[test]
+    fn a_streak_after_an_echo_with_a_mucked_card_to_its_left_does_not_double() {
+        let across = [lowball(2), card(1), card(1)];
+        assert_eq!(values(&[card(9), echo(3), streak(4)], &across).0, [0, 3, 4]);
+    }
+
+    #[test]
+    fn lifting_a_card_lifts_the_echoes_straight_after_it() {
+        let mut duel = Duel::new(
+            vec![card(3), echo(2), echo(1), card(6), card(8)],
+            40,
+            4,
+            enemy(999),
+        )
+        .facing(plain());
+        for face_value in [6, 1, 2, 8] {
+            duel.place(find(&duel, face_value), None).unwrap();
+        }
+
+        assert_eq!(duel.lift(0), Ok(card(6)));
+
+        let row: Vec<u32> = duel.row().iter().map(|p| p.card.face_value).collect();
+        assert_eq!(row, [8], "both Echoes came out with the 6");
+        let mut back: Vec<u32> = duel.draw().iter().map(|c| c.face_value).collect();
+        back.sort();
+        assert_eq!(back, [1, 2, 3, 6]);
+    }
+
+    #[test]
+    fn lifting_an_all_in_hands_back_the_burn_of_the_echo_copying_it() {
+        let mut duel = Duel::new(
+            vec![card(4), card(8), echo(2), all_in(5), card(6)],
+            40,
+            3,
+            enemy(999),
+        )
+        .facing(plain());
+        duel.place(find(&duel, 6), None).unwrap();
+        duel.place(find(&duel, 5), Some(find(&duel, 8))).unwrap();
+        duel.place(find(&duel, 2), Some(find(&duel, 4))).unwrap();
+
+        duel.lift(1).unwrap();
+
+        assert_eq!(duel.hand(), 6, "no Echo is left copying the 6");
+        let mut back: Vec<u32> = duel.draw().iter().map(|c| c.face_value).collect();
+        back.sort();
+        assert_eq!(back, [2, 4, 5, 8]);
+    }
+
+    #[test]
+    fn an_echo_never_becomes_an_all_in_with_nothing_burned() {
+        let mut duel = Duel::new(
+            vec![echo(1), card(6), card(8), all_in(5)],
+            40,
+            3,
+            enemy(999),
+        )
+        .facing(plain());
+        duel.place(find(&duel, 5), Some(find(&duel, 8))).unwrap();
+        duel.place(find(&duel, 6), None).unwrap();
+        duel.place(find(&duel, 1), None).unwrap();
+
+        duel.lift(1).unwrap();
+
+        assert_eq!(duel.row().len(), 1, "the Echo came out with the 6");
+        assert_eq!(duel.hand(), 5 + 8);
+    }
+
+    #[test]
+    fn echoes_chain() {
+        assert_eq!(
+            values(&[streak(5), echo(2), echo(2)], &plain()).0,
+            [5, 10, 10]
+        );
+    }
+
+    #[test]
+    fn a_copycat_reads_an_echoes_printed_face_value() {
+        // The Copycat takes the Echo's print, 5; the Echo copies the Copycat
+        // in its own place and takes the 7.
+        assert_eq!(
+            values(&[copycat(2), echo(5), card(7)], &plain()).0,
+            [5, 7, 7]
+        );
+    }
+
+    #[test]
+    fn an_echo_copying_a_flop_reads_across_from_its_own_slot() {
+        let across = [card(8), card(4), card(1)];
+        assert_eq!(values(&[flop(2), echo(5)], &across).0, [8 + 4, 8 + 4 + 1]);
+    }
+
+    #[test]
+    fn a_flop_reads_an_echoes_printed_face_value() {
+        let (row, across) = values(&[card(1), flop(2)], &[card(9), echo(1)]);
+        assert_eq!(across, [9, 9], "the Echo copies the 9 for itself");
+        assert_eq!(row, [1, 9 + 1], "the Flop reads the Echo's 1");
+    }
+
+    #[test]
+    fn a_counterweight_reads_an_echoes_printed_face_value() {
+        let (row, _) = values(&[card(1), counterweight(3)], &[card(9), echo(2)]);
+        assert_eq!(row, [1, 3]);
+    }
+
+    #[test]
+    fn an_echo_copying_a_lowball_mucks_as_one() {
+        let (row, across) = values(&[lowball(2), echo(3)], &[card(5), card(6)]);
+        assert_eq!(across, [0, 0], "the Lowball mucks the 5, the Echo the 6");
+        assert_eq!(row, [2, 2]);
+    }
+
+    #[test]
+    fn an_echo_copying_a_lowball_mucks_on_its_own_printed_face_value() {
+        // Copied, the Echo would be a 2 under the 5. Printed, it is a 7.
+        let (_, across) = values(&[lowball(2), echo(7)], &[card(9), card(5)]);
+        assert_eq!(across, [0, 5]);
+    }
+
+    #[test]
+    fn a_lowball_reads_an_echoes_printed_face_value() {
+        // Copied, the Echo would be a 9 over the Lowball's 4. Printed, a 3.
+        let (row, _) = values(&[card(9), echo(3)], &[card(10), lowball(4)]);
+        assert_eq!(row, [9, 9]);
+        let (row, _) = values(&[card(1), echo(5)], &[card(10), lowball(4)]);
+        assert_eq!(row, [1, 0]);
+    }
+
+    #[test]
+    fn an_echo_after_a_mucked_card_plays_plain() {
+        let (row, _) = values(&[card(9), echo(3)], &[lowball(2), card(1)]);
+        assert_eq!(row, [0, 3]);
+    }
+
+    #[test]
+    fn an_echo_after_a_mucked_lowball_mucks_nothing() {
+        let (row, across) = values(&[lowball(5), echo(2)], &[lowball(1), card(9)]);
+        assert_eq!(row, [0, 2]);
+        assert_eq!(across, [1, 9]);
+    }
+
+    #[test]
+    fn an_echo_copying_an_all_in_needs_a_sacrifice_and_adds_it() {
+        let mut duel = Duel::new(
+            vec![card(2), card(4), echo(1), all_in(3)],
+            40,
+            2,
+            enemy(999),
+        )
+        .facing(plain());
+        duel.place(find(&duel, 3), Some(find(&duel, 4))).unwrap();
+
+        let echo = find(&duel, 1);
+        assert_eq!(duel.place(echo, None), Err(PlayError::AllInNeedsSacrifice));
+        duel.place(echo, Some(find(&duel, 2))).unwrap();
+
+        assert_eq!(duel.hand(), (3 + 4) + (3 + 2));
+    }
+
+    #[test]
+    fn an_echo_copying_an_all_in_cannot_burn_itself() {
+        let mut duel = Duel::new(
+            vec![card(2), card(4), echo(1), all_in(3)],
+            40,
+            2,
+            enemy(999),
+        )
+        .facing(plain());
+        duel.place(find(&duel, 3), Some(find(&duel, 4))).unwrap();
+
+        let echo = find(&duel, 1);
+        assert_eq!(duel.place(echo, Some(echo)), Err(PlayError::NoSuchCard));
+    }
+
+    #[test]
+    fn lifting_an_echo_hands_back_its_own_burn() {
+        let mut duel = Duel::new(
+            vec![card(2), card(4), echo(1), all_in(3)],
+            40,
+            2,
+            enemy(999),
+        )
+        .facing(plain());
+        duel.place(find(&duel, 3), Some(find(&duel, 4))).unwrap();
+        duel.place(find(&duel, 1), Some(find(&duel, 2))).unwrap();
+
+        duel.lift(1).unwrap();
+
+        let mut back: Vec<u32> = duel.draw().iter().map(|c| c.face_value).collect();
+        back.sort();
+        assert_eq!(back, [1, 2], "the Echo and the 2 it burned");
+        assert_eq!(duel.row()[0].sacrifice.as_ref().unwrap().face_value, 4);
+    }
+
+    #[test]
+    fn an_echo_of_an_echo_of_an_all_in_takes_the_all_ins_face_value() {
+        let burned = |c: Card, sacrifice: u32| Placed {
+            card: c,
+            sacrifice: Some(card(sacrifice)),
+        };
+        let row = [burned(all_in(5), 8), burned(echo(2), 4), burned(echo(3), 1)];
+        let values: Vec<u32> = resolve_row(&row, &printed(&placed(&plain())))
+            .iter()
+            .map(|p| p.value)
+            .collect();
+        assert_eq!(values, [13, 9, 6]);
+    }
+
+    #[test]
+    fn an_echo_after_anything_but_an_all_in_takes_no_sacrifice() {
+        let mut duel =
+            Duel::new(vec![card(2), echo(1), card(4)], 40, 2, enemy(999)).facing(plain());
+        duel.place(find(&duel, 4), None).unwrap();
+
+        let echo = find(&duel, 1);
+        assert_eq!(
+            duel.place(echo, Some(find(&duel, 2))),
+            Err(PlayError::NotAllIn)
+        );
+    }
+
+    #[test]
+    fn the_enemy_burns_a_card_for_an_echo_copying_its_all_in() {
+        let draw = [all_in(5), echo(1), card(3), card(2)];
+        let picks = greedy(&draw, 2, 0, 0);
+
+        assert_eq!(picks.len(), 2);
+        assert_eq!(picks[0].card, 0);
+        assert_eq!(picks[1].card, 1);
+        assert!(picks.iter().all(|p| p.sacrifice.is_some()));
+    }
+
+    #[test]
+    fn an_echo_copying_a_bluff_goes_off_on_its_printed_face_value() {
+        let deck = vec![echo(6), bluff(2)];
+        let mut duel = Duel::new(deck, 40, 2, enemy(40)).facing(vec![card(1), card(9)]);
+        duel.place(0, None).unwrap();
+        duel.place(0, None).unwrap();
+        duel.confirm();
+
+        let showdown = duel.showdown().or(duel.last_showdown()).unwrap();
+        assert_eq!(
+            showdown.bluffs,
+            vec![
+                BluffHit {
+                    slot: 0,
+                    loser: Side::Enemy,
+                    amount: 1,
+                },
+                BluffHit {
+                    slot: 1,
+                    loser: Side::Player,
+                    amount: 3,
+                },
+            ]
+        );
+    }
+
+    fn facing(across: Vec<Card>, hidden: &[usize]) -> Duel {
+        let row: Vec<(Card, bool)> = across
+            .into_iter()
+            .enumerate()
+            .map(|(i, card)| (card, !hidden.contains(&i)))
+            .collect();
+        Duel::new(vec![card(4); 18], 40, 5, enemy(999)).with_opposing(row)
+    }
+
+    #[test]
+    fn a_face_up_echo_beside_a_face_down_card_never_says_what_is_under_it() {
+        let duel = facing(vec![card(7), echo(2)], &[0]);
+
+        assert_eq!(duel.showing(), (0, 2), "neither card can be counted");
+        assert_eq!(duel.house_edge(), 7 + 7);
+    }
+
+    #[test]
+    fn a_face_up_echo_beside_a_face_up_card_counts_as_its_copy() {
+        let duel = facing(vec![card(7), echo(2)], &[]);
+
+        assert_eq!(duel.showing(), (14, 0));
+    }
+
+    #[test]
+    fn the_peek_says_what_an_echo_would_copy() {
+        let mut duel = Duel::new(
+            vec![card(1), card(9), streak(4), echo(2)],
+            40,
+            3,
+            enemy(999),
+        )
+        .facing(vec![card(1), lowball(3), card(1)]);
+        assert_eq!(duel.echo_next(), Some(EchoPeek::Plain));
+
+        duel.place(find(&duel, 4), None).unwrap();
+        assert_eq!(
+            duel.echo_next(),
+            Some(EchoPeek::Copies {
+                face_value: 4,
+                tell: Some(Tell::Streak),
+            })
+        );
+
+        duel.place(find(&duel, 9), None).unwrap();
+        assert_eq!(
+            duel.echo_next(),
+            Some(EchoPeek::Mucked),
+            "the Lowball mucks the 9"
+        );
+    }
+
+    #[test]
+    fn the_peek_never_says_a_face_down_lowball_mucks_the_card_an_echo_copies() {
+        let mut duel = Duel::new(vec![card(1), card(9)], 40, 2, enemy(999))
+            .with_opposing(vec![(lowball(3), false), (card(1), true)]);
+        duel.place(find(&duel, 9), None).unwrap();
+
+        assert_eq!(
+            duel.echo_next(),
+            Some(EchoPeek::Copies {
+                face_value: 9,
+                tell: None,
+            })
+        );
     }
 }

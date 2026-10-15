@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::thread;
 
-use all_in::combat::duel::{Duel, Phase, resolve_row, row_value};
+use all_in::combat::duel::{Duel, Phase, needs_sacrifice, resolve_row, row_value};
 use all_in::item::{self, Rarity, When};
 use all_in::legacy::{self, LegacyPerk};
 use all_in::overworld::progression::RUN;
@@ -211,7 +211,7 @@ fn naive_row(duel: &mut Duel, rng: &mut u64) {
             return;
         }
         let card = draw[(xorshift64(rng) % take as u64) as usize].clone();
-        let burn = if card.tell == Some(Tell::AllIn) {
+        let burn = if needs_sacrifice(duel.row(), &card) {
             // Smallest card that isn't this one; with nothing else in the
             // Draw an All In can't be played, so the row ends here.
             let i = draw.iter().position(|c| *c == card).unwrap();
@@ -270,7 +270,7 @@ fn search(duel: &mut Duel, perks: &[&Perk], path: &mut Vec<Move>, best: &mut (i6
     let mut moves: Vec<Move> = Vec::new();
     if duel.plays_left() > 0 {
         for (i, card) in draw.iter().enumerate() {
-            if card.tell == Some(Tell::AllIn) {
+            if needs_sacrifice(duel.row(), card) {
                 for (j, burn) in draw.iter().enumerate() {
                     if j != i {
                         moves.push((card.clone(), Some(burn.clone())));

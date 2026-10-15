@@ -130,6 +130,9 @@ _Avoid_: destroyed, burned (that is All In's sacrifice), removed
 **Counterweight**:
 Tell: takes the higher of its own Face Value and the Face Value of the card across from it, and none of its Tell. Across an empty slot it keeps its own. The Pit Boss's Boss Tell.
 
+**Echo**:
+Tell: takes the Face Value and Tell of the card in the slot to its left, and resolves as that card would in its place; a plain card if nothing is to its left.
+
 **Boss Tell**:
 The Tell a boss's deck is built around. Nobody else has it until that boss is beaten in the run; from then on it can turn up in minions' decks, Packs, and the Cage. Locked again on Fold or death.
 _Avoid_: signature card, unlock

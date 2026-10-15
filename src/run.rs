@@ -21,8 +21,10 @@ use crate::wheel::Spun;
 /// Every Tell reads the row by position, not by the order the cards were
 /// picked up: Streak looks one slot to its left, Copycat one slot to its
 /// right, Flop across at the Opposing Card and its neighbours. All of them read
-/// Face Values, so no Tell ever depends on another Tell resolving first
-/// and the two rows can be worked out in either order.
+/// printed Face Values, an Echo's included, so no Tell ever depends on
+/// another Tell resolving first and the two rows can be worked out in either
+/// order. An Echo only borrows its left neighbour's Face Value and Tell for
+/// itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tell {
     /// Doubles the card's Face Value if the card in the slot to its left has any Tell.
@@ -45,12 +47,22 @@ pub enum Tell {
     /// Takes the higher of its own Face Value and that of the card across
     /// from it, and none of its Tell; its own across an empty slot.
     Counterweight,
+    /// Takes the Face Value and Tell of the card in the slot to its left,
+    /// and resolves as that card would in its place; a plain card if
+    /// nothing is to its left, or that card is Mucked.
+    Echo,
 }
 
 impl Tell {
     /// The Tells every run starts with. Every other Tell is a Boss Tell,
     /// locked until its boss is beaten.
-    pub const OPEN: [Tell; 4] = [Tell::Streak, Tell::AllIn, Tell::Bluff, Tell::Lowball];
+    pub const OPEN: [Tell; 5] = [
+        Tell::Streak,
+        Tell::AllIn,
+        Tell::Bluff,
+        Tell::Lowball,
+        Tell::Echo,
+    ];
 
     pub fn rule_text(&self) -> Vec<&'static str> {
         match self {
@@ -108,6 +120,13 @@ impl Tell {
                 "Tell",
                 ". Its own across an empty slot.",
             ],
+            Tell::Echo => vec![
+                "Takes the",
+                "Face Value",
+                "and",
+                "Tell",
+                "of the card in the slot to its left. Plain if nothing is there.",
+            ],
         }
     }
 
@@ -120,6 +139,7 @@ impl Tell {
             Tell::Bluff => "Bluff",
             Tell::Lowball => "Lowball",
             Tell::Counterweight => "Counterweight",
+            Tell::Echo => "Echo",
         }
     }
 }
@@ -812,7 +832,13 @@ mod tests {
     fn a_fresh_run_has_only_the_open_tells_unlocked() {
         assert_eq!(
             RunState::new().tell_pool(),
-            vec![Tell::Streak, Tell::AllIn, Tell::Bluff, Tell::Lowball]
+            vec![
+                Tell::Streak,
+                Tell::AllIn,
+                Tell::Bluff,
+                Tell::Lowball,
+                Tell::Echo
+            ]
         );
     }
 
@@ -829,6 +855,7 @@ mod tests {
                 Tell::AllIn,
                 Tell::Bluff,
                 Tell::Lowball,
+                Tell::Echo,
                 Tell::Copycat
             ]
         );
@@ -849,6 +876,7 @@ mod tests {
                 Tell::AllIn,
                 Tell::Bluff,
                 Tell::Lowball,
+                Tell::Echo,
                 Tell::Counterweight,
                 Tell::Flop
             ]
