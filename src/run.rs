@@ -246,13 +246,20 @@ pub const BOSS_PACK_KEEP: usize = 2;
 pub const MINION_PACK_SIZE: usize = 3;
 pub const MINION_PACK_KEEP: usize = 1;
 
-/// The Face Values Pack cards are dealt in, and how often one that isn't a
-/// guaranteed Boss Tell carries a Tell. The starter deck's ranges: 2..=8
-/// plain, and 2..=5 for a Boss Tell, which Copycat and Flop both print at
-/// (#110, #113). Untuned: the balance sim sets these.
+/// The Face Values a Boss Pack's cards are dealt in, plain and carrying its
+/// Boss Tell, and how often a card that isn't a guaranteed Boss Tell carries
+/// a Tell, in either kind of Pack. The starter deck's ranges: 2..=8 plain,
+/// and 2..=5 for a Boss Tell, which Copycat and Flop both print at (#110,
+/// #113). Untuned: the balance sim sets these.
 const PACK_FACES: std::ops::RangeInclusive<u32> = 2..=8;
 const PACK_TELL_FACES: std::ops::RangeInclusive<u32> = 2..=5;
 const PACK_TELL_PCT: u32 = 40;
+/// The Face Values a minion's Pack is dealt in, above the starter deck's so
+/// the one card kept is worth taking. Tuned on the balance sim (#184): at
+/// 2..=8 a Pack was worth no more than taking nothing. At this range smart
+/// wins 14.6% of runs always taking the Pack, 17.1% always taking Items and
+/// 9.1% always taking nothing.
+const MINION_PACK_FACES: std::ops::RangeInclusive<u32> = 5..=11;
 
 impl Pack {
     /// What beating `boss` deals: `pack_tells` cards carrying its Boss Tell,
@@ -290,7 +297,7 @@ impl Pack {
         let mut rng = seed | 1;
         Pack {
             cards: (0..run.wheel.minion_pack_size())
-                .map(|_| deal_card(PACK_FACES, PACK_TELL_PCT, &pool, &mut rng))
+                .map(|_| deal_card(MINION_PACK_FACES, PACK_TELL_PCT, &pool, &mut rng))
                 .collect(),
             keep: MINION_PACK_KEEP,
         }
@@ -617,7 +624,10 @@ pub fn deal_card(
 }
 
 /// The standard template a minion's Deck is dealt from, one row per floor.
-/// Untuned: the balance sim sets these.
+/// Checked on the balance sim (#184): The Pit's prints from 3 rather than 4,
+/// so smart beats its minion 72% of the time, between Slotz and the Pit
+/// Boss rather than level with the boss. The Big Shots Table has no minion
+/// in `RUN` yet.
 struct MinionTable {
     name: &'static str,
     chips: u32,
@@ -641,7 +651,7 @@ impl MinionTable {
                 name: "A dealer with a scar",
                 chips: 32,
                 size: 14,
-                faces: 4..=7,
+                faces: 3..=7,
                 tell_pct: 30,
             },
             Floor::BigShotsTable => MinionTable {
@@ -893,7 +903,7 @@ mod tests {
             assert!(deck.iter().all(|c| (2..=5).contains(&c.face_value)));
 
             let pit = minion_deck(Floor::ThePit, &pool, seed);
-            assert!(pit.iter().all(|c| (4..=7).contains(&c.face_value)));
+            assert!(pit.iter().all(|c| (3..=7).contains(&c.face_value)));
         }
     }
 
@@ -1111,7 +1121,11 @@ mod tests {
         assert!(fresh.iter().any(|c| c.tell == Some(Tell::Lowball)));
         assert!(fresh.iter().all(|c| c.tell != Some(Tell::Copycat)));
         assert!(fresh.iter().all(|c| c.tell != Some(Tell::Flop)));
-        assert!(fresh.iter().all(|c| (2..=8).contains(&c.face_value)));
+        // Above the starter deck, but a Lowball still prints low.
+        assert!(fresh.iter().all(|c| match c.tell {
+            Some(Tell::Lowball) => c.face_value <= LOWBALL_MAX,
+            _ => (5..=11).contains(&c.face_value),
+        }));
 
         run.beat(&SLOTZ);
         let after_slotz: Vec<Card> = (1..300)

@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::thread;
 
 use all_in::combat::duel::{Duel, Phase, needs_sacrifice, resolve_row, row_value};
-use all_in::item::{self, Rarity, When};
+use all_in::item::{self, Item, Rarity, When};
 use all_in::legacy::{self, LegacyPerk};
 use all_in::overworld::progression::RUN;
 use all_in::run::{
@@ -72,6 +72,23 @@ struct Args {
     /// The Legacy Perk every run starts under. Victory Lap's deck is left
     /// empty here and dealt per run from [`victory_laps`].
     legacy: Option<LegacyPerk>,
+    /// An Item every run starts holding, with every use it comes with: how
+    /// one Item is weighed on its own.
+    item: Option<&'static Item>,
+}
+
+/// How a flag names something: `Card Shark's Sunglasses` is
+/// `card-sharks-sunglasses`.
+fn slug(name: &str) -> String {
+    name.to_lowercase().replace('\'', "").replace(' ', "-")
+}
+
+/// `loaded-dice`: an Item by its [`slug`].
+fn parse_item(name: &str) -> Result<&'static Item, String> {
+    item::ITEMS
+        .into_iter()
+        .find(|item| slug(item.name) == name)
+        .ok_or(format!("--item: no Item called {name}"))
 }
 
 /// `high-limit`: a Legacy Perk by its name in lower case with dashes, one of
@@ -79,7 +96,7 @@ struct Args {
 fn parse_legacy(name: &str) -> Result<LegacyPerk, String> {
     let perk = LegacyPerk::all(&[])
         .into_iter()
-        .find(|perk| perk.name().to_lowercase().replace(' ', "-") == name)
+        .find(|perk| slug(perk.name()) == name)
         .ok_or(format!("--legacy: no Legacy Perk called {name}"))?;
     if !perk.ready() {
         return Err(format!("--legacy: {name} doesn't do anything yet"));
@@ -97,7 +114,7 @@ fn parse_wheel(spec: &str) -> Result<BTreeMap<Square, u8>, String> {
             .ok_or(format!("--wheel: {part} is not square=rank"))?;
         let square = Square::ALL
             .into_iter()
-            .find(|sq| sq.name().to_lowercase().replace(' ', "-") == name)
+            .find(|sq| slug(sq.name()) == name)
             .ok_or(format!("--wheel: no square called {name}"))?;
         let rank: u8 = rank.parse().map_err(|e| format!("--wheel: {part}: {e}"))?;
         if !(1..=MAX_RANK).contains(&rank) {
@@ -121,6 +138,7 @@ fn parse_args() -> Result<Args, String> {
         wheel: BTreeMap::new(),
         carry: false,
         legacy: None,
+        item: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -160,6 +178,7 @@ fn parse_args() -> Result<Args, String> {
             "--wheel" => args.wheel = parse_wheel(&value()?)?,
             "--carry" => args.carry = true,
             "--legacy" => args.legacy = Some(parse_legacy(&value()?)?),
+            "--item" => args.item = Some(parse_item(&value()?)?),
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown flag {other}")),
         }
@@ -170,7 +189,7 @@ fn parse_args() -> Result<Args, String> {
 const USAGE: &str = "usage: cargo run --release -p sim -- [--runs N] [--seed N] \
 [--player naive|smart|both] [--pick first|second|random] \
 [--minion items|cards|skip|random] [--wheel square=rank,...] [--carry] \
-[--legacy high-limit|marked-cards|lucky-streak|victory-lap]";
+[--legacy high-limit|marked-cards|lucky-streak|victory-lap] [--item loaded-dice|...]";
 
 // ---------------------------------------------------------------------------
 // Building a row
@@ -312,10 +331,21 @@ fn smart_row(duel: &mut Duel, perks: &[&Perk]) {
     }
 }
 
-/// Both players spend every Item they can, as soon as they can: the
-/// row-time ones before the row is built, so the smart player's search sees
-/// what a Reveal turned over or Deep Pockets drew, and Weighted Coin on every
-/// Push. A placeholder until the sim tunes the Items (#94).
+/// Whether `player` spends its Items this turn. Naive spends them as soon as
+/// it can. Smart holds them until it's behind on Chips, which beat spending
+/// at once and saving them for the bosses under #184's first Items (11.7%
+/// of runs won against 10.3% for both with `--minion items`: an Item mostly
+/// arrives just before a boss).
+fn spends_items(duel: &Duel, player: Player) -> bool {
+    match player {
+        Player::Naive => true,
+        Player::Smart => duel.player_chips() < duel.enemy_chips(),
+    }
+}
+
+/// Spend every Item that can be spent now: the row-time ones before the row
+/// is built, so the smart player's search sees what a Reveal turned over or
+/// Deep Pockets drew, and Weighted Coin on a Push.
 fn spend_items(duel: &mut Duel, when: When) {
     for i in 0..duel.items().len() {
         if duel.items()[i].item.when == when {
@@ -384,7 +414,10 @@ fn play_duel(
     stats: &mut Stats,
 ) -> CombatOutcome {
     loop {
-        spend_items(duel, When::Row);
+        let spends = spends_items(duel, player);
+        if spends {
+            spend_items(duel, When::Row);
+        }
         match player {
             Player::Naive => naive_row(duel, rng),
             Player::Smart => smart_row(duel, perks),
@@ -395,7 +428,7 @@ fn play_duel(
                 debug_assert_eq!(duel.phase(), Phase::PushYourLuck);
                 let push = pushes(duel, player);
                 stats.pushes[at] += u64::from(push);
-                if push {
+                if push && spends {
                     spend_items(duel, When::Prompt);
                 }
                 if push { duel.push() } else { duel.hold() }.expect("the prompt is up")
@@ -426,12 +459,22 @@ fn choose(one: Reward, two: Reward, pick: Pick, rng: &mut u64) -> Reward {
 }
 
 /// A Pack whose best card prints under this is one smart rerolls with
-/// Second Look: the middle of what a Pack deals (2 to 8).
-const REROLL_BELOW: u32 = 5;
+/// Second Look: the middle of what a minion's Pack deals (5 to 11).
+const REROLL_BELOW: u32 = 8;
+
+/// Which of `offered` the player keeps: naive any of them, smart the
+/// rarest, since the stronger Items are the rarer ones. `None` when nothing
+/// is offered.
+fn keep_item(offered: &[&'static Item], player: Player, rng: &mut u64) -> Option<&'static Item> {
+    match player {
+        _ if offered.is_empty() => None,
+        Player::Naive => Some(offered[(xorshift64(rng) % offered.len() as u64) as usize]),
+        Player::Smart => offered.iter().copied().min_by_key(|item| item.weight),
+    }
+}
 
 /// A minion's reward, taken as the overworld offers it: three Items or a
-/// Pack, keep one, or nothing. The naive player keeps any Item; the smart
-/// one the rarest, since the stronger Items are the rarer ones. With Second
+/// Pack, keep one, or nothing, the Item kept by [`keep_item`]. With Second
 /// Look, smart rerolls three common Items, or a Pack with nothing at
 /// [`REROLL_BELOW`] or better, while it has rerolls left. Naive never
 /// rerolls.
@@ -452,15 +495,9 @@ fn take_minion_reward(run: &mut RunState, player: Player, minion: Minion, rng: &
             {
                 offered = item::offer(&run.items, 3, xorshift64(rng));
             }
-            let taken = match player {
-                _ if offered.is_empty() => return,
-                Player::Naive => offered[(xorshift64(rng) % offered.len() as u64) as usize],
-                Player::Smart => *offered
-                    .iter()
-                    .min_by_key(|item| item.weight)
-                    .expect("not empty"),
-            };
-            run.apply(Reward::Item(taken), xorshift64(rng));
+            if let Some(taken) = keep_item(&offered, player, rng) {
+                run.apply(Reward::Item(taken), xorshift64(rng));
+            }
         }
         Minion::Cards => {
             let mut pack = Pack::minion(run, xorshift64(rng));
@@ -499,12 +536,15 @@ fn keep(pack: &Pack, player: Player, rng: &mut u64) -> Vec<usize> {
     order
 }
 
-/// The run a Legacy Perk and The Wheel start: the perk, the spin, then Trim
-/// and Pocket Change. Smart trims its lowest plain cards; naive trims
-/// nothing. Both take the first Item offered.
+/// The run a Legacy Perk and The Wheel start: the perk, `--item`'s Item,
+/// the spin, then Trim and Pocket Change. Smart trims its lowest plain
+/// cards; naive trims nothing. Pocket Change's pick is kept by
+/// [`keep_item`]. Every run spins, Wheel or not, so a run under a board
+/// plays the same deals as the same run without one.
 fn start_run(
     board: &BTreeMap<Square, u8>,
     perk: Option<&LegacyPerk>,
+    item: Option<&'static Item>,
     player: Player,
     rng: &mut u64,
 ) -> RunState {
@@ -512,8 +552,8 @@ fn start_run(
     if let Some(perk) = perk {
         legacy::apply(&mut run, perk);
     }
-    if board.is_empty() {
-        return run;
+    if let Some(item) = item {
+        run.apply(Reward::Item(item), 0);
     }
     let spun = Spun::new(board, wheel::spin(xorshift64(rng)));
     let mut run = wheel::start_run(run, spun, xorshift64(rng));
@@ -528,7 +568,8 @@ fn start_run(
             "the sim trims what Trim allows"
         );
     }
-    if let Some(&item) = run.wheel.pocket_pick(xorshift64(rng)).first() {
+    let pick = run.wheel.pocket_pick(xorshift64(rng));
+    if let Some(item) = keep_item(&pick, player, rng) {
         run.apply(Reward::Item(item), 0);
     }
     run
@@ -544,7 +585,7 @@ fn play_run(
     stats: &mut Stats,
 ) -> Option<Vec<Card>> {
     stats.runs += 1;
-    let mut run = start_run(&args.wheel, perk, player, &mut rng);
+    let mut run = start_run(&args.wheel, perk, args.item, player, &mut rng);
     for (at, &encounter) in RUN.iter().enumerate() {
         stats.reached[at] += 1;
         stats.arrive_chips[at] += u64::from(run.chips);
@@ -781,8 +822,11 @@ fn main() {
         Some(perk) => format!(", Legacy {}", perk.name()),
         None => String::new(),
     };
+    let item = args.item.map_or(String::new(), |item| {
+        format!(", starting with {}", item.name)
+    });
     println!(
-        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}{perk}{}\n",
+        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}{perk}{item}{}\n",
         args.runs,
         args.seed,
         args.pick,

@@ -176,13 +176,13 @@ Item, 1 use: a Reveal of every Opposing Card.
 Item, 2 uses: +1 to the player's Blind this Hand.
 
 **Shaved Card**:
-Item, 2 uses: +3 to the Face Value of the card in the player's first slot this Hand, before any Tell resolves, so every Tell that reads it sees the +3.
+Item, 3 uses: +3 to the Face Value of the card in the player's first slot this Hand, before any Tell resolves, so every Tell that reads it sees the +3.
 
 **Sleight of Hand**:
-Item, 1 use: the enemy's rightmost Opposing Card is Mucked.
+Item, 2 uses: the enemy's rightmost Opposing Card is Mucked.
 
 **Insurance**:
-Item, 2 uses: a Whiff this Hand is halved, rounded down.
+Item, 4 uses: a Whiff this Hand is halved, rounded down.
 
 **Weighted Coin**:
 Item, 2 uses, spent at the Push / Hold prompt: Push Your Luck flips even this Hand instead of in the House's favour.
@@ -191,7 +191,7 @@ Item, 2 uses, spent at the Push / Hold prompt: Push Your Luck flips even this Ha
 Item, 1 use, lasting the encounter: what the card in the player's first slot resolves to counts twice toward The Hand. Tells still read its Face Value, so no other card sees the doubling.
 
 **Deep Pockets**:
-Item, 1 use, lasting the encounter: the player draws one card at once, and the Draw refills to 8 instead of 7 until the encounter ends.
+Item, 2 uses, each lasting the encounter: the player draws one card at once, and the Draw refills to 8 instead of 7 until the encounter ends.
 
 ### Cash
 
@@ -241,7 +241,7 @@ Legacy Perk: the player's Blind is 1 higher on the first two turns of every duel
 Legacy Perk: a Reveal of the leftmost Opposing Card at the start of every turn. Against The House, which plays last, it has nothing to show.
 
 **Lucky Streak**:
-Legacy Perk: Push Your Luck's coin is weighted at least 60/40 in the player's favour. A best-of coin stays best-of.
+Legacy Perk: Push Your Luck's coin is weighted at least 56/44 in the player's favour. A best-of coin stays best-of.
 
 **Victory Lap**:
 Legacy Perk: the next run starts with the deck The House was beaten with, the Flop Pack's two cards included, in place of the starter deck.
