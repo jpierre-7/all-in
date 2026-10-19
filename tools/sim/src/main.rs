@@ -713,9 +713,9 @@ fn trim_picks(deck: &[Card], count: usize, trim: Trim, rng: &mut u64) -> Vec<usi
 
 /// The run a Legacy Perk and The Wheel start: the perk, `--item`'s Item,
 /// the spin, then Trim and Pocket Change. Smart trims its lowest plain
-/// cards, or the ones `--trim` says; naive trims nothing. Pocket Change's pick is kept by
-/// [`keep_item`]. Every run spins, Wheel or not, so a run under a board
-/// plays the same deals as the same run without one.
+/// cards, or the ones `--trim` says; naive trims nothing. Pocket Change's
+/// pick is kept by [`keep_item`]. Every run spins, Wheel or not, so a run
+/// under a board plays the same deals as the same run without one.
 fn start_run(
     board: &BTreeMap<Square, u8>,
     perk: Option<&LegacyPerk>,
