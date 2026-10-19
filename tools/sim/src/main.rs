@@ -254,9 +254,10 @@ fn naive_row(duel: &mut Duel, rng: &mut u64) {
 /// What the smart player thinks a finished row is worth: The Hand less what
 /// it can see of the Opposing Cards, plus what the Bluffs it can read will
 /// take (`Duel::bluffs_showing`), plus what it stands to win or lose across
-/// the face-down ones ([`hidden`]). It counts what its Perks add to The Hand
-/// once the row resolves (Jackpot), read against the face-up cards alone.
-fn score(duel: &Duel, perks: &[&Perk]) -> f64 {
+/// the face-down ones ([`face_down_worth`], weighed against `deck`). It
+/// counts what its Perks add to The Hand once the row resolves (Jackpot),
+/// read against the face-up cards alone.
+fn score(duel: &Duel, perks: &[&Perk], deck: &[Card]) -> f64 {
     let (showing, _) = duel.showing();
     let across: Vec<Option<Card>> = duel
         .opposing()
@@ -270,20 +271,21 @@ fn score(duel: &Duel, perks: &[&Perk]) -> f64 {
     });
     f64::from(duel.hand()) + f64::from(bent) - f64::from(plain) - f64::from(showing)
         + duel.bluffs_showing() as f64
-        + hidden(duel, &resolved)
+        + face_down_worth(duel, &resolved, deck)
 }
 
 /// What `row`, resolved against the face-up Opposing Cards, stands to win
-/// or lose across the face-down ones, each weighed as any card of the
-/// enemy's whole Deck (`Duel::enemy_deck`), every card as likely as the
-/// next: a Lowball that would muck the card across, a Counterweight that
-/// would take its Face Value, a Flop that would read it, a Bluff, and what
-/// its own Lowballs, Counterweights, Flops and Bluffs would take off one. A
-/// card back's own Face Value moves every row by the same amount, so it is
-/// left out. The enemy's greedy guesses at the player's row much the same
-/// way, with an average card of the player's Deck.
-fn hidden(duel: &Duel, row: &[Played]) -> f64 {
-    let deck = duel.enemy_deck();
+/// or lose across the face-down ones, in Chips, each face-down card weighed
+/// as any card of `deck`, the enemy's whole Deck (`Duel::enemy_deck`), every
+/// card as likely as the next: a Lowball that would muck the card across, a
+/// Counterweight that would take its Face Value, a Flop that would read it,
+/// a Bluff, and what its own Lowballs, Counterweights, Flops and Bluffs
+/// would take off one. The Deck counts the cards it can already see too,
+/// so the weighing is rough. A face-down card's own Face Value moves every
+/// row by the same amount, so it is left out. The enemy's greedy guesses at
+/// the player's row much the same way, with an average card of the
+/// player's Deck.
+fn face_down_worth(duel: &Duel, row: &[Played], deck: &[Card]) -> f64 {
     if deck.is_empty() {
         return 0.0;
     }
@@ -293,46 +295,49 @@ fn hidden(duel: &Duel, row: &[Played]) -> f64 {
             .filter(|p| !p.mucked)
             .map_or(0, |p| p.card.face_value)
     };
-    let face_down: Vec<usize> = (0..duel.opposing().len())
-        .filter(|&slot| !duel.opposing()[slot].face_up)
-        .collect();
     let mut total = 0.0;
-    for &slot in &face_down {
+    for (slot, _) in duel
+        .opposing()
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| !o.face_up)
+    {
         let reads = slot.saturating_sub(1)..=slot + 1;
-        for card in &deck {
+        // Smart's own Flops that read this slot.
+        let flops = reads
+            .clone()
+            .filter_map(|r| row.get(r))
+            .filter(|p| p.plays_as == Some(Tell::Flop) && !p.mucked)
+            .count() as f64;
+        let mine = row.get(slot);
+        for card in deck {
             let theirs = card.face_value;
+            let own = mine.map_or(0, |p| p.card.face_value);
+            // A Mucked card's Tell does nothing, a Bluff's hit included.
+            if mine.is_some_and(|p| p.plays_as == Some(Tell::Lowball) && own < theirs) {
+                total += f64::from(theirs) * (1.0 + flops);
+                continue;
+            }
+            total += f64::from(theirs) * flops;
             if card.tell == Some(Tell::Flop) {
                 total -= f64::from(reads.clone().map(standing).sum::<u32>());
             }
-            let Some(mine) = row.get(slot) else { continue };
-            let own = mine.card.face_value;
-            // A Mucked card's Tell does nothing, a Bluff's hit included.
+            let Some(mine) = mine else { continue };
             if card.tell == Some(Tell::Lowball) && theirs < own {
                 total -= f64::from(mine.value);
-                continue;
-            }
-            if mine.plays_as == Some(Tell::Lowball) && own < theirs {
-                total += f64::from(theirs);
                 continue;
             }
             if card.tell == Some(Tell::Counterweight) {
                 total -= f64::from(own.saturating_sub(theirs));
             }
             if mine.plays_as == Some(Tell::Counterweight) {
-                total += f64::from(theirs.saturating_sub(own));
+                // Across a face-down card it resolved as its own Face Value,
+                // the one an Echo copied included.
+                total += f64::from(theirs.saturating_sub(mine.value));
             }
             if card.tell == Some(Tell::Bluff) || mine.plays_as == Some(Tell::Bluff) {
                 total += f64::from(own) - f64::from(theirs);
             }
-        }
-    }
-    // Its own Flops read card backs too: each is any card of the Deck once
-    // the total is shared out below.
-    let faces: u32 = deck.iter().map(|c| c.face_value).sum();
-    for (slot, mine) in row.iter().enumerate() {
-        if mine.plays_as == Some(Tell::Flop) && !mine.mucked {
-            let reads = slot.saturating_sub(1)..=slot + 1;
-            total += reads.filter(|r| face_down.contains(r)).count() as f64 * f64::from(faces);
         }
     }
     total / deck.len() as f64
@@ -340,7 +345,13 @@ fn hidden(duel: &Duel, row: &[Played]) -> f64 {
 
 /// Every row the Draw can make, by putting cards down and lifting them back
 /// off, which is how a player rearranges a row on the table.
-fn search(duel: &mut Duel, perks: &[&Perk], path: &mut Vec<Move>, best: &mut (f64, Vec<Move>)) {
+fn search(
+    duel: &mut Duel,
+    perks: &[&Perk],
+    deck: &[Card],
+    path: &mut Vec<Move>,
+    best: &mut (f64, Vec<Move>),
+) {
     let draw = duel.draw().to_vec();
     let mut tried: Vec<&Move> = Vec::new();
     let mut moves: Vec<Move> = Vec::new();
@@ -367,13 +378,13 @@ fn search(duel: &mut Duel, perks: &[&Perk], path: &mut Vec<Move>, best: &mut (f6
         placed_any = true;
         place(duel, mv);
         path.push(mv.clone());
-        search(duel, perks, path, best);
+        search(duel, perks, deck, path, best);
         path.pop();
         let last = duel.row().len() - 1;
         duel.lift(last).expect("the card just placed is in the row");
     }
     if !placed_any && !path.is_empty() {
-        let s = score(duel, perks);
+        let s = score(duel, perks, deck);
         if s > best.0 {
             *best = (s, path.clone());
         }
@@ -381,8 +392,9 @@ fn search(duel: &mut Duel, perks: &[&Perk], path: &mut Vec<Move>, best: &mut (f6
 }
 
 fn smart_row(duel: &mut Duel, perks: &[&Perk]) {
+    let deck = duel.enemy_deck();
     let mut best = (f64::NEG_INFINITY, Vec::new());
-    search(duel, perks, &mut Vec::new(), &mut best);
+    search(duel, perks, &deck, &mut Vec::new(), &mut best);
     for mv in &best.1 {
         place(duel, mv);
     }
@@ -947,7 +959,7 @@ mod tests {
     }
 
     #[test]
-    fn smart_keeps_its_big_card_away_from_a_card_back_that_could_be_a_lowball() {
+    fn smart_keeps_its_big_card_away_from_a_face_down_card_that_could_be_a_lowball() {
         // Every card the enemy owns is a Lowball 1, so whatever sits across
         // the face-down card is Mucked; the slot past the enemy's row is safe.
         let lowball = card(1, Some(Tell::Lowball));

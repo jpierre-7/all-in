@@ -1152,7 +1152,7 @@ impl Duel {
 
     /// The enemy's whole Deck, wherever each card is: all a player knows
     /// about a face-down Opposing Card, the way [`greedy`] knows the
-    /// player's Deck. The balance sim reads it to weigh a card back.
+    /// player's Deck. The balance sim reads it to weigh a face-down card.
     pub fn enemy_deck(&self) -> Vec<Card> {
         let pile = &self.enemy_cards;
         pile.deck

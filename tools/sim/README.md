@@ -102,14 +102,16 @@ it is, Bluffs included (`Duel::bluffs_showing`). A face-down one it
 weighs as any card of the enemy's whole Deck (`Duel::enemy_deck`), each
 as likely as the next: what a hidden Lowball, Counterweight, Flop or Bluff
 would do to the card across from it, and what its own would take off one.
-So it keeps its biggest cards away from the card backs when it can, in
-the slots past the end of the enemy's row. The enemy's greedy guesses at
-the player's row much the same way. Real players land between the two. A duel still going after 300 turns is a stall, and it is counted as a
-loss and flagged in the table.
+So it keeps its biggest cards away from the face-down cards when it can,
+in the slots past the end of the enemy's row. The Deck counts the cards
+it can already see too, so the weighing is rough. The enemy's greedy
+guesses at the player's row much the same way. Real players land between
+the two. A duel still going after 300 turns is a stall, and it is
+counted as a loss and flagged in the table.
 
 New Tells mostly need nothing here: both players read cards through the
 `Duel`. A Tell whose worth hangs on a face-down card (Lowball, Counterweight,
-Flop, Bluff) needs smart's `hidden` to weigh it.
+Flop, Bluff) needs smart's `face_down_worth` to weigh it.
 A new decision does need a player model, like a new prompt or a choice
 that isn't a 1-of-2.
 
@@ -170,8 +172,8 @@ naive 0.7% (37.2 Chips).
 No duel stalled. Before #191 smart won 13.6%: it counted a face-down card
 as nothing, except across its own Lowball or Counterweight, and never
 counted a Bluff (see Reveals, below). Naive is unchanged. Before #184
-smart won 8.8% on a4e1f97; what moved it is below. The tables below
-Reveals were measured before #191, against 13.6%.
+smart won 8.8% on a4e1f97; what moved it is below. Every table but
+Reveals was measured before #191, against 13.6%.
 
 ### Minion rewards
 
@@ -234,22 +236,27 @@ The Items, `--minion skip --carry`, mean encounters won against 3.44 with
 no Item (3.42 before #191): Card Shark's Sunglasses +0.01, Two-Way Mirror
 +0.01, and `--see-all` +0.22. Read the Pan has no number of its own yet.
 
-Seeing the whole row every turn is worth 6 points of runs won, about what
-Bankroll at rank 2 is worth. On the turns where seeing it changed smart's
-row (measured before #191), a hidden Lowball was there to muck the card
-across, or a hidden Counterweight (the Pit Boss's) to take its Face Value,
-nearly every time. Played without seeing, nothing says which slot holds
-one, so no guess can get that back: weighing each card back as any card of
-the enemy's Deck (#191) is worth 0.4 points, and a turn's whole row seen
-is worth under a Chip on average. That is why a Reveal is worth what it
-turns over: Marked Cards, one card every turn, gets half of `--see-all`;
-Early Read climbs with its turns; the Items turn over one turn's row, or
-one card, a few times a run.
+**The player, not the game** (#191). Seeing the whole row every turn is
+worth 6 points of runs won, about what Bankroll at rank 2 is worth, so the
+enemy's row has something to act on. On the turns where seeing it changed
+smart's row (counted once, before #191), a hidden Lowball was there to
+muck the card across, or a hidden Counterweight (the Pit Boss's) to take
+its Face Value, nearly every time.
 
 Before #191 smart counted a face-down card as nothing, except across its
-own Lowball or Counterweight, so it never kept a big card away from a card
-back; and it never counted a Bluff, face up or not (`--see-all` without
-the Bluffs: 19.1%).
+own Lowball or Counterweight, so it never kept a big card away from one;
+and it never counted a Bluff, face up or not. Weighing each face-down card
+as any card of the enemy's Deck is worth the 0.4 points of the new
+baseline; counting the Bluffs moves nothing there, since without a Reveal
+nothing is face up, but it is worth 0.9 points under `--see-all` (19.1%
+without them).
+
+Played without seeing, nothing says which slot holds the Lowball, so no
+guess can get most of the 6 points back, and a turn's whole row seen is
+worth under a Chip on average. A Reveal is worth what it turns over:
+Marked Cards, one card every turn, gets half of `--see-all`; Early Read
+climbs with its turns; the Items turn over one turn's row, or one card, a
+few times a run, and are worth next to nothing for it.
 
 ### The minion template
 
@@ -290,7 +297,7 @@ Slotz over in 3 turns), so it stays.
 High Limit as first designed, +1 Blind all run, was 40.2% against 8.3%
 (#168), so it was cut to the first two turns of each duel. Lucky Streak at
 60/40 was 29.5%; it is 56/44 now (#184). Marked Cards is a Reveal (see
-Items), and Victory Lap is a deck, so neither has a number to turn.
+Reveals), and Victory Lap is a deck, so neither has a number to turn.
 
 ### The Wheel
 
