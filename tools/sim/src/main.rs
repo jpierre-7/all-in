@@ -47,6 +47,19 @@ enum Pick {
     Random,
 }
 
+/// When smart spends a Second Look reroll on a minion's Pack. Tried one at
+/// a time for #193; the README has what each won.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reroll {
+    /// Every card prints under this.
+    Below(u32),
+    /// The best card beats the weakest card in the deck by less than this.
+    Gap(u32),
+    /// As `Below`, but only at the last minion before a boss: the rerolls
+    /// are saved until then.
+    Late(u32),
+}
+
 /// What the player takes after beating a minion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Minion {
@@ -101,6 +114,11 @@ struct Args {
     trim: Trim,
     /// Report what sits unplayed in the Draw from turn to turn.
     draw: bool,
+    /// Smart's Pack reroll rule with Second Look.
+    reroll: Reroll,
+    /// The rarity smart stops rerolling an Item offer at: an offer holding
+    /// one this rare or rarer is kept.
+    reroll_items: Rarity,
 }
 
 /// How a flag names something: `Card Shark's Sunglasses` is
@@ -154,6 +172,20 @@ fn parse_wheel(spec: &str) -> Result<BTreeMap<Square, u8>, String> {
     Ok(board)
 }
 
+/// `below:8`, `gap:3` or `late:8`.
+fn parse_reroll(rule: &str) -> Result<Reroll, String> {
+    let (kind, n) = rule
+        .split_once(':')
+        .ok_or(format!("--reroll: {rule} is not rule:number"))?;
+    let n: u32 = n.parse().map_err(|e| format!("--reroll: {rule}: {e}"))?;
+    match kind {
+        "below" => Ok(Reroll::Below(n)),
+        "gap" => Ok(Reroll::Gap(n)),
+        "late" => Ok(Reroll::Late(n)),
+        other => Err(format!("--reroll: {other} is not below, gap or late")),
+    }
+}
+
 fn parse_args() -> Result<Args, String> {
     let mut args = Args {
         runs: 2000,
@@ -168,6 +200,8 @@ fn parse_args() -> Result<Args, String> {
         see_all: false,
         trim: Trim::Lowest,
         draw: false,
+        reroll: SMART_REROLL,
+        reroll_items: Rarity::Uncommon,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -223,6 +257,16 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "--draw" => args.draw = true,
+            "--reroll" => args.reroll = parse_reroll(&value()?)?,
+            "--reroll-items" => {
+                args.reroll_items = match value()?.as_str() {
+                    "uncommon" => Rarity::Uncommon,
+                    "rare" => Rarity::Rare,
+                    other => {
+                        return Err(format!("--reroll-items: {other} is not uncommon or rare"));
+                    }
+                }
+            }
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown flag {other}")),
         }
@@ -234,7 +278,8 @@ const USAGE: &str = "usage: cargo run --release -p sim -- [--runs N] [--seed N] 
 [--player naive|smart|both] [--pick first|second|random] \
 [--minion items|cards|skip|random] [--wheel square=rank,...] [--carry] \
 [--legacy high-limit|marked-cards|lucky-streak|victory-lap] [--item loaded-dice|...] \
-[--see-all] [--trim lowest|random|highest|swap] [--draw]";
+[--see-all] [--trim lowest|random|highest|swap] [--draw] \
+[--reroll below:N|gap:N|late:N] [--reroll-items uncommon|rare]";
 
 // ---------------------------------------------------------------------------
 // Building a row
@@ -615,9 +660,15 @@ fn choose(one: Reward, two: Reward, pick: Pick, rng: &mut u64) -> Reward {
     }
 }
 
-/// A Pack whose best card prints under this is one smart rerolls with
-/// Second Look: the middle of what a minion's Pack deals (5 to 11).
-const REROLL_BELOW: u32 = 8;
+/// Smart's Pack reroll rule with Second Look: take a Pack only with an 11
+/// in it, the best a minion's Pack prints, and reroll anything else. Of
+/// everything tried on #193 (the README has the table) the harder smart
+/// rerolls the more runs it wins, up to 11: at 12 every Pack is rerolled,
+/// the rerolls go on the first offers and the last one is kept blind, which
+/// wins no more than not rerolling. Saving the rerolls for the minion before
+/// a boss, or rerolling by how far the best card beats the deck's weakest,
+/// won less.
+const SMART_REROLL: Reroll = Reroll::Below(11);
 
 /// Which of `offered` the player keeps: naive any of them, smart the
 /// rarest, since the stronger Items are the rarer ones. `None` when nothing
@@ -632,11 +683,17 @@ fn keep_item(offered: &[&'static Item], player: Player, rng: &mut u64) -> Option
 
 /// A minion's reward, taken as the overworld offers it: three Items or a
 /// Pack, keep one, or nothing, the Item kept by [`keep_item`]. With Second
-/// Look, smart rerolls three common Items, or a Pack with nothing at
-/// [`REROLL_BELOW`] or better, while it has rerolls left. Naive never
-/// rerolls.
-fn take_minion_reward(run: &mut RunState, player: Player, minion: Minion, rng: &mut u64) {
-    let minion = match minion {
+/// Look, smart rerolls an Item offer with nothing at `args.reroll_items`
+/// or rarer, or a Pack by `args.reroll`, while it has rerolls left. Naive
+/// never rerolls. `minions_left` is how many minions come after this one.
+fn take_minion_reward(
+    run: &mut RunState,
+    player: Player,
+    args: &Args,
+    minions_left: usize,
+    rng: &mut u64,
+) {
+    let minion = match args.minion {
         Minion::Random => {
             [Minion::Items, Minion::Cards, Minion::Skip][(xorshift64(rng) % 3) as usize]
         }
@@ -647,7 +704,7 @@ fn take_minion_reward(run: &mut RunState, player: Player, minion: Minion, rng: &
         Minion::Items => {
             let mut offered = item::offer(&run.items, 3, xorshift64(rng));
             while smart
-                && offered.iter().all(|item| item.rarity() == Rarity::Common)
+                && offered.iter().all(|item| item.rarity() < args.reroll_items)
                 && run.reroll()
             {
                 offered = item::offer(&run.items, 3, xorshift64(rng));
@@ -658,10 +715,7 @@ fn take_minion_reward(run: &mut RunState, player: Player, minion: Minion, rng: &
         }
         Minion::Cards => {
             let mut pack = Pack::minion(run, xorshift64(rng));
-            while smart
-                && pack.cards.iter().all(|card| card.face_value < REROLL_BELOW)
-                && run.reroll()
-            {
+            while smart && wants_reroll(&pack, run, args.reroll, minions_left) && run.reroll() {
                 pack = Pack::minion(run, xorshift64(rng));
             }
             let picks = keep(&pack, player, rng);
@@ -671,6 +725,29 @@ fn take_minion_reward(run: &mut RunState, player: Player, minion: Minion, rng: &
             );
         }
         Minion::Skip | Minion::Random => {}
+    }
+}
+
+/// Whether smart rerolls `pack` under `rule`.
+fn wants_reroll(pack: &Pack, run: &RunState, rule: Reroll, minions_left: usize) -> bool {
+    let best = pack
+        .cards
+        .iter()
+        .map(|card| card.face_value)
+        .max()
+        .unwrap_or(0);
+    match rule {
+        Reroll::Below(n) => best < n,
+        Reroll::Late(n) => minions_left == 0 && best < n,
+        Reroll::Gap(gap) => {
+            let weakest = run
+                .deck
+                .iter()
+                .map(|card| card.face_value)
+                .min()
+                .unwrap_or(0);
+            best.saturating_sub(weakest) < gap
+        }
     }
 }
 
@@ -794,7 +871,11 @@ fn play_run(
         }
         match encounter.reward_offer() {
             Some(RewardOffer::ItemsOrPack) => {
-                take_minion_reward(&mut run, player, args.minion, &mut rng);
+                let minions_left = RUN[at + 1..]
+                    .iter()
+                    .filter(|e| matches!(e.reward_offer(), Some(RewardOffer::ItemsOrPack)))
+                    .count();
+                take_minion_reward(&mut run, player, args, minions_left, &mut rng);
             }
             Some(RewardOffer::Pick(one, two)) => {
                 // A boss opens its Pack before the Perk pick, as in the game.
