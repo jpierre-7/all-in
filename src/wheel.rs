@@ -111,10 +111,10 @@ impl Square {
                     "Start with a random common Item.".into()
                 }
                 Some(PocketChange::Random(_)) => "Start with a random uncommon Item.".into(),
-                Some(PocketChange::Pick { any_rarity: false }) => {
-                    "Start with your pick of 3 Items, none of them rare.".into()
+                Some(PocketChange::Pick { with_rares: false }) => {
+                    "Start with your pick of 3 uncommon Items.".into()
                 }
-                _ => "Start with your pick of 3 Items, of any rarity.".into(),
+                _ => "Start with your pick of 3 Items, none of them common.".into(),
             },
             Square::SecondLook => format!(
                 "Reroll a minion reward offer {} a run.",
@@ -185,8 +185,10 @@ fn fat_pack(rank: u8) -> usize {
 pub enum PocketChange {
     /// One Item of this rarity, drawn by weight.
     Random(Rarity),
-    /// The player's pick of three. Rare ones only at rank 4.
-    Pick { any_rarity: bool },
+    /// The player's pick of three, never a common: uncommon ones, and rare
+    /// ones too at rank 4. Tuned on the balance sim (#184): a pick of three
+    /// that could hold commons was worth less than rank 2's sure uncommon.
+    Pick { with_rares: bool },
 }
 
 fn pocket_change(rank: u8) -> Option<PocketChange> {
@@ -194,8 +196,8 @@ fn pocket_change(rank: u8) -> Option<PocketChange> {
         0 => None,
         1 => Some(PocketChange::Random(Rarity::Common)),
         2 => Some(PocketChange::Random(Rarity::Uncommon)),
-        3 => Some(PocketChange::Pick { any_rarity: false }),
-        _ => Some(PocketChange::Pick { any_rarity: true }),
+        3 => Some(PocketChange::Pick { with_rares: false }),
+        _ => Some(PocketChange::Pick { with_rares: true }),
     }
 }
 
@@ -407,8 +409,8 @@ impl Spun {
     /// it isn't a pick.
     pub fn pocket_pick(&self, seed: u64) -> Vec<&'static Item> {
         match pocket_change(self.rank(Square::PocketChange)) {
-            Some(PocketChange::Pick { any_rarity }) => item::offer_where(&[], 3, seed, |item| {
-                any_rarity || item.rarity() != Rarity::Rare
+            Some(PocketChange::Pick { with_rares }) => item::offer_where(&[], 3, seed, |item| {
+                item.rarity() == Rarity::Uncommon || (with_rares && item.rarity() == Rarity::Rare)
             }),
             _ => Vec::new(),
         }
@@ -727,7 +729,7 @@ mod tests {
     }
 
     #[test]
-    fn pocket_change_at_rank_three_is_a_pick_of_three_none_of_them_rare() {
+    fn pocket_change_at_rank_three_is_a_pick_of_the_three_uncommons() {
         let spun = Spun::new(&board(&[(Square::PocketChange, 3)]), None);
         assert!(
             start_run(RunState::new(), spun.clone(), SEED)
@@ -736,23 +738,28 @@ mod tests {
             "nothing yet"
         );
         for seed in 1..100 {
-            let pick = spun.pocket_pick(seed);
-            assert_eq!(pick.len(), 3);
-            assert!(pick.iter().all(|item| item.rarity() != Rarity::Rare));
+            let mut pick = spun.pocket_pick(seed);
+            pick.sort_by_key(|item| item.name);
+            assert_eq!(
+                pick,
+                [
+                    &item::ACE_UP_THE_SLEEVE,
+                    &item::LOADED_DICE,
+                    &item::SLEIGHT_OF_HAND
+                ]
+            );
         }
     }
 
     #[test]
-    fn pocket_change_at_rank_four_can_offer_a_rare() {
+    fn pocket_change_at_rank_four_can_offer_a_rare_and_never_a_common() {
         let spun = Spun::new(
             &board(&[(Square::PocketChange, 3)]),
             Some(Square::PocketChange),
         );
-        assert!(
-            (1..200)
-                .flat_map(|seed| spun.pocket_pick(seed))
-                .any(|item| item.rarity() == Rarity::Rare)
-        );
+        let offered: Vec<&Item> = (1..200).flat_map(|seed| spun.pocket_pick(seed)).collect();
+        assert!(offered.iter().any(|item| item.rarity() == Rarity::Rare));
+        assert!(offered.iter().all(|item| item.rarity() != Rarity::Common));
     }
 
     #[test]

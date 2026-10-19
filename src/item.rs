@@ -3,8 +3,8 @@
 //! encounter where the Item says so. A Perk never runs out; an Item does.
 //!
 //! Each Item is one static here, listed in [`ITEMS`]. Its uses and its offer
-//! weight are starting points: the balance sim (#94) sets the real numbers,
-//! and reads them off these fields.
+//! weight are tuned on the balance sim (#184), which reads them off these
+//! fields: the rarer an Item, the more one is worth.
 
 use crate::combat::duel::{Coin, Opposing, Placed, Played};
 use crate::modifier::{Modifier, Side, Turn};
@@ -165,7 +165,7 @@ pub static LOADED_DICE: Item = Item {
     uses: 2,
     lasts: Lasts::Hand,
     when: When::Row,
-    weight: 10,
+    weight: 6,
     modifier: &LoadedDice,
 };
 
@@ -207,7 +207,7 @@ pub static TWO_WAY_MIRROR: Item = Item {
     uses: 1,
     lasts: Lasts::Hand,
     when: When::Row,
-    weight: 5,
+    weight: 10,
     modifier: &TwoWayMirror,
 };
 
@@ -245,7 +245,7 @@ impl Modifier for AceUpTheSleeve {
 pub static SHAVED_CARD: Item = Item {
     name: "Shaved Card",
     text: "+3 to the Face Value of the card in your first slot, before any Tell reads it.",
-    uses: 2,
+    uses: 3,
     lasts: Lasts::Hand,
     when: When::Row,
     weight: 8,
@@ -269,7 +269,7 @@ impl Modifier for ShavedCard {
 pub static SLEIGHT_OF_HAND: Item = Item {
     name: "Sleight of Hand",
     text: "The enemy's rightmost Opposing Card is Mucked.",
-    uses: 1,
+    uses: 2,
     lasts: Lasts::Hand,
     when: When::Row,
     weight: 5,
@@ -291,7 +291,7 @@ impl Modifier for SleightOfHand {
 pub static INSURANCE: Item = Item {
     name: "Insurance",
     text: "A Whiff is halved, rounded down.",
-    uses: 2,
+    uses: 4,
     lasts: Lasts::Hand,
     when: When::Row,
     weight: 8,
@@ -351,7 +351,7 @@ impl Modifier for ShinyCardSleeve {
 pub static DEEP_POCKETS: Item = Item {
     name: "Deep Pockets",
     text: "Draw a card now, and your Draw refills to 8 for the rest of the encounter.",
-    uses: 1,
+    uses: 2,
     lasts: Lasts::Encounter,
     when: When::Row,
     weight: 4,
@@ -436,7 +436,7 @@ mod tests {
                 "{rarity:?}"
             );
         }
-        assert_eq!(LOADED_DICE.rarity(), Rarity::Common);
+        assert_eq!(SUNGLASSES.rarity(), Rarity::Common);
         assert_eq!(SHINY_CARD_SLEEVE.rarity(), Rarity::Rare);
     }
 

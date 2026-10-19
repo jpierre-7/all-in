@@ -128,7 +128,8 @@ pub fn apply(run: &mut RunState, perk: &LegacyPerk) {
 
 /// How many turns of each duel High Limit raises the Blind for. Tuned on
 /// the balance sim: all run took smart's win rate from 8% to 40%; two turns
-/// takes it to 18%, beside Lucky Streak.
+/// took it to 18% (#168), and takes it from 13.6% to 24.2% on #184's
+/// numbers, beside Lucky Streak.
 pub const HIGH_LIMIT_TURNS: u32 = 2;
 
 /// High Limit: the player's Blind is one higher on the first
@@ -171,13 +172,14 @@ impl Modifier for MarkedCards {
 }
 
 /// Lucky Streak's chance of taking one flip, in percent. The coin is 45 out
-/// of 100 without it.
-pub const LUCKY_STREAK_PCT: u32 = 60;
+/// of 100 without it. Tuned on the balance sim (#184): 60 took smart's win
+/// rate from 13.6% to 29.5%; 56 takes it to 24.0%, level with High Limit.
+pub const LUCKY_STREAK_PCT: u32 = 56;
 
-/// Lucky Streak: Push Your Luck's coin is weighted at least 60/40 the
+/// Lucky Streak: Push Your Luck's coin is weighted at least 56/44 the
 /// player's way. Only the weight changes, so a best-of coin stays best-of.
 pub static LUCKY_STREAK: Perk = Perk {
-    label: "Lucky Streak: Push Your Luck's coin is weighted 60/40 your way.",
+    label: "Lucky Streak: Push Your Luck's coin is weighted 56/44 your way.",
     modifier: &LuckyStreak,
 };
 
@@ -330,7 +332,7 @@ mod tests {
         assert_eq!(
             Duel::for_run(&run, MINION, SEED).coin(),
             Coin {
-                player_pct: 60,
+                player_pct: 56,
                 best_of: 3
             }
         );
@@ -376,12 +378,12 @@ mod tests {
     }
 
     #[test]
-    fn lucky_streak_weights_the_coin_sixty_forty() {
+    fn lucky_streak_weights_the_coin_fifty_six_forty_four() {
         let duel = Duel::for_run(&run_under(&LegacyPerk::LuckyStreak), MINION, SEED);
         assert_eq!(
             duel.coin(),
             Coin {
-                player_pct: 60,
+                player_pct: 56,
                 best_of: 1
             }
         );

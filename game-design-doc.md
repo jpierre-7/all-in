@@ -103,20 +103,20 @@ Upon defeating an enemy, the player earns rewards depending on the enemy type. A
 
 After beating a minion the player picks, sight unseen, one of three: **Items** (three different Items not already held, keep one), **Cards** (a Pack of three cards off the run's unlocked Tells, keep one), or nothing (#124).
 
-Items are spent on demand, a use at a time, each with a set number of uses (#153). The pool is ten, fixed for the run; each Item's uses and offer weight live in `src/item.rs`. Full wording in `GLOSSARY.md`.
+Items are spent on demand, a use at a time, each with a set number of uses (#153). The pool is ten, fixed for the run; each Item's uses and offer weight live in `src/item.rs`, and were tuned on the balance sim (#184) so that the rarer an Item is, the more one is worth. Full wording in `GLOSSARY.md`.
 
-| Item | One use | Uses |
-|---|---|---|
-| Loaded Dice | +5 to The Hand | 2 |
-| Card Shark's Sunglasses | Reveal the leftmost face-down Opposing Card | 3 |
-| Two-Way Mirror | Reveal every Opposing Card | 1 |
-| Ace Up the Sleeve | +1 to your Blind | 2 |
-| Shaved Card | +3 to your first slot's Face Value, before Tells | 2 |
-| Sleight of Hand | The enemy's rightmost Opposing Card is Mucked | 1 |
-| Insurance | Halve a Whiff | 2 |
-| Weighted Coin | Push Your Luck flips 50/50 (spent at the prompt) | 2 |
-| Shiny Card Sleeve | Your first slot counts twice, for the encounter | 1 |
-| Deep Pockets | Draw one now; the Draw refills to 8, for the encounter | 1 |
+| Item | One use | Uses | Rarity |
+|---|---|---|---|
+| Loaded Dice | +5 to The Hand | 2 | Uncommon |
+| Card Shark's Sunglasses | Reveal the leftmost face-down Opposing Card | 3 | Common |
+| Two-Way Mirror | Reveal every Opposing Card | 1 | Common |
+| Ace Up the Sleeve | +1 to your Blind | 2 | Uncommon |
+| Shaved Card | +3 to your first slot's Face Value, before Tells | 3 | Common |
+| Sleight of Hand | The enemy's rightmost Opposing Card is Mucked | 2 | Uncommon |
+| Insurance | Halve a Whiff | 4 | Common |
+| Weighted Coin | Push Your Luck flips 50/50 (spent at the prompt) | 2 | Common |
+| Shiny Card Sleeve | Your first slot counts twice, for the encounter | 1 | Rare |
+| Deep Pockets | Draw one now; the Draw refills to 8, for the encounter | 2 | Rare |
 
 ### Boss Rewards (Pick 1 of 2 Perks)
 
