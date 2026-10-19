@@ -24,6 +24,7 @@ but it's too slow to tune with.
 | `--carry`  | (no value)                            | off         |
 | `--legacy` | `high-limit`, `marked-cards`, `lucky-streak`, `victory-lap` | none |
 | `--item`   | an Item, e.g. `loaded-dice`, `card-sharks-sunglasses` | none |
+| `--see-all` | (no value)                           | off         |
 
 The same seed gives the same numbers, whatever the thread count, so a diff
 against the baseline is the change you made and nothing else.
@@ -73,6 +74,12 @@ With `--item`, every run starts holding that Item with every use it comes
 with, before any Wheel. With `--carry --minion skip` it is the only Item
 in the run, which is how each Item's worth below was weighed.
 
+With `--see-all`, every Opposing Card turns face up at the start of every
+turn, before any Item is spent: the most any Reveal could show, so the
+most one could be worth (#191). Against The House, which plays last, it
+does nothing, the same as a real Reveal. Naive never reads the enemy's
+row, so it only moves smart.
+
 With `--carry`, a duel lost before The House doesn't end the run: the
 player goes on at the Chips it sat down with and takes the reward as if it
 had won, so every run reaches The House. Few runs reach it otherwise, so
@@ -90,18 +97,19 @@ Two players, after the starter-deck prototype:
   (Jackpot). It Pushes a clearing Hand only when the doubled Payout is the kill and the Hold
   isn't, and Pushes a Whiff only when Holding would kill it anyway.
 
-Smart sees only what a player sees: face-down Opposing Cards count for
-nothing, and so does a Flop's read of them. The one guess it makes is
-across a Lowball or a Counterweight: a face-down card there counts as the
-enemy Deck's average Face Value (`Duel::enemy_average`), mucked if the
-Lowball prints under it and taken if the Counterweight prints under it,
-the way the enemy's greedy guesses at the player's row. Real players land between the
-two. A duel still going after 300 turns is a stall, and it is counted as a
+Smart sees only what a player sees. A face-up Opposing Card it reads as
+it is, Bluffs included (`Duel::bluffs_showing`). A face-down one it
+weighs as any card of the enemy's whole Deck (`Duel::enemy_deck`), each
+as likely as the next: what a hidden Lowball, Counterweight, Flop or Bluff
+would do to the card across from it, and what its own would take off one.
+So it keeps its biggest cards away from the card backs when it can, in
+the slots past the end of the enemy's row. The enemy's greedy guesses at
+the player's row much the same way. Real players land between the two. A duel still going after 300 turns is a stall, and it is counted as a
 loss and flagged in the table.
 
 New Tells mostly need nothing here: both players read cards through the
-`Duel`. A Tell whose worth hangs on a face-down card (Lowball, Counterweight)
-needs smart's `score` to guess at it.
+`Duel`. A Tell whose worth hangs on a face-down card (Lowball, Counterweight,
+Flop, Bluff) needs smart's `hidden` to weigh it.
 A new decision does need a player model, like a new prompt or a choice
 that isn't a 1-of-2.
 
@@ -133,8 +141,8 @@ smart: win 8.3%  mean encounters won 2.84  (20000 runs)
 
 ## Baseline
 
-`main` at a4e1f97 (Echo, #109) with the tuning pass (#184), `--runs 20000`,
-default seed, random picks:
+`main` at e345786 (the tuning pass, #184) with smart's reading of the
+enemy's row from #191, `--runs 20000`, default seed, random picks:
 
 ```
 naive: win 0.0%  mean encounters won 1.07  (20000 runs)
@@ -145,22 +153,25 @@ naive: win 0.0%  mean encounters won 1.07  (20000 runs)
   THE PIT BOSS      286    1.7    18.1     5.8   18.7   21.5    71.6     0.0
   THE HOUSE           5    0.0    12.2     1.6   25.6   35.0    87.5     0.0
 
-smart: win 13.6%  mean encounters won 3.06  (20000 runs)
+smart: win 14.0%  mean encounters won 3.08  (20000 runs)
   encounter     reached   won%   chips   turns   hand   edge  whiff%   push%
-  Floor minion    20000   99.6    50.0     4.5   15.5    9.3    25.4    29.5
-  SLOTZ           19921   91.0    42.4     5.4   17.0   12.3    32.2    26.5
-  Pit minion      18121   71.9    35.0     7.0   22.3   19.4    34.8    15.5
-  THE PIT BOSS    13038   57.1    25.3     7.8   24.7   22.4    37.7    14.3
-  THE HOUSE        7440   36.5    16.4     4.9   33.0   31.7    41.1    26.3
+  Floor minion    20000   99.6    50.0     4.5   15.5    9.3    25.2    29.6
+  SLOTZ           19920   91.1    42.4     5.4   17.0   12.3    32.1    26.5
+  Pit minion      18153   72.3    35.0     7.0   22.3   19.4    34.7    15.5
+  THE PIT BOSS    13129   58.3    25.5     7.7   24.6   22.3    37.3    14.2
+  THE HOUSE        7657   36.6    16.6     4.9   32.9   31.7    40.9    26.4
 ```
 
-Smart with fixed picks: `--pick first` 14.1%, `--pick second` 12.6%.
+Smart with fixed picks: `--pick first` 15.0%, `--pick second` 13.4%.
 
-With `--carry`, The House row: smart 35.6% won (arriving with 17.4 Chips),
+With `--carry`, The House row: smart 35.8% won (arriving with 17.5 Chips),
 naive 0.7% (37.2 Chips).
 
-No duel stalled. Before #184 smart won 8.8% on this commit; what moved it
-is below.
+No duel stalled. Before #191 smart won 13.6%: it counted a face-down card
+as nothing, except across its own Lowball or Counterweight, and never
+counted a Bluff (see Reveals, below). Naive is unchanged. Before #184
+smart won 8.8% on a4e1f97; what moved it is below. The tables below
+Reveals were measured before #191, against 13.6%.
 
 ### Minion rewards
 
@@ -201,10 +212,44 @@ more uses; Loaded Dice moved up to uncommon and the Mirror down to common.
 Weighted Coin is only spent on smart's few Pushes, so its uses barely
 matter here.
 
-The two Reveals are worth next to nothing, and so are Early Read and
-Marked Cards below. Smart already plays its best Hand, and the enemy's row
-only changes which Hand that is through a Lowball, Counterweight or Flop
-in its own row, so a Reveal has little to change.
+The two Reveals are worth next to nothing, and they still are under
+#191's smart: see Reveals, next.
+
+### Reveals
+
+What a Reveal could be worth at most (#191): `--see-all`, every Opposing
+Card face up every turn, against no Reveal. Smart, before and after #191
+changed how it reads the enemy's row:
+
+| smart                     | before #191 | after #191 |
+| ------------------------- | ----------- | ---------- |
+| no Reveal                 | 13.6%       | 14.0%      |
+| `--see-all`               | 19.1%       | 20.0%      |
+| `--legacy marked-cards`   | 15.7%       | 17.3%      |
+| `--wheel early-read=1`    | 13.9%       | 14.5%      |
+| `--wheel early-read=2`    | 14.2%       | 14.9%      |
+| `--wheel early-read=3`    | 14.3%       | 15.3%      |
+
+The Items, `--minion skip --carry`, mean encounters won against 3.44 with
+no Item (3.42 before #191): Card Shark's Sunglasses +0.01, Two-Way Mirror
++0.01, and `--see-all` +0.22. Read the Pan has no number of its own yet.
+
+Seeing the whole row every turn is worth 6 points of runs won, about what
+Bankroll at rank 2 is worth. On the turns where seeing it changed smart's
+row (measured before #191), a hidden Lowball was there to muck the card
+across, or a hidden Counterweight (the Pit Boss's) to take its Face Value,
+nearly every time. Played without seeing, nothing says which slot holds
+one, so no guess can get that back: weighing each card back as any card of
+the enemy's Deck (#191) is worth 0.4 points, and a turn's whole row seen
+is worth under a Chip on average. That is why a Reveal is worth what it
+turns over: Marked Cards, one card every turn, gets half of `--see-all`;
+Early Read climbs with its turns; the Items turn over one turn's row, or
+one card, a few times a run.
+
+Before #191 smart counted a face-down card as nothing, except across its
+own Lowball or Counterweight, so it never kept a big card away from a card
+back; and it never counted a Bluff, face up or not (`--see-all` without
+the Bluffs: 19.1%).
 
 ### The minion template
 
