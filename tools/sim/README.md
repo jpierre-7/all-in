@@ -328,43 +328,43 @@ both ways by design: rank 3 opens Flop to the minions.
 #### Why Trim is worth so much (#192)
 
 `--trim` changes which plain cards smart takes out, and `--draw` reports the
-Draw. Smart, `--runs 20000`, against 13.6% with no Wheel:
+Draw. Smart, `--runs 20000`, against 14.0% with no Wheel:
 
 | `--wheel`, `--trim`        | rank 1 | rank 2 |
 | -------------------------- | ------ | ------ |
-| `trim`, `lowest`           | 21.8%  | 28.8%  |
-| `trim`, `random`           | 19.8%  | 25.5%  |
-| `trim`, `highest`          | 14.6%  | 17.5%  |
-| `trim`, `swap` (same size) | 16.5%  | 18.1%  |
+| `trim`, `lowest`           | 22.4%  | 29.5%  |
+| `trim`, `random`           | 20.2%  | 25.8%  |
+| `trim`, `highest`          | 15.1%  | 17.8%  |
+| `trim`, `swap` (same size) | 16.8%  | 18.5%  |
 
 `swap` keeps the deck's size: each lowest plain card is replaced by a
 plain 5, about the middle of the starter's plain cards, instead of coming
 out. Reading it:
 
 - **Most of Trim is the smaller deck.** Swapping a low card for a 5 gets
-  2.9 of rank 1's 8.2 points, and 4.5 of rank 2's 15.2 (the second swap
-  barely adds). The rest, 65 to 70%, comes from the deck being
+  2.8 of rank 1's 8.4 points, and 4.5 of rank 2's 15.5 (the second swap
+  barely adds). The rest, 67 to 71%, comes from the deck being
   smaller.
 - **Which card goes matters less than that one goes.** Taking out the
-  highest plain card, the worst choice, still adds 1.0 to 3.9 points, and a
+  highest plain card, the worst choice, still adds 1.1 to 3.8 points, and a
   random one gets about three quarters of what the lowest does at rank 1.
-  The lowest is still the best choice, by 2 points over random at rank 1
-  and 3 at rank 2.
+  The lowest is still the best choice, by 2.2 points over random at rank 1
+  and 3.7 at rank 2.
 - **The Draw guess is true but small.** `--draw` counts, per turn, the
   low cards (face value 3 or less) held over unplayed in the Draw, and the
   ones that have sat there two turns or more. The Draw is 7.0 cards in
-  every run. With no Wheel it holds 1.90 and 1.35.
+  every run. With no Wheel it holds 1.88 and 1.34.
 
   | `--trim`  | rank 1      | rank 2      |
   | --------- | ----------- | ----------- |
-  | `lowest`  | 1.37, 0.91  | 0.85, 0.49  |
-  | `random`  | 1.73, 1.17  | 1.60, 1.03  |
-  | `highest` | 1.93, 1.35  | 1.95, 1.31  |
-  | `swap`    | 1.35, 0.94  | 0.77, 0.49  |
+  | `lowest`  | 1.35, 0.90  | 0.82, 0.48  |
+  | `random`  | 1.71, 1.16  | 1.58, 1.02  |
+  | `highest` | 1.92, 1.34  | 1.94, 1.31  |
+  | `swap`    | 1.33, 0.93  | 0.75, 0.48  |
 
-  `swap` clears the Draw of low cards as well as Trim does and wins 5
+  `swap` clears the Draw of low cards as well as Trim does and wins 5.6
   points less at rank 1, so the empty slot is worth at most what `swap`
-  is worth, 2.9 points (it also adds a better card).
+  is worth, 2.8 points (it also adds a better card).
 
 What the sim does not show is why a smaller deck is worth so much. The
 Draw is the same 7 cards either way; what changes is how soon the deck
