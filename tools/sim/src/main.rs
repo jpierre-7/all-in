@@ -313,9 +313,10 @@ fn face_down_worth(duel: &Duel, row: &[Played], deck: &[Card]) -> f64 {
         for card in deck {
             let theirs = card.face_value;
             let own = mine.map_or(0, |p| p.card.face_value);
-            // A Mucked card's Tell does nothing, a Bluff's hit included.
+            // A Mucked card's Tell does nothing, a Bluff's hit included, and
+            // smart's Flops reading its slot find it empty.
             if mine.is_some_and(|p| p.plays_as == Some(Tell::Lowball) && own < theirs) {
-                total += f64::from(theirs) * (1.0 + flops);
+                total += f64::from(theirs);
                 continue;
             }
             total += f64::from(theirs) * flops;
@@ -982,5 +983,22 @@ mod tests {
         );
 
         assert_eq!(played, vec![9, 2]);
+    }
+
+    #[test]
+    fn smart_counts_no_flop_on_a_face_down_card_its_lowball_mucks() {
+        // The Lowball mucks the face-down 9 either way. A Flop beside it
+        // then reads an empty slot, so the 5 is the better second card.
+        let played = smart_plays(
+            vec![
+                card(1, Some(Tell::Lowball)),
+                card(2, Some(Tell::Flop)),
+                card(5, None),
+            ],
+            vec![card(9, None); 20],
+            vec![(card(9, None), false)],
+        );
+
+        assert_eq!(played, vec![1, 5]);
     }
 }
