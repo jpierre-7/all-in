@@ -25,6 +25,8 @@ but it's too slow to tune with.
 | `--legacy` | `high-limit`, `marked-cards`, `lucky-streak`, `victory-lap` | none |
 | `--item`   | an Item, e.g. `loaded-dice`, `card-sharks-sunglasses` | none |
 | `--see-all` | (no value)                           | off         |
+| `--trim`   | `lowest`, `random`, `highest`, `swap` (which plain cards smart's Trim takes out) | `lowest` |
+| `--draw`   | (no value): also report what sits unplayed in the Draw | off |
 
 The same seed gives the same numbers, whatever the thread count, so a diff
 against the baseline is the change you made and nothing else.
@@ -319,8 +321,55 @@ was worth less than rank 2's sure uncommon; it is now a pick of the three
 uncommons, and rank 4 a pick with no commons (#184). Lucky Coin and Trim
 are each worth more than two ranks of Bankroll at rank 1, the least they
 can be. Smart Pushes when a Whiff would end the run, so one re-flip is
-often a second life. Why Trim is worth so much isn't measured yet; a
-likely cause is that a card left unplayed stays in the Draw, so a low one
-holds a place there. Fat Pack, Second Look and Early Read are worth little
-at any rank. Inside Man cuts both ways by design: rank 3 opens Flop to the
-minions.
+often a second life. Why Trim is worth so much is below. Fat Pack,
+Second Look and Early Read are worth little at any rank. Inside Man cuts
+both ways by design: rank 3 opens Flop to the minions.
+
+#### Why Trim is worth so much (#192)
+
+`--trim` changes which plain cards smart takes out, and `--draw` reports the
+Draw. Smart, `--runs 20000`, against 14.0% with no Wheel:
+
+| `--wheel`, `--trim`        | rank 1 | rank 2 |
+| -------------------------- | ------ | ------ |
+| `trim`, `lowest`           | 22.4%  | 29.5%  |
+| `trim`, `random`           | 20.2%  | 25.8%  |
+| `trim`, `highest`          | 15.1%  | 17.8%  |
+| `trim`, `swap` (same size) | 16.8%  | 18.5%  |
+
+`swap` keeps the deck's size: each lowest plain card is replaced by a
+plain 5, about the middle of the starter's plain cards, instead of coming
+out. Reading it:
+
+- **Most of Trim is the smaller deck.** Swapping a low card for a 5 gets
+  2.8 of rank 1's 8.4 points, and 4.5 of rank 2's 15.5 (the second swap
+  barely adds). The rest, 67 to 71%, comes from the deck being
+  smaller.
+- **Which card goes matters less than that one goes.** Taking out the
+  highest plain card, the worst choice, still adds 1.1 to 3.8 points, and a
+  random one gets about three quarters of what the lowest does at rank 1.
+  The lowest is still the best choice, by 2.2 points over random at rank 1
+  and 3.7 at rank 2.
+- **The Draw guess is true but small.** `--draw` counts, per turn, the
+  low cards (face value 3 or less) held over unplayed in the Draw, and the
+  ones that have sat there two turns or more. The Draw is 7.0 cards in
+  every run. With no Wheel it holds 1.88 and 1.34.
+
+  | `--trim`  | rank 1      | rank 2      |
+  | --------- | ----------- | ----------- |
+  | `lowest`  | 1.35, 0.90  | 0.82, 0.48  |
+  | `random`  | 1.71, 1.16  | 1.58, 1.02  |
+  | `highest` | 1.92, 1.34  | 1.94, 1.31  |
+  | `swap`    | 1.33, 0.93  | 0.75, 0.48  |
+
+  `swap` clears the Draw of low cards as well as Trim does and wins 5.6
+  points less at rank 1, so the empty slot is worth at most what `swap`
+  is worth, 2.8 points (it also adds a better card).
+
+What the sim does not show is why a smaller deck is worth so much. The
+Draw is the same 7 cards either way; what changes is how soon the deck
+runs dry and reshuffles, and that each remaining card, the Streaks and All
+Ins among them, comes round more often (Trim only takes plain cards, so
+they are a bigger share of what is left). That fits the numbers, but it is
+not measured here. For #189: a Trim that only improves cards (`swap`) is
+worth about a third of Trim as it stands.

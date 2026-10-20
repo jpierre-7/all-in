@@ -56,6 +56,25 @@ enum Minion {
     Random,
 }
 
+/// Which plain cards smart's Trim takes out (#192). Only a way to find out
+/// why Trim is worth so much; the game lets the player choose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Trim {
+    Lowest,
+    Random,
+    Highest,
+    /// The lowest plain cards stay in the deck as a [`SWAP_FOR`]: the same
+    /// number of cards, better ones, where Trim leaves fewer.
+    Swap,
+}
+
+/// The Face Value [`Trim::Swap`] puts in for each card it takes out: about
+/// the middle of the starter deck's plain cards (2 to 8).
+const SWAP_FOR: u32 = 5;
+
+/// A Draw card this small or smaller is a low one, for `--draw`.
+const LOW: u32 = 3;
+
 struct Args {
     runs: usize,
     seed: u64,
@@ -78,6 +97,10 @@ struct Args {
     /// Every Opposing Card turns face up at the start of every turn: the
     /// most any Reveal could show.
     see_all: bool,
+    /// Which plain cards smart's Trim takes out.
+    trim: Trim,
+    /// Report what sits unplayed in the Draw from turn to turn.
+    draw: bool,
 }
 
 /// How a flag names something: `Card Shark's Sunglasses` is
@@ -143,6 +166,8 @@ fn parse_args() -> Result<Args, String> {
         legacy: None,
         item: None,
         see_all: false,
+        trim: Trim::Lowest,
+        draw: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -184,6 +209,20 @@ fn parse_args() -> Result<Args, String> {
             "--legacy" => args.legacy = Some(parse_legacy(&value()?)?),
             "--item" => args.item = Some(parse_item(&value()?)?),
             "--see-all" => args.see_all = true,
+            "--trim" => {
+                args.trim = match value()?.as_str() {
+                    "lowest" => Trim::Lowest,
+                    "random" => Trim::Random,
+                    "highest" => Trim::Highest,
+                    "swap" => Trim::Swap,
+                    other => {
+                        return Err(format!(
+                            "--trim: {other} is not lowest, random, highest or swap"
+                        ));
+                    }
+                }
+            }
+            "--draw" => args.draw = true,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown flag {other}")),
         }
@@ -195,7 +234,7 @@ const USAGE: &str = "usage: cargo run --release -p sim -- [--runs N] [--seed N] 
 [--player naive|smart|both] [--pick first|second|random] \
 [--minion items|cards|skip|random] [--wheel square=rank,...] [--carry] \
 [--legacy high-limit|marked-cards|lucky-streak|victory-lap] [--item loaded-dice|...] \
-[--see-all]";
+[--see-all] [--trim lowest|random|highest|swap] [--draw]";
 
 // ---------------------------------------------------------------------------
 // Building a row
@@ -456,11 +495,24 @@ struct Stats {
     edge: [u64; 5],
     whiffs: [u64; 5],
     pushes: [u64; 5],
+    /// `--draw`: turns counted, and per turn the cards in the Draw, the ones
+    /// carried over unplayed from the turn before, how many of those are low,
+    /// and how many low ones have sat there two turns or more.
+    draw_turns: u64,
+    drawn: u64,
+    carried: u64,
+    carried_low: u64,
+    stuck_low: u64,
 }
 
 impl Stats {
     fn merge(&mut self, o: &Stats) {
         self.runs += o.runs;
+        self.draw_turns += o.draw_turns;
+        self.drawn += o.drawn;
+        self.carried += o.carried;
+        self.carried_low += o.carried_low;
+        self.stuck_low += o.stuck_low;
         for i in 0..5 {
             self.reached[i] += o.reached[i];
             self.won[i] += o.won[i];
@@ -484,11 +536,29 @@ fn play_duel(
     at: usize,
     stats: &mut Stats,
 ) -> CombatOutcome {
+    // The cards left in the Draw after each row, with the turns each has sat
+    // there unplayed.
+    let mut left: Vec<(Card, u32)> = Vec::new();
     loop {
         if see_all {
             // Against The House there is nothing down to turn over yet.
             let every: Vec<usize> = (0..duel.opposing().len()).collect();
             duel.reveal(&every);
+        }
+        let mut held: Vec<(Card, u32)> = Vec::new();
+        for card in duel.draw() {
+            let age = left
+                .iter()
+                .position(|(c, _)| c == card)
+                .map_or(0, |i| left.swap_remove(i).1);
+            held.push((card.clone(), age));
+        }
+        stats.draw_turns += 1;
+        stats.drawn += held.len() as u64;
+        for (card, age) in &held {
+            stats.carried += u64::from(*age > 0);
+            stats.carried_low += u64::from(*age > 0 && card.face_value <= LOW);
+            stats.stuck_low += u64::from(*age > 1 && card.face_value <= LOW);
         }
         let spends = spends_items(duel, player);
         if spends {
@@ -498,6 +568,17 @@ fn play_duel(
             Player::Naive => naive_row(duel, rng),
             Player::Smart => smart_row(duel, perks),
         }
+        left = duel
+            .draw()
+            .iter()
+            .map(|card| {
+                let age = held
+                    .iter()
+                    .position(|(c, _)| c == card)
+                    .map_or(0, |i| held.swap_remove(i).1);
+                (card.clone(), age + 1)
+            })
+            .collect();
         let result = match duel.confirm() {
             Some(result) => result,
             None => {
@@ -612,16 +693,35 @@ fn keep(pack: &Pack, player: Player, rng: &mut u64) -> Vec<usize> {
     order
 }
 
+/// The plain cards of `deck` that `trim` takes out, `count` of them.
+fn trim_picks(deck: &[Card], count: usize, trim: Trim, rng: &mut u64) -> Vec<usize> {
+    let mut plain: Vec<usize> = (0..deck.len())
+        .filter(|&i| deck[i].tell.is_none())
+        .collect();
+    match trim {
+        Trim::Lowest | Trim::Swap => plain.sort_by_key(|&i| deck[i].face_value),
+        Trim::Highest => plain.sort_by_key(|&i| std::cmp::Reverse(deck[i].face_value)),
+        Trim::Random => {
+            for i in (1..plain.len()).rev() {
+                plain.swap(i, (xorshift64(rng) % (i as u64 + 1)) as usize);
+            }
+        }
+    }
+    plain.truncate(count);
+    plain
+}
+
 /// The run a Legacy Perk and The Wheel start: the perk, `--item`'s Item,
 /// the spin, then Trim and Pocket Change. Smart trims its lowest plain
-/// cards; naive trims nothing. Pocket Change's pick is kept by
-/// [`keep_item`]. Every run spins, Wheel or not, so a run under a board
-/// plays the same deals as the same run without one.
+/// cards, or the ones `--trim` says; naive trims nothing. Pocket Change's
+/// pick is kept by [`keep_item`]. Every run spins, Wheel or not, so a run
+/// under a board plays the same deals as the same run without one.
 fn start_run(
     board: &BTreeMap<Square, u8>,
     perk: Option<&LegacyPerk>,
     item: Option<&'static Item>,
     player: Player,
+    trim: Trim,
     rng: &mut u64,
 ) -> RunState {
     let mut run = RunState::new();
@@ -634,15 +734,21 @@ fn start_run(
     let spun = Spun::new(board, wheel::spin(xorshift64(rng)));
     let mut run = wheel::start_run(run, spun, xorshift64(rng));
     if player == Player::Smart {
-        let mut plain: Vec<usize> = (0..run.deck.len())
-            .filter(|&i| run.deck[i].tell.is_none())
-            .collect();
-        plain.sort_by_key(|&i| run.deck[i].face_value);
-        plain.truncate(run.wheel.trims());
+        // Only the random pick draws from the rng, so the others play the
+        // same deals as before.
+        let picks = trim_picks(&run.deck, run.wheel.trims(), trim, rng);
+        let swapped = picks.len();
         assert!(
-            wheel::trim(&mut run, &plain),
+            wheel::trim(&mut run, &picks),
             "the sim trims what Trim allows"
         );
+        if trim == Trim::Swap {
+            run.deck.extend((0..swapped).map(|_| Card {
+                name: "Stand-in",
+                face_value: SWAP_FOR,
+                tell: None,
+            }));
+        }
     }
     let pick = run.wheel.pocket_pick(xorshift64(rng));
     if let Some(item) = keep_item(&pick, player, rng) {
@@ -661,7 +767,7 @@ fn play_run(
     stats: &mut Stats,
 ) -> Option<Vec<Card>> {
     stats.runs += 1;
-    let mut run = start_run(&args.wheel, perk, args.item, player, &mut rng);
+    let mut run = start_run(&args.wheel, perk, args.item, player, args.trim, &mut rng);
     for (at, &encounter) in RUN.iter().enumerate() {
         stats.reached[at] += 1;
         stats.arrive_chips[at] += u64::from(run.chips);
@@ -868,6 +974,18 @@ fn report(player: Player, s: &Stats) {
     }
 }
 
+/// `--draw`: how much of the Draw is cards that were there last turn too.
+fn report_draw(s: &Stats) {
+    let turns = s.draw_turns;
+    println!(
+        "  Draw per turn: {:.2} cards, {:.2} held over unplayed, {:.2} of them low (face value {LOW} or less), {:.2} low ones held two turns or more",
+        per(s.drawn, turns),
+        per(s.carried, turns),
+        per(s.carried_low, turns),
+        per(s.stuck_low, turns),
+    );
+}
+
 fn main() {
     let args = match parse_args() {
         Ok(args) => args,
@@ -910,8 +1028,13 @@ fn main() {
     let item = args.item.map_or(String::new(), |item| {
         format!(", starting with {}", item.name)
     });
+    let trim = if args.trim == Trim::Lowest {
+        String::new()
+    } else {
+        format!(", Trim takes {:?}", args.trim)
+    };
     println!(
-        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}{perk}{item}{}{}\n",
+        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}{trim}{perk}{item}{}{}\n",
         args.runs,
         args.seed,
         args.pick,
@@ -927,7 +1050,11 @@ fn main() {
         }
     );
     for &player in &args.players {
-        report(player, &simulate(player, &args, &laps));
+        let stats = simulate(player, &args, &laps);
+        report(player, &stats);
+        if args.draw {
+            report_draw(&stats);
+        }
         println!();
     }
 }
