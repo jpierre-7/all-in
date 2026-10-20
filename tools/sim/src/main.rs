@@ -660,15 +660,14 @@ fn choose(one: Reward, two: Reward, pick: Pick, rng: &mut u64) -> Reward {
     }
 }
 
-/// Smart's Pack reroll rule with Second Look: take a Pack only with an 11
-/// in it, the best a minion's Pack prints, and reroll anything else. Of
-/// everything tried on #193 (the README has the table) the harder smart
-/// rerolls the more runs it wins, up to 11: at 12 every Pack is rerolled,
-/// the rerolls go on the first offers and the last one is kept blind, which
-/// wins no more than not rerolling. Saving the rerolls for the minion before
-/// a boss, or rerolling by how far the best card beats the deck's weakest,
-/// won less.
-const SMART_REROLL: Reroll = Reroll::Below(11);
+/// Smart's Pack reroll rule with Second Look: take a Pack only with a 10 or
+/// better in it, and reroll anything else. Of everything tried on #193 (the
+/// README has the table) the harder smart rerolls the more runs it wins, up
+/// to 10 and 11, which tie: at 12 every Pack is rerolled, the rerolls go on
+/// the first offers and the last one is kept blind, which wins less than
+/// not rerolling. Saving the rerolls for the minion before a boss, or
+/// rerolling by how far the best card beats the deck's weakest, won less.
+const SMART_REROLL: Reroll = Reroll::Below(10);
 
 /// Which of `offered` the player keeps: naive any of them, smart the
 /// rarest, since the stronger Items are the rarer ones. `None` when nothing
