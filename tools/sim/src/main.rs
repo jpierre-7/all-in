@@ -55,8 +55,8 @@ enum Reroll {
     Below(u32),
     /// The best card beats the weakest card in the deck by less than this.
     Gap(u32),
-    /// As `Below`, but only at the last minion before a boss: the rerolls
-    /// are saved until then.
+    /// As `Below`, but only at the run's last minion (the Pit minion): the
+    /// rerolls are saved until then.
     Late(u32),
 }
 
@@ -665,7 +665,7 @@ fn choose(one: Reward, two: Reward, pick: Pick, rng: &mut u64) -> Reward {
 /// README has the table) the harder smart rerolls the more runs it wins, up
 /// to 10 and 11, which tie: at 12 every Pack is rerolled, the rerolls go on
 /// the first offers and the last one is kept blind, which wins less than
-/// not rerolling. Saving the rerolls for the minion before a boss, or
+/// not rerolling. Saving the rerolls for the run's last minion, or
 /// rerolling by how far the best card beats the deck's weakest, won less.
 const SMART_REROLL: Reroll = Reroll::Below(10);
 

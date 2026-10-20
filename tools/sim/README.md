@@ -398,7 +398,7 @@ about 0.25 points:
 | `gap:4`, best beats the deck's weakest by under 4 | 15.6% | 15.6% | 15.6% |
 | `gap:6`                                    | 15.8%  | 15.9%  | 16.0%  |
 | `gap:7`                                    | 15.7%  | 16.0%  | 16.0%  |
-| `late:8`, only at the minion before a boss | 15.6%  | 15.7%  | 15.7%  |
+| `late:8`, only at the run's last minion    | 15.6%  | 15.7%  | 15.7%  |
 | `late:9`                                   | 15.6%  | 15.7%  | 15.7%  |
 | `late:10`                                  | 15.6%  | 15.6%  | 15.7%  |
 | `late:11`                                  | 15.5%  | 15.5%  | 15.6%  |
@@ -406,7 +406,7 @@ about 0.25 points:
 The harder smart rerolls, the more it wins, up to `below:10` and
 `below:11`, which tie; `below:10` is smart's rule. `below:12` spends the
 rerolls on the first offers and keeps the last blind, which wins less than
-no rerolls. Saving rerolls for the minion before a boss is worse than
+no rerolls. Saving rerolls for the run's last minion (the Pit minion) is worse than
 spending them as they come: the first minion's Pack is as good a place to
 improve as the second's. A gap to the deck's weakest card is no better
 than a fixed number: `gap:6` and `gap:7` won what `below:8` and `below:9`
