@@ -58,8 +58,9 @@ run under a board plays the same deals as the same run without one. Fat
 Pack needs nothing from the players: the minion's Pack just shows more
 cards. With Second Look's rerolls, smart
 rerolls a minion's three Items when all of them are common, and its Pack
-when no card prints at 8 or more, until it has none left; naive never
-rerolls. Squares are named in lower case with dashes
+unless it holds a 10 or better, until it has none left; naive never rerolls
+(`--reroll` and `--reroll-items` try other rules, see Second Look's
+rerolls). Squares are named in lower case with dashes
 (`early-read`), ranks 1 to 3, and only the squares that do something yet are
 accepted.
 
@@ -303,16 +304,18 @@ Reveals), and Victory Lap is a deck, so neither has a number to turn.
 
 ### The Wheel
 
-Smart, one square at a time, against 13.6% with no Wheel:
+Smart, one square at a time, against 13.6% with no Wheel. `bankroll`,
+`fat-pack` and `second-look` were re-measured after #191 against 14.0%,
+`--minion random`; the other rows are older, against 13.6%:
 
 | `--wheel`       | rank 1 | rank 2 | rank 3 |
 | --------------- | ------ | ------ | ------ |
-| `bankroll`      | 16.9%  | 20.0%  | 23.2%  |
+| `bankroll`      | 17.6%  | 20.7%  | 24.1%  |
 | `pocket-change` | 14.8%  | 17.4%  | 18.6%  |
 | `lucky-coin`    | 21.4%  | 29.6%  | 36.9%  |
 | `trim`          | 21.8%  | 28.8%  | 35.1%  |
-| `fat-pack`      | 13.8%  | 14.0%  | 14.4%  |
-| `second-look`   | 14.2%  | 14.4%  | 14.4%  |
+| `fat-pack`      | 14.3%  | 14.6%  | 14.9%  |
+| `second-look`   | 14.9%  | 15.2%  | 15.4%  |
 | `early-read`    | 13.9%  | 14.2%  | 14.3%  |
 | `inside-man`    | 13.4%  | 13.9%  | 11.2%  |
 
@@ -373,3 +376,59 @@ Ins among them, comes round more often (Trim only takes plain cards, so
 they are a bigger share of what is left). That fits the numbers, but it is
 not measured here. For #189: a Trim that only improves cards (`swap`) is
 worth about a third of Trim as it stands.
+
+### Second Look's rerolls
+
+Second Look's rerolls are a pool for the run, and a run meets two minions.
+Smart's rule for spending them was a Pack with every card under 8 (a
+minion's Pack prints 5 to 11) or three common Items, and it made Second
+Look look weak (#190). Each rule below was tried alone, smart, `--minion
+cards`, `--runs 20000`, after #191, against 15.5% with no Second Look
+(`--reroll` takes `below:N`, `gap:N` or `late:N`). Run to run the noise is
+about 0.25 points:
+
+| Pack rule                                  | rank 1 | rank 2 | rank 3 |
+| ------------------------------------------ | ------ | ------ | ------ |
+| `below:7`, no card at 7 or more            | 15.6%  | 15.6%  | 15.6%  |
+| `below:8`, the old rule                    | 15.8%  | 15.9%  | 16.0%  |
+| `below:9`                                  | 15.7%  | 16.0%  | 16.0%  |
+| `below:10`, no card at 10 or more          | 16.0%  | 16.2%  | 16.6%  |
+| `below:11`, keep only a Pack with an 11    | 15.7%  | 16.2%  | 16.6%  |
+| `below:12`, reroll every Pack, keep the last | 15.1% | 15.5%  | 15.2%  |
+| `gap:4`, best beats the deck's weakest by under 4 | 15.6% | 15.6% | 15.6% |
+| `gap:6`                                    | 15.8%  | 15.9%  | 16.0%  |
+| `gap:7`                                    | 15.7%  | 16.0%  | 16.0%  |
+| `late:8`, only at the run's last minion    | 15.6%  | 15.7%  | 15.7%  |
+| `late:9`                                   | 15.6%  | 15.7%  | 15.7%  |
+| `late:10`                                  | 15.6%  | 15.6%  | 15.7%  |
+| `late:11`                                  | 15.5%  | 15.5%  | 15.6%  |
+
+The harder smart rerolls, the more it wins, up to `below:10` and
+`below:11`, which tie; `below:10` is smart's rule. `below:12` spends the
+rerolls on the first offers and keeps the last blind, which wins less than
+no rerolls. Saving rerolls for the run's last minion (the Pit minion) is worse than
+spending them as they come: the first minion's Pack is as good a place to
+improve as the second's. A gap to the deck's weakest card is no better
+than a fixed number: `gap:6` and `gap:7` won what `below:8` and `below:9`
+did. Before #191 `below:11` was ahead of `below:10` at rank 3 (16.0% to
+15.7%); the new smart player moved that to a tie.
+
+For Items, rerolling three commons (`--reroll-items uncommon`) won 18.9%
+at rank 3 with `--minion items`; rerolling unless a rare shows
+(`--reroll-items rare`) won 18.6%, so that rule stays.
+
+Smart, `below:10`, by minion setup, against no Wheel:
+
+| `--minion` | none  | `second-look` 1/2/3 | `fat-pack` 1/2/3 | both at 3 |
+| ---------- | ----- | ------------------- | ---------------- | --------- |
+| `cards`    | 15.5% | 16.0 / 16.2 / 16.6% | 16.0 / 16.6 / 17.2% | 17.6%  |
+| `items`    | 17.4% | 18.3 / 18.7 / 18.9% | 17.4 / 17.4 / 17.4% | 18.9%  |
+| `random`   | 14.0% | 14.9 / 15.2 / 15.4% | 14.3 / 14.6 / 14.9% | 15.7%  |
+
+The baseline did not move: the rule only applies with rerolls, and Fat Pack
+alone has none. On `random`, the old `below:8` rule gave 14.9% at rank 3
+against 15.4% now. Second Look is worth +0.5 to +1.1 points on Packs and
++0.9 to +1.5 on Items, against Bankroll's +3.6 to +10.1 (17.6%, 20.7% and
+24.1% on `random`). No rule makes it worth a Golden Chip, so #190 does need
+a redesign. Fat Pack beats it on Packs from rank 2 and does nothing for
+Items.
