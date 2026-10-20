@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::thread;
 
-use all_in::combat::duel::{Duel, Phase, needs_sacrifice, resolve_row, row_value};
+use all_in::combat::duel::{Duel, Phase, Played, needs_sacrifice, resolve_row, row_value};
 use all_in::item::{self, Item, Rarity, When};
 use all_in::legacy::{self, LegacyPerk};
 use all_in::overworld::progression::RUN;
@@ -75,6 +75,9 @@ struct Args {
     /// An Item every run starts holding, with every use it comes with: how
     /// one Item is weighed on its own.
     item: Option<&'static Item>,
+    /// Every Opposing Card turns face up at the start of every turn: the
+    /// most any Reveal could show.
+    see_all: bool,
 }
 
 /// How a flag names something: `Card Shark's Sunglasses` is
@@ -139,6 +142,7 @@ fn parse_args() -> Result<Args, String> {
         carry: false,
         legacy: None,
         item: None,
+        see_all: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -179,6 +183,7 @@ fn parse_args() -> Result<Args, String> {
             "--carry" => args.carry = true,
             "--legacy" => args.legacy = Some(parse_legacy(&value()?)?),
             "--item" => args.item = Some(parse_item(&value()?)?),
+            "--see-all" => args.see_all = true,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown flag {other}")),
         }
@@ -189,7 +194,8 @@ fn parse_args() -> Result<Args, String> {
 const USAGE: &str = "usage: cargo run --release -p sim -- [--runs N] [--seed N] \
 [--player naive|smart|both] [--pick first|second|random] \
 [--minion items|cards|skip|random] [--wheel square=rank,...] [--carry] \
-[--legacy high-limit|marked-cards|lucky-streak|victory-lap] [--item loaded-dice|...]";
+[--legacy high-limit|marked-cards|lucky-streak|victory-lap] [--item loaded-dice|...] \
+[--see-all]";
 
 // ---------------------------------------------------------------------------
 // Building a row
@@ -246,27 +252,13 @@ fn naive_row(duel: &mut Duel, rng: &mut u64) {
 }
 
 /// What the smart player thinks a finished row is worth: The Hand less what
-/// it can see of the Opposing Cards. Face-down cards are the same whatever
-/// it plays, so leaving them out moves every row by the same amount, except
-/// across a Lowball or a Counterweight: there it guesses the card back is the
-/// enemy's average, the way the enemy's greedy guesses at the player's row.
-/// It counts what its Perks add to The Hand once the row resolves (Jackpot),
+/// it can see of the Opposing Cards, plus what the Bluffs it can read will
+/// take (`Duel::bluffs_showing`), plus what it stands to win or lose across
+/// the face-down ones ([`face_down_worth`], weighed against `deck`). It
+/// counts what its Perks add to The Hand once the row resolves (Jackpot),
 /// read against the face-up cards alone.
-fn score(duel: &Duel, perks: &[&Perk]) -> i64 {
+fn score(duel: &Duel, perks: &[&Perk], deck: &[Card]) -> f64 {
     let (showing, _) = duel.showing();
-    let average = duel.enemy_average();
-    let guessed: u32 = duel
-        .row()
-        .iter()
-        .zip(duel.opposing())
-        .filter(|(_, o)| !o.face_up)
-        .map(|(p, _)| match p.card.tell {
-            Some(Tell::Lowball) if p.card.face_value < average => average,
-            // The Hand already counts its own Face Value.
-            Some(Tell::Counterweight) => average.saturating_sub(p.card.face_value),
-            _ => 0,
-        })
-        .sum();
     let across: Vec<Option<Card>> = duel
         .opposing()
         .iter()
@@ -277,13 +269,90 @@ fn score(duel: &Duel, perks: &[&Perk]) -> i64 {
     let bent = perks.iter().fold(plain, |hand, perk| {
         perk.modifier.after_showdown(hand, 0, &resolved)
     });
-    i64::from(duel.hand()) + i64::from(bent) - i64::from(plain) - i64::from(showing)
-        + i64::from(guessed)
+    f64::from(duel.hand()) + f64::from(bent) - f64::from(plain) - f64::from(showing)
+        + duel.bluffs_showing() as f64
+        + face_down_worth(duel, &resolved, deck)
+}
+
+/// What `row`, resolved against the face-up Opposing Cards, stands to win
+/// or lose across the face-down ones, in Chips, each face-down card weighed
+/// as any card of `deck`, the enemy's whole Deck (`Duel::enemy_deck`), every
+/// card as likely as the next: a Lowball that would muck the card across, a
+/// Counterweight that would take its Face Value, a Flop that would read it,
+/// a Bluff, and what its own Lowballs, Counterweights, Flops and Bluffs
+/// would take off one. The Deck counts the cards it can already see too,
+/// so the weighing is rough. A face-down card's own Face Value moves every
+/// row by the same amount, so it is left out. The enemy's greedy guesses at
+/// the player's row much the same way, with an average card of the
+/// player's Deck.
+fn face_down_worth(duel: &Duel, row: &[Played], deck: &[Card]) -> f64 {
+    if deck.is_empty() {
+        return 0.0;
+    }
+    // A Mucked card is nothing for a Flop to read.
+    let standing = |slot: usize| {
+        row.get(slot)
+            .filter(|p| !p.mucked)
+            .map_or(0, |p| p.card.face_value)
+    };
+    let mut total = 0.0;
+    for (slot, _) in duel
+        .opposing()
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| !o.face_up)
+    {
+        let reads = slot.saturating_sub(1)..=slot + 1;
+        // Smart's own Flops that read this slot.
+        let flops = reads
+            .clone()
+            .filter_map(|r| row.get(r))
+            .filter(|p| p.plays_as == Some(Tell::Flop) && !p.mucked)
+            .count() as f64;
+        let mine = row.get(slot);
+        for card in deck {
+            let theirs = card.face_value;
+            let own = mine.map_or(0, |p| p.card.face_value);
+            // A Mucked card's Tell does nothing, a Bluff's hit included, and
+            // smart's Flops reading its slot find it empty.
+            if mine.is_some_and(|p| p.plays_as == Some(Tell::Lowball) && own < theirs) {
+                total += f64::from(theirs);
+                continue;
+            }
+            total += f64::from(theirs) * flops;
+            if card.tell == Some(Tell::Flop) {
+                total -= f64::from(reads.clone().map(standing).sum::<u32>());
+            }
+            let Some(mine) = mine else { continue };
+            if card.tell == Some(Tell::Lowball) && theirs < own {
+                total -= f64::from(mine.value);
+                continue;
+            }
+            if card.tell == Some(Tell::Counterweight) {
+                total -= f64::from(own.saturating_sub(theirs));
+            }
+            if mine.plays_as == Some(Tell::Counterweight) {
+                // Across a face-down card it resolved as its own Face Value,
+                // the one an Echo copied included.
+                total += f64::from(theirs.saturating_sub(mine.value));
+            }
+            if card.tell == Some(Tell::Bluff) || mine.plays_as == Some(Tell::Bluff) {
+                total += f64::from(own) - f64::from(theirs);
+            }
+        }
+    }
+    total / deck.len() as f64
 }
 
 /// Every row the Draw can make, by putting cards down and lifting them back
 /// off, which is how a player rearranges a row on the table.
-fn search(duel: &mut Duel, perks: &[&Perk], path: &mut Vec<Move>, best: &mut (i64, Vec<Move>)) {
+fn search(
+    duel: &mut Duel,
+    perks: &[&Perk],
+    deck: &[Card],
+    path: &mut Vec<Move>,
+    best: &mut (f64, Vec<Move>),
+) {
     let draw = duel.draw().to_vec();
     let mut tried: Vec<&Move> = Vec::new();
     let mut moves: Vec<Move> = Vec::new();
@@ -310,13 +379,13 @@ fn search(duel: &mut Duel, perks: &[&Perk], path: &mut Vec<Move>, best: &mut (i6
         placed_any = true;
         place(duel, mv);
         path.push(mv.clone());
-        search(duel, perks, path, best);
+        search(duel, perks, deck, path, best);
         path.pop();
         let last = duel.row().len() - 1;
         duel.lift(last).expect("the card just placed is in the row");
     }
     if !placed_any && !path.is_empty() {
-        let s = score(duel, perks);
+        let s = score(duel, perks, deck);
         if s > best.0 {
             *best = (s, path.clone());
         }
@@ -324,8 +393,9 @@ fn search(duel: &mut Duel, perks: &[&Perk], path: &mut Vec<Move>, best: &mut (i6
 }
 
 fn smart_row(duel: &mut Duel, perks: &[&Perk]) {
-    let mut best = (i64::MIN, Vec::new());
-    search(duel, perks, &mut Vec::new(), &mut best);
+    let deck = duel.enemy_deck();
+    let mut best = (f64::NEG_INFINITY, Vec::new());
+    search(duel, perks, &deck, &mut Vec::new(), &mut best);
     for mv in &best.1 {
         place(duel, mv);
     }
@@ -409,11 +479,17 @@ fn play_duel(
     duel: &mut Duel,
     perks: &[&Perk],
     player: Player,
+    see_all: bool,
     rng: &mut u64,
     at: usize,
     stats: &mut Stats,
 ) -> CombatOutcome {
     loop {
+        if see_all {
+            // Against The House there is nothing down to turn over yet.
+            let every: Vec<usize> = (0..duel.opposing().len()).collect();
+            duel.reveal(&every);
+        }
         let spends = spends_items(duel, player);
         if spends {
             spend_items(duel, When::Row);
@@ -590,7 +666,16 @@ fn play_run(
         stats.reached[at] += 1;
         stats.arrive_chips[at] += u64::from(run.chips);
         let mut duel = Duel::for_run(&run, encounter, xorshift64(&mut rng));
-        if play_duel(&mut duel, &run.perks, player, &mut rng, at, stats) == CombatOutcome::Won {
+        if play_duel(
+            &mut duel,
+            &run.perks,
+            player,
+            args.see_all,
+            &mut rng,
+            at,
+            stats,
+        ) == CombatOutcome::Won
+        {
             stats.won[at] += 1;
             run.chips = duel.player_chips();
         } else if !args.carry || at + 1 == RUN.len() {
@@ -826,7 +911,7 @@ fn main() {
         format!(", starting with {}", item.name)
     });
     println!(
-        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}{perk}{item}{}\n",
+        "all-in sim: {} runs per player, seed {}, boss picks {:?}, {wheel}{perk}{item}{}{}\n",
         args.runs,
         args.seed,
         args.pick,
@@ -834,10 +919,86 @@ fn main() {
             ", losses carried to The House"
         } else {
             ""
+        },
+        if args.see_all {
+            ", every Opposing Card face up"
+        } else {
+            ""
         }
     );
     for &player in &args.players {
         report(player, &simulate(player, &args, &laps));
         println!();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use all_in::run::Enemy;
+
+    fn card(face_value: u32, tell: Option<Tell>) -> Card {
+        Card {
+            name: "card",
+            face_value,
+            tell,
+        }
+    }
+
+    /// Smart holding `draw` at Blind 2, against an enemy whose whole Deck is
+    /// `enemy` and whose row is `across`, each card face up or not.
+    fn smart_plays(draw: Vec<Card>, enemy: Vec<Card>, across: Vec<(Card, bool)>) -> Vec<u32> {
+        let enemy = Enemy {
+            name: "shill",
+            chips: 99,
+            deck: enemy,
+            table_rule: None,
+        };
+        let mut duel = Duel::new(draw, 40, 2, enemy).with_opposing(across);
+        smart_row(&mut duel, &[]);
+        duel.row().iter().map(|p| p.card.face_value).collect()
+    }
+
+    #[test]
+    fn smart_keeps_its_big_card_away_from_a_face_down_card_that_could_be_a_lowball() {
+        // Every card the enemy owns is a Lowball 1, so whatever sits across
+        // the face-down card is Mucked; the slot past the enemy's row is safe.
+        let lowball = card(1, Some(Tell::Lowball));
+        let played = smart_plays(
+            vec![card(2, None), card(9, None)],
+            vec![lowball.clone(); 20],
+            vec![(lowball, false)],
+        );
+
+        assert_eq!(played, vec![2, 9]);
+    }
+
+    #[test]
+    fn smart_sets_its_big_card_against_a_face_up_bluff() {
+        // The 9 across the Bluff 6 takes 3 off the enemy; the 2 would cost 4.
+        let played = smart_plays(
+            vec![card(9, None), card(2, None)],
+            vec![card(6, None); 20],
+            vec![(card(6, Some(Tell::Bluff)), true), (card(6, None), true)],
+        );
+
+        assert_eq!(played, vec![9, 2]);
+    }
+
+    #[test]
+    fn smart_counts_no_flop_on_a_face_down_card_its_lowball_mucks() {
+        // The Lowball mucks the face-down 9 either way. A Flop beside it
+        // then reads an empty slot, so the 5 is the better second card.
+        let played = smart_plays(
+            vec![
+                card(1, Some(Tell::Lowball)),
+                card(2, Some(Tell::Flop)),
+                card(5, None),
+            ],
+            vec![card(9, None); 20],
+            vec![(card(9, None), false)],
+        );
+
+        assert_eq!(played, vec![1, 5]);
     }
 }

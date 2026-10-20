@@ -1037,6 +1037,29 @@ impl Duel {
         (total, hidden)
     }
 
+    /// What the Bluffs in the rows as they stand will do at the Showdown, as
+    /// far as the player can tell: the Chips they take off the enemy less
+    /// the Chips they take off the player. Only a slot whose Opposing Card
+    /// can be read counts; across a face-down card nobody can say. Doesn't
+    /// stop at what either side has left.
+    pub fn bluffs_showing(&self) -> i64 {
+        let (row, opposing) = self.table();
+        let seen = self.face_up(&opposing);
+        let mine = resolve_row(&row, &seen);
+        let theirs = settle(&seen, &printed(&row));
+        let bluff = Some(Tell::Bluff);
+        mine.iter()
+            .enumerate()
+            .filter_map(|(slot, mine)| {
+                let across = seen.get(slot)?.as_ref()?;
+                let plays = theirs.plays[slot].as_ref()?;
+                let bluffing = mine.plays_as == bluff || plays.tell == bluff;
+                (bluffing && !mine.mucked && !theirs.gone[slot])
+                    .then(|| i64::from(mine.card.face_value) - i64::from(across.face_value))
+            })
+            .sum()
+    }
+
     /// What an Echo would copy if it went into the next empty slot right
     /// now, as far as the player can tell. `None` when the row is full.
     pub fn echo_next(&self) -> Option<EchoPeek> {
@@ -1127,20 +1150,18 @@ impl Duel {
         })
     }
 
-    /// The average Face Value of the enemy's whole Deck: all a player knows
-    /// about a face-down Opposing Card, the way [`greedy`] knows the player's
-    /// Deck. The balance sim reads it to score a Lowball across a card back.
-    pub fn enemy_average(&self) -> u32 {
+    /// The enemy's whole Deck, wherever each card is: all a player knows
+    /// about a face-down Opposing Card, the way [`greedy`] knows the
+    /// player's Deck. The balance sim reads it to weigh a face-down card.
+    pub fn enemy_deck(&self) -> Vec<Card> {
         let pile = &self.enemy_cards;
-        let whole: Vec<Card> = pile
-            .deck
+        pile.deck
             .iter()
             .chain(&pile.draw)
             .chain(&pile.discard)
             .chain(self.opposing.iter().map(|o| &o.card))
             .cloned()
-            .collect();
-        average_face_value(&whole)
+            .collect()
     }
 
     /// How many slots the table has: as many as the larger Blind. A slot
@@ -3824,6 +3845,29 @@ mod bluff_tests {
         let duel = played(vec![bluff(2), streak(5)], vec![card(2), card(1)], 40, 99);
 
         assert_eq!(duel.hand(), 2 + 10);
+    }
+
+    #[test]
+    fn the_bluffs_across_face_up_cards_show_before_confirm() {
+        // The player's 9 over a 4 takes 5; the enemy's 8 over a 2 takes 6.
+        let duel = played(vec![bluff(9), card(2)], vec![card(4), bluff(8)], 40, 99);
+
+        assert_eq!(duel.bluffs_showing(), 5 - 6);
+    }
+
+    #[test]
+    fn a_bluff_across_a_face_down_card_shows_nothing() {
+        let mut duel = played(vec![bluff(9)], vec![card(4)], 40, 99);
+        duel.hide_opposing(0);
+
+        assert_eq!(duel.bluffs_showing(), 0);
+    }
+
+    #[test]
+    fn a_bluff_your_lowball_mucks_shows_nothing() {
+        let duel = played(vec![lowball(2)], vec![bluff(8)], 40, 99);
+
+        assert_eq!(duel.bluffs_showing(), 0, "unmucked, it would cost 6");
     }
 
     #[test]
